@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc f9be46f8af764e0a60a8554994190e306b74987a5bd5ee758e5a71a5799e1e74 # shrinks to flags = {"EXECUTION": Primary, "FINANCIAL": Primary, "OUTBOUND": Primary, "PHYSICAL": Primary}, amps = {"scope": 35, "environment": 15, "amount": 27, "sensitivity": 20, "volume": 25, "boundary": 15}
+cc bdac0bad0720636c27de274a21d3f754e11404e22ae3c361fb0630cb55efc71c # shrinks to flags = {"DESTRUCTION": Primary, "OUTBOUND": Primary, "EXPOSURE": Primary, "FINANCIAL": Primary, "GOVERNANCE": Primary, "PRIVILEGE": Primary}, amps = {"volume": 25, "session": 5}

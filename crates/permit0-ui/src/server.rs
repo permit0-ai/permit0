@@ -13,6 +13,7 @@ use permit0_store::{AuditSink, Store};
 
 use crate::approval::ApprovalManager;
 use crate::auth::TokenStore;
+use crate::oidc;
 use crate::routes;
 use crate::state::AppState;
 
@@ -74,6 +75,36 @@ async fn auth_middleware(
         Some(_api_token) => Ok(next.run(request).await),
         None => Err(StatusCode::UNAUTHORIZED),
     }
+}
+
+/// Build the router with OIDC authentication.
+pub fn build_router_with_oidc(state: AppState, oidc_state: oidc::OidcState) -> Router {
+    let public_api = Router::new()
+        .route("/health", get(routes::health));
+
+    // OIDC routes (public — handle login/callback flow)
+    let oidc_routes = Router::new()
+        .route("/oidc/login", get(oidc::routes::oidc_login))
+        .route("/oidc/callback", get(oidc::routes::oidc_callback))
+        .route("/oidc/logout", get(oidc::routes::oidc_logout))
+        .route("/oidc/me", get(oidc::routes::oidc_me))
+        .with_state(oidc_state.clone());
+
+    let protected_api = Router::new()
+        .route("/audit", get(routes::list_audit))
+        .route("/approvals", get(routes::list_approvals))
+        .route("/approvals/decide", post(routes::submit_approval))
+        .route("/lists/denylist", post(routes::denylist_add))
+        .route("/lists/allowlist", post(routes::allowlist_add))
+        .layer(middleware::from_fn_with_state(
+            oidc_state,
+            oidc::routes::oidc_auth_middleware,
+        ))
+        .with_state(state.clone());
+
+    Router::new()
+        .nest("/api/v1", public_api.merge(oidc_routes).merge(protected_api))
+        .with_state(state)
 }
 
 /// Configuration for the UI server.

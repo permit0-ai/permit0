@@ -43,7 +43,12 @@ tokio = { version = "1", features = ["full"] }
 
 # Web (for permit0-ui)
 axum = "0.8"
+axum-extra = { version = "0.10", features = ["cookie"] }
 tower-http = { version = "0.6", features = ["cors", "fs"] }
+
+# OIDC / OAuth
+base64 = "0.22"
+rand = "0.8"
 
 # Storage
 rusqlite = { version = "0.32", features = ["bundled"] }

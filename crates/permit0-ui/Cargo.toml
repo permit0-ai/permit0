@@ -21,6 +21,10 @@ chrono = { workspace = true }
 ulid = { workspace = true }
 sha2 = { workspace = true }
 hex = "0.4"
+axum-extra = { workspace = true }
+base64 = { workspace = true }
+rand = { workspace = true }
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }
+serde_yaml = { workspace = true }
