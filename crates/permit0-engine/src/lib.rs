@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 #![doc = "Core permission engine orchestrator for permit0."]
 
+pub mod bootstrap;
 mod context;
 mod engine;
 mod error;
