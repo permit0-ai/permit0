@@ -1,0 +1,6 @@
+name: "Unknown tool: Twilio send SMS"
+tool_name: "twilio_sms"
+parameters:
+  to: "+15551234567"
+  body: "Your verification code is 123456"
+expected_permission: "HUMAN"

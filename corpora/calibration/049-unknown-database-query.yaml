@@ -1,0 +1,6 @@
+name: "Unknown tool: database SQL query"
+tool_name: "database_query"
+parameters:
+  query: "SELECT * FROM users WHERE id = 1"
+  database: "production"
+expected_permission: "HUMAN"

@@ -1,0 +1,5 @@
+name: "Bash write to /dev/sda (gate fires)"
+tool_name: "bash"
+parameters:
+  command: "dd if=/dev/zero > /dev/sda"
+expected_permission: "DENY"

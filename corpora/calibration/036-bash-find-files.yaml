@@ -1,0 +1,5 @@
+name: "Bash find files by pattern"
+tool_name: "bash"
+parameters:
+  command: "find . -name '*.rs' -type f"
+expected_permission: "ALLOW"

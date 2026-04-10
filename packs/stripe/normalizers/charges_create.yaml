@@ -1,0 +1,38 @@
+permit0_pack: "permit0/stripe"
+id: "stripe:charges.create"
+priority: 100
+match:
+  all:
+    - tool: http
+    - method: POST
+    - url:
+        matches_url:
+          host: api.stripe.com
+          path: /v1/charges
+normalize:
+  action_type: "payments.charge"
+  domain: "payments"
+  verb: "charge"
+  channel: "stripe"
+  entities:
+    amount:
+      from: "body.amount"
+      type: "number"
+      required: true
+    currency:
+      from: "body.currency"
+      type: "string"
+      default: "usd"
+      lowercase: true
+    customer:
+      from: "body.customer"
+      type: "string"
+    amount_cents:
+      compute: "extract_amount_cents"
+      args:
+        - "body.amount"
+        - "body.currency"
+    host:
+      compute: "url_host"
+      args:
+        - "url"

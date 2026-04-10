@@ -1,0 +1,5 @@
+name: "Bash sudo apt install (privilege escalation flag)"
+tool_name: "bash"
+parameters:
+  command: "sudo apt install -y curl"
+expected_permission: "ALLOW"

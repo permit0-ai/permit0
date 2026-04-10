@@ -1,0 +1,9 @@
+name: "Stripe high-value charge $999 USD (just under gate)"
+tool_name: "http"
+parameters:
+  method: "POST"
+  url: "https://api.stripe.com/v1/charges"
+  body:
+    amount: 99900
+    currency: "usd"
+expected_permission: "ALLOW"

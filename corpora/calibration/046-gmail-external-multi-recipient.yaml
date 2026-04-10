@@ -1,0 +1,7 @@
+name: "Gmail external multi-recipient"
+tool_name: "gmail_send"
+parameters:
+  to: "partner@external.com, investor@fund.io"
+  subject: "Partnership proposal"
+  body: "Please find attached our partnership proposal for review."
+expected_permission: "ALLOW"

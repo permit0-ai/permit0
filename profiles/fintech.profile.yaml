@@ -1,0 +1,39 @@
+permit0_profile: v1
+id: fintech
+name: Financial Services
+description: >
+  Conservative defaults for PCI-DSS and SOX regulated environments.
+  Higher weight on financial flags, stricter tier thresholds.
+version: "2025.1"
+
+risk_weight_adjustments:
+  FINANCIAL: 1.5
+  EXPOSURE:  1.3
+  OUTBOUND:  1.2
+  MUTATION:  0.8
+
+amp_weight_adjustments:
+  amount:      1.4
+  destination: 1.3
+  sensitivity: 1.1
+  actor:       0.7
+
+tier_threshold_shifts:
+  MEDIUM: -0.05
+  HIGH:   -0.05
+
+additional_block_rules:
+  - name: large_external_transfer
+    condition:
+      flags: [FINANCIAL, OUTBOUND]
+      amplifiers:
+        amount: ">= 0.70"
+        destination: ">= 0.60"
+    reason: "Large financial transfer to external destination"
+
+action_type_floors:
+  payments.charge:      LOW
+  payments.transfer:    MEDIUM
+  iam.assign_role:      HIGH
+  iam.generate_api_key: HIGH
+  secrets.read:         MEDIUM

@@ -1,0 +1,9 @@
+name: gmail
+version: "0.1.0"
+permit0_pack: "permit0/gmail"
+vendor: google
+description: "Normalizer and risk rules for Gmail API tool calls"
+normalizers:
+  - normalizers/send.yaml
+risk_rules:
+  - risk_rules/send.yaml

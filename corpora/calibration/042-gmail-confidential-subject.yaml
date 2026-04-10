@@ -1,0 +1,7 @@
+name: "Gmail with confidential in subject (sensitive flag)"
+tool_name: "gmail_send"
+parameters:
+  to: "cfo@company.com"
+  subject: "CONFIDENTIAL: Q4 financial projections"
+  body: "Please review the attached projections before the board meeting."
+expected_permission: "ALLOW"

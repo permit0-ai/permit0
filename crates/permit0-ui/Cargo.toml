@@ -1,0 +1,19 @@
+[package]
+name = "permit0-ui"
+description = "Web dashboard for audit log viewing and human approvals"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+permit0-types = { workspace = true }
+permit0-engine = { workspace = true }
+permit0-store = { workspace = true }
+axum = { workspace = true }
+tower-http = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }

@@ -1,0 +1,5 @@
+name: "Bash rm -rf root (destructive flag but no gate)"
+tool_name: "bash"
+parameters:
+  command: "rm -rf /"
+expected_permission: "ALLOW"

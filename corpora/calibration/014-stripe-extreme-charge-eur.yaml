@@ -1,0 +1,9 @@
+name: "Stripe extreme charge EUR (gate fires)"
+tool_name: "http"
+parameters:
+  method: "POST"
+  url: "https://api.stripe.com/v1/charges"
+  body:
+    amount: 200000
+    currency: "eur"
+expected_permission: "DENY"

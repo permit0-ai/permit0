@@ -1,0 +1,48 @@
+permit0_pack: "permit0/gmail"
+action_type: "email.send"
+base:
+  flags:
+    email_send: primary
+  amplifiers:
+    scope: 3
+    reversibility: 7
+    sensitivity: 3
+rules:
+  - when:
+      to:
+        contains: ","
+    then:
+      - add_flag:
+          flag: multi_recipient
+          role: secondary
+      - upgrade:
+          dim: scope
+          delta: 2
+
+  - when:
+      body:
+        exists: true
+    then: []
+
+  - when:
+      subject:
+        contains_any: ["confidential", "private", "secret"]
+    then:
+      - add_flag:
+          flag: sensitive_content
+          role: primary
+      - upgrade:
+          dim: sensitivity
+          delta: 3
+
+session_rules:
+  - when:
+      emails_sent_today:
+        gt: 50
+    then:
+      - add_flag:
+          flag: high_volume
+          role: primary
+      - upgrade:
+          dim: scope
+          delta: 2

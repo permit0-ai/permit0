@@ -1,0 +1,27 @@
+[package]
+name = "permit0-engine"
+description = "Core permission engine orchestrator for permit0"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+permit0-types = { workspace = true }
+permit0-scoring = { workspace = true }
+permit0-normalize = { workspace = true }
+permit0-dsl = { workspace = true }
+permit0-token = { workspace = true }
+permit0-session = { workspace = true }
+permit0-store = { workspace = true }
+permit0-agent = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+ulid = { workspace = true }
+chrono = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+thiserror = { workspace = true }
+anyhow = { workspace = true }

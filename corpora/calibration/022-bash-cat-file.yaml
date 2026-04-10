@@ -1,0 +1,5 @@
+name: "Bash cat a config file"
+tool_name: "bash"
+parameters:
+  command: "cat /etc/hostname"
+expected_permission: "ALLOW"

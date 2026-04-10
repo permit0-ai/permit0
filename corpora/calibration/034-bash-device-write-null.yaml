@@ -1,0 +1,5 @@
+name: "Bash write to /dev/null (gate fires)"
+tool_name: "bash"
+parameters:
+  command: "echo test > /dev/null"
+expected_permission: "DENY"

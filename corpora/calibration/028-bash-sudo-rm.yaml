@@ -1,0 +1,5 @@
+name: "Bash sudo rm (privilege + destructive flags)"
+tool_name: "bash"
+parameters:
+  command: "sudo rm -rf /var/log/old"
+expected_permission: "ALLOW"

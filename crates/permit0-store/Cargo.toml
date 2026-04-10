@@ -1,0 +1,16 @@
+[package]
+name = "permit0-store"
+description = "Storage traits and implementations for permit0"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+permit0-types = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+rusqlite = { workspace = true }
+chrono = { workspace = true }
+thiserror = { workspace = true }

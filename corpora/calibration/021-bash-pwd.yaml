@@ -1,0 +1,5 @@
+name: "Bash print working directory"
+tool_name: "bash"
+parameters:
+  command: "pwd"
+expected_permission: "ALLOW"

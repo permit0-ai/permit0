@@ -1,0 +1,19 @@
+permit0_pack: "permit0/bash"
+id: "bash:shell"
+priority: 90
+match:
+  tool: bash
+normalize:
+  action_type: "process.shell"
+  domain: "process"
+  verb: "shell"
+  channel: "bash"
+  entities:
+    command:
+      from: "command"
+      type: "string"
+      required: true
+    pipe_count:
+      compute: "count_pipes"
+      args:
+        - "command"

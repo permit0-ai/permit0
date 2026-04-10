@@ -1,0 +1,7 @@
+name: "Unknown tool: GitHub merge PR"
+tool_name: "github_merge_pr"
+parameters:
+  repo: "org/service"
+  pr_number: 42
+  method: "squash"
+expected_permission: "HUMAN"

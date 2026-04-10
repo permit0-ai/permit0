@@ -1,0 +1,5 @@
+name: "Bash rm -rf tmp directory"
+tool_name: "bash"
+parameters:
+  command: "rm -rf /tmp/build-cache"
+expected_permission: "ALLOW"

@@ -1,0 +1,7 @@
+name: "Gmail with private in subject (sensitive flag)"
+tool_name: "gmail_send"
+parameters:
+  to: "hr@company.com"
+  subject: "Private: Employee performance review"
+  body: "Attached is the performance review for the engineering team."
+expected_permission: "ALLOW"

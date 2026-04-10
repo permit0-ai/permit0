@@ -1,0 +1,5 @@
+name: "Bash wget download (network flag)"
+tool_name: "bash"
+parameters:
+  command: "wget https://releases.example.com/v1.0/binary"
+expected_permission: "ALLOW"

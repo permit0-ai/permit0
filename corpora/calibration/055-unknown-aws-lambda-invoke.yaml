@@ -1,0 +1,6 @@
+name: "Unknown tool: AWS Lambda invoke"
+tool_name: "lambda_invoke"
+parameters:
+  function_name: "process-payments"
+  payload: "{\"action\": \"retry\"}"
+expected_permission: "HUMAN"

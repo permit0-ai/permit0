@@ -1,0 +1,7 @@
+name: "Gmail internal status update"
+tool_name: "gmail_send"
+parameters:
+  to: "team@company.com"
+  subject: "Sprint update"
+  body: "All tasks on track for Friday release."
+expected_permission: "ALLOW"

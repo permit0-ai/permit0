@@ -1,0 +1,7 @@
+name: "Gmail with empty body"
+tool_name: "gmail_send"
+parameters:
+  to: "dev@company.com"
+  subject: "Quick ping"
+  body: ""
+expected_permission: "ALLOW"

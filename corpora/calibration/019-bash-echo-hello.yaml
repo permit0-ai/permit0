@@ -1,0 +1,5 @@
+name: "Bash echo hello world"
+tool_name: "bash"
+parameters:
+  command: "echo hello world"
+expected_permission: "ALLOW"

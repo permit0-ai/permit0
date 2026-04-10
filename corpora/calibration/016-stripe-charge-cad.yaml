@@ -1,0 +1,9 @@
+name: "Stripe charge CAD normal amount"
+tool_name: "http"
+parameters:
+  method: "POST"
+  url: "https://api.stripe.com/v1/charges"
+  body:
+    amount: 3500
+    currency: "cad"
+expected_permission: "ALLOW"

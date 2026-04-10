@@ -1,0 +1,6 @@
+name: "Unknown tool: Cloudflare cache purge"
+tool_name: "cloudflare_purge"
+parameters:
+  zone_id: "abc123"
+  purge_everything: true
+expected_permission: "HUMAN"

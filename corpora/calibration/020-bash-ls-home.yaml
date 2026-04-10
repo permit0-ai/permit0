@@ -1,0 +1,5 @@
+name: "Bash list home directory"
+tool_name: "bash"
+parameters:
+  command: "ls -la /home"
+expected_permission: "ALLOW"

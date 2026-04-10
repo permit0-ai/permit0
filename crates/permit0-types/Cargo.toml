@@ -1,0 +1,15 @@
+[package]
+name = "permit0-types"
+description = "Shared types for the permit0 agent permission framework"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+chrono = { workspace = true }
+thiserror = { workspace = true }

@@ -1,0 +1,9 @@
+name: "Stripe medium charge $50 USD"
+tool_name: "http"
+parameters:
+  method: "POST"
+  url: "https://api.stripe.com/v1/charges"
+  body:
+    amount: 5000
+    currency: "usd"
+expected_permission: "ALLOW"

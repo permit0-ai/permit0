@@ -1,0 +1,7 @@
+name: "Unknown tool: S3 file upload"
+tool_name: "s3_upload"
+parameters:
+  bucket: "prod-assets"
+  key: "images/logo.png"
+  file: "/tmp/logo.png"
+expected_permission: "HUMAN"

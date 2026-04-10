@@ -1,0 +1,15 @@
+[package]
+name = "permit0-agent"
+description = "LLM-based agent reviewer for permit0 (agent-in-the-loop)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+permit0-types = { workspace = true }
+permit0-session = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }

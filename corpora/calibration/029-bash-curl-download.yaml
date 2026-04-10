@@ -1,0 +1,5 @@
+name: "Bash curl download (network flag)"
+tool_name: "bash"
+parameters:
+  command: "curl -O https://example.com/archive.tar.gz"
+expected_permission: "ALLOW"

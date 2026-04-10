@@ -1,0 +1,29 @@
+[package]
+name = "permit0-cli"
+description = "CLI binary for the permit0 agent permission framework"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "permit0"
+path = "src/main.rs"
+
+[dependencies]
+permit0-types = { workspace = true }
+permit0-engine = { workspace = true }
+permit0-store = { workspace = true }
+permit0-dsl = { workspace = true }
+permit0-scoring = { workspace = true }
+permit0-normalize = { workspace = true }
+permit0-ui = { workspace = true }
+clap = { workspace = true }
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+anyhow = { workspace = true }

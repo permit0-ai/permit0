@@ -1,0 +1,79 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/permit0-types",
+    "crates/permit0-scoring",
+    "crates/permit0-normalize",
+    "crates/permit0-dsl",
+    "crates/permit0-engine",
+    "crates/permit0-token",
+    "crates/permit0-session",
+    "crates/permit0-store",
+    "crates/permit0-agent",
+    "crates/permit0-ui",
+    "crates/permit0-cli",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+repository = "https://github.com/AnissL93/permit0-core"
+rust-version = "1.85"
+
+[workspace.dependencies]
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+
+# Crypto
+sha2 = "0.10"
+ed25519-dalek = { version = "2", features = ["rand_core"] }
+
+# Tokens
+biscuit-auth = "5"
+
+# IDs & time
+ulid = "1"
+chrono = { version = "0.4", features = ["serde"] }
+
+# Async
+tokio = { version = "1", features = ["full"] }
+
+# Web (for permit0-ui)
+axum = "0.8"
+tower-http = { version = "0.6", features = ["cors", "fs"] }
+
+# Storage
+rusqlite = { version = "0.32", features = ["bundled"] }
+
+# Regex (linear time, no backtracking)
+regex = "1"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# CLI
+clap = { version = "4", features = ["derive"] }
+
+# Error handling
+thiserror = "2"
+anyhow = "1"
+
+# Testing
+proptest = "1"
+
+# Internal crates
+permit0-types = { path = "crates/permit0-types" }
+permit0-scoring = { path = "crates/permit0-scoring" }
+permit0-normalize = { path = "crates/permit0-normalize" }
+permit0-dsl = { path = "crates/permit0-dsl" }
+permit0-engine = { path = "crates/permit0-engine" }
+permit0-token = { path = "crates/permit0-token" }
+permit0-session = { path = "crates/permit0-session" }
+permit0-store = { path = "crates/permit0-store" }
+permit0-agent = { path = "crates/permit0-agent" }
+permit0-ui = { path = "crates/permit0-ui" }
+permit0-cli = { path = "crates/permit0-cli" }

@@ -1,0 +1,6 @@
+name: "Unknown tool: Terraform apply"
+tool_name: "terraform_apply"
+parameters:
+  plan: "infra.tfplan"
+  auto_approve: true
+expected_permission: "HUMAN"

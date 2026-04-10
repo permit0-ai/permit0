@@ -1,0 +1,6 @@
+name: "Unknown tool: Kubernetes deploy"
+tool_name: "kubectl_apply"
+parameters:
+  manifest: "deployment.yaml"
+  namespace: "production"
+expected_permission: "HUMAN"
