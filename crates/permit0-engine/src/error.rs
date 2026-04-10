@@ -17,4 +17,7 @@ pub enum EngineError {
 
     #[error("engine build error: {0}")]
     Build(String),
+
+    #[error("audit failure: {0}")]
+    AuditFailure(String),
 }

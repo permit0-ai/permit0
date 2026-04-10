@@ -1126,10 +1126,15 @@ name = "permit0-store"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "ed25519-dalek",
+ "hex",
  "permit0-types",
+ "rand 0.8.5",
+ "regex",
  "rusqlite",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "thiserror 2.0.18",
 ]
 

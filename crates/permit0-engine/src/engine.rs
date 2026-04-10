@@ -11,6 +11,11 @@ use permit0_normalize::{NormalizerRegistry, Normalizer};
 use permit0_scoring::{ScoringConfig, compute_hybrid};
 use permit0_agent::{AgentReviewer, ReviewInput, ReviewVerdict};
 use permit0_session::{SessionContext, evaluate_session_block_rules, session_amplifier_score};
+use permit0_store::audit::{
+    AuditEntry, AuditPolicy, AuditSigner, AuditSink,
+    chain::{GENESIS_HASH, compute_entry_hash},
+    Redactor,
+};
 use permit0_store::{InMemoryStore, Store};
 use permit0_types::{DecisionRecord, NormAction, Permission, RawToolCall, RiskScore, Tier};
 
@@ -62,6 +67,13 @@ pub struct Engine {
     config: ScoringConfig,
     store: Arc<dyn Store>,
     reviewer: Option<AgentReviewer>,
+    // Audit subsystem (optional)
+    audit_sink: Option<Arc<dyn AuditSink>>,
+    audit_signer: Option<Arc<dyn AuditSigner>>,
+    audit_redactor: Option<Arc<dyn Redactor>>,
+    audit_policy: AuditPolicy,
+    audit_sequence: std::sync::atomic::AtomicU64,
+    audit_prev_hash: std::sync::Mutex<String>,
 }
 
 impl Engine {
@@ -94,7 +106,7 @@ impl Engine {
                 risk_score: None,
                 source: DecisionSource::Denylist,
             };
-            self.log_decision(&result);
+            self.log_decision(&result, tool_call, ctx)?;
             return Ok(result);
         }
 
@@ -106,7 +118,7 @@ impl Engine {
                 risk_score: None,
                 source: DecisionSource::Allowlist,
             };
-            self.log_decision(&result);
+            self.log_decision(&result, tool_call, ctx)?;
             return Ok(result);
         }
 
@@ -118,7 +130,7 @@ impl Engine {
                 risk_score: None,
                 source: DecisionSource::PolicyCache,
             };
-            self.log_decision(&result);
+            self.log_decision(&result, tool_call, ctx)?;
             return Ok(result);
         }
 
@@ -135,7 +147,7 @@ impl Engine {
                 risk_score: None,
                 source: DecisionSource::Scorer,
             };
-            self.log_decision(&result);
+            self.log_decision(&result, tool_call, ctx)?;
             return Ok(result);
         }
 
@@ -182,7 +194,7 @@ impl Engine {
             risk_score: Some(risk_score),
             source,
         };
-        self.log_decision(&result);
+        self.log_decision(&result, tool_call, ctx)?;
         Ok(result)
     }
 
@@ -248,9 +260,13 @@ impl Engine {
     }
 
     /// Build and persist a decision audit record.
-    fn log_decision(&self, result: &PermissionResult) {
+    fn log_decision(&self, result: &PermissionResult, tool_call: &RawToolCall, ctx: &PermissionCtx) -> Result<(), EngineError> {
+        let now = chrono::Utc::now().to_rfc3339();
+        let entry_id = ulid::Ulid::new().to_string();
+
+        // Always write the simple DecisionRecord to the Store
         let record = DecisionRecord {
-            id: ulid::Ulid::new().to_string(),
+            id: entry_id.clone(),
             norm_hash: result.norm_action.norm_hash(),
             action_type: result.norm_action.action_type.as_action_str(),
             channel: result.norm_action.channel.clone(),
@@ -264,14 +280,84 @@ impl Engine {
                 .as_ref()
                 .map(|s| s.flags.clone())
                 .unwrap_or_default(),
-            timestamp: chrono::Utc::now().to_rfc3339(),
+            timestamp: now.clone(),
             surface_tool: result.norm_action.execution.surface_tool.clone(),
             surface_command: result.norm_action.execution.surface_command.clone(),
         };
-        // Best-effort: log but don't fail the decision pipeline on audit error
         if let Err(e) = self.store.save_decision(record) {
             tracing::warn!("failed to persist decision record: {e}");
         }
+
+        // Write full AuditEntry if sink is configured
+        if let (Some(sink), Some(signer)) = (&self.audit_sink, &self.audit_signer) {
+            let raw_tool_call = if let Some(ref redactor) = self.audit_redactor {
+                redactor.redact(&serde_json::to_value(tool_call).unwrap_or_default())
+            } else {
+                serde_json::to_value(tool_call).unwrap_or_default()
+            };
+
+            let sequence = self
+                .audit_sequence
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+                + 1;
+            let prev_hash = {
+                let guard = self.audit_prev_hash.lock().unwrap();
+                guard.clone()
+            };
+
+            let mut entry = AuditEntry {
+                entry_id,
+                timestamp: now,
+                sequence,
+                decision: result.permission,
+                decision_source: result.source.as_str().into(),
+                norm_action: result.norm_action.clone(),
+                norm_hash: result.norm_action.norm_hash(),
+                raw_tool_call,
+                risk_score: result.risk_score.clone(),
+                scoring_detail: None,
+                agent_id: String::new(),
+                session_id: ctx.session.as_ref().map(|s| s.session_id.clone()),
+                task_goal: ctx.task_goal.clone(),
+                org_id: ctx.normalize_ctx.org_domain.clone().unwrap_or_default(),
+                environment: String::new(),
+                engine_version: env!("CARGO_PKG_VERSION").into(),
+                pack_id: String::new(),
+                pack_version: String::new(),
+                dsl_version: "1.0".into(),
+                human_review: None,
+                token_id: None,
+                prev_hash,
+                entry_hash: String::new(),
+                signature: String::new(),
+                correction_of: None,
+            };
+
+            entry.entry_hash = compute_entry_hash(&entry);
+            entry.signature = signer.sign(&entry.entry_hash);
+
+            // Update prev_hash for next entry
+            {
+                let mut guard = self.audit_prev_hash.lock().unwrap();
+                *guard = entry.entry_hash.clone();
+            }
+
+            match sink.append(&entry) {
+                Ok(()) => {}
+                Err(e) => match self.audit_policy {
+                    AuditPolicy::Strict => {
+                        return Err(EngineError::AuditFailure(format!(
+                            "audit sink failed (strict policy): {e}"
+                        )));
+                    }
+                    AuditPolicy::BestEffort => {
+                        tracing::warn!("audit sink failed (best_effort): {e}");
+                    }
+                },
+            }
+        }
+
+        Ok(())
     }
 }
 
@@ -331,6 +417,10 @@ pub struct EngineBuilder {
     config: ScoringConfig,
     store: Option<Arc<dyn Store>>,
     reviewer: Option<AgentReviewer>,
+    audit_sink: Option<Arc<dyn AuditSink>>,
+    audit_signer: Option<Arc<dyn AuditSigner>>,
+    audit_redactor: Option<Arc<dyn Redactor>>,
+    audit_policy: AuditPolicy,
 }
 
 impl EngineBuilder {
@@ -341,6 +431,10 @@ impl EngineBuilder {
             config: ScoringConfig::default(),
             store: None,
             reviewer: None,
+            audit_sink: None,
+            audit_signer: None,
+            audit_redactor: None,
+            audit_policy: AuditPolicy::default(),
         }
     }
 
@@ -366,6 +460,29 @@ impl EngineBuilder {
     /// Set an agent reviewer for MEDIUM-tier calls.
     pub fn with_reviewer(mut self, reviewer: AgentReviewer) -> Self {
         self.reviewer = Some(reviewer);
+        self
+    }
+
+    /// Configure the audit subsystem.
+    pub fn with_audit(
+        mut self,
+        sink: Arc<dyn AuditSink>,
+        signer: Arc<dyn AuditSigner>,
+    ) -> Self {
+        self.audit_sink = Some(sink);
+        self.audit_signer = Some(signer);
+        self
+    }
+
+    /// Set the audit policy (strict or best_effort).
+    pub fn with_audit_policy(mut self, policy: AuditPolicy) -> Self {
+        self.audit_policy = policy;
+        self
+    }
+
+    /// Set the audit redactor.
+    pub fn with_audit_redactor(mut self, redactor: Arc<dyn Redactor>) -> Self {
+        self.audit_redactor = Some(redactor);
         self
     }
 
@@ -432,6 +549,12 @@ impl EngineBuilder {
             config: self.config,
             store,
             reviewer: self.reviewer,
+            audit_sink: self.audit_sink,
+            audit_signer: self.audit_signer,
+            audit_redactor: self.audit_redactor,
+            audit_policy: self.audit_policy,
+            audit_sequence: std::sync::atomic::AtomicU64::new(0),
+            audit_prev_hash: std::sync::Mutex::new(GENESIS_HASH.into()),
         })
     }
 }
