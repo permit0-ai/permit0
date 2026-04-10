@@ -1166,14 +1166,19 @@ name = "permit0-ui"
 version = "0.1.0"
 dependencies = [
  "axum",
+ "chrono",
+ "hex",
  "permit0-engine",
  "permit0-store",
  "permit0-types",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
  "thiserror 2.0.18",
  "tokio",
+ "tower",
  "tower-http",
+ "ulid",
 ]
 
 [[package]]
