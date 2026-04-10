@@ -1,0 +1,24 @@
+[package]
+name = "permit0-py"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "Python bindings for the permit0 agent permission engine"
+
+[lib]
+name = "permit0"
+crate-type = ["cdylib"]
+
+[dependencies]
+pyo3 = { version = "0.24", features = ["extension-module"] }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+
+# Internal crates
+permit0-types = { workspace = true }
+permit0-scoring = { workspace = true }
+permit0-normalize = { workspace = true }
+permit0-engine = { workspace = true }
+permit0-store = { workspace = true }

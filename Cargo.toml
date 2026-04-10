@@ -12,6 +12,7 @@ members = [
     "crates/permit0-agent",
     "crates/permit0-ui",
     "crates/permit0-cli",
+    "crates/permit0-py",
 ]
 
 [workspace.package]
@@ -82,3 +83,4 @@ permit0-store = { path = "crates/permit0-store" }
 permit0-agent = { path = "crates/permit0-agent" }
 permit0-ui = { path = "crates/permit0-ui" }
 permit0-cli = { path = "crates/permit0-cli" }
+permit0-py = { path = "crates/permit0-py" }
