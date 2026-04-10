@@ -1,0 +1,28 @@
+[package]
+name = "permit0-node"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+description = "TypeScript/Node.js bindings for the permit0 agent permission engine"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+napi = { version = "2", features = ["napi9", "serde-json"] }
+napi-derive = "2"
+serde = { workspace = true }
+serde_json = { workspace = true }
+serde_yaml = { workspace = true }
+
+# Internal crates
+permit0-types = { workspace = true }
+permit0-scoring = { workspace = true }
+permit0-normalize = { workspace = true }
+permit0-engine = { workspace = true }
+permit0-store = { workspace = true }
+
+[build-dependencies]
+napi-build = "2"

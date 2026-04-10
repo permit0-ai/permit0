@@ -1,0 +1,35 @@
+{
+  "name": "@permit0/core",
+  "version": "0.1.0",
+  "description": "Agent safety permission engine — TypeScript bindings",
+  "main": "index.js",
+  "types": "index.d.ts",
+  "license": "Apache-2.0",
+  "napi": {
+    "name": "permit0",
+    "triples": {
+      "defaults": true
+    }
+  },
+  "scripts": {
+    "build": "napi build --release --platform",
+    "build:debug": "napi build --platform",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "vitest": "^3.0.0",
+    "@napi-rs/cli": "^3.0.0"
+  },
+  "files": [
+    "index.js",
+    "index.d.ts",
+    "permit0.*.node"
+  ],
+  "keywords": [
+    "agent",
+    "safety",
+    "permissions",
+    "llm",
+    "napi-rs"
+  ]
+}
