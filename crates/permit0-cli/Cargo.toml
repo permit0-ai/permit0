@@ -19,6 +19,7 @@ permit0-dsl = { workspace = true }
 permit0-scoring = { workspace = true }
 permit0-normalize = { workspace = true }
 permit0-ui = { workspace = true }
+axum = { workspace = true }
 clap = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }

@@ -215,6 +215,116 @@ struct FixtureDef {
     expected_permission: String,
 }
 
+/// Scaffold a new pack with normalizer, risk rule, and fixture stubs.
+pub fn new_pack(name: &str) -> Result<()> {
+    let pack_dir = Path::new("packs").join(name);
+    if pack_dir.exists() {
+        anyhow::bail!("pack directory already exists: {}", pack_dir.display());
+    }
+
+    // Create directory structure
+    let normalizers_dir = pack_dir.join("normalizers");
+    let rules_dir = pack_dir.join("risk_rules");
+    let fixtures_dir = pack_dir.join("fixtures");
+    std::fs::create_dir_all(&normalizers_dir)?;
+    std::fs::create_dir_all(&rules_dir)?;
+    std::fs::create_dir_all(&fixtures_dir)?;
+
+    // Stub normalizer
+    let normalizer_stub = format!(
+        r#"id: {name}_default
+description: "Normalize {name} tool calls"
+priority: 100
+match:
+  tool: "{name}"
+action_type: "custom.{name}"
+channel: "{name}"
+entities:
+  - name: command
+    path: "$.parameters.command"
+    required: false
+    default: "unknown"
+"#
+    );
+    std::fs::write(
+        normalizers_dir.join(format!("{name}.normalizer.yaml")),
+        normalizer_stub,
+    )?;
+
+    // Stub risk rule
+    let risk_rule_stub = format!(
+        r#"id: {name}_base
+description: "Base risk rule for {name}"
+action_type: "custom.{name}"
+match:
+  tool: "{name}"
+flags:
+  - name: EXECUTION
+    role: secondary
+amplifiers: {{}}
+"#
+    );
+    std::fs::write(
+        rules_dir.join(format!("{name}.risk_rule.yaml")),
+        risk_rule_stub,
+    )?;
+
+    // Stub fixture
+    let fixture_stub = format!(
+        r#"tool_name: "{name}"
+parameters:
+  command: "test"
+expected_permission: "allow"
+"#
+    );
+    std::fs::write(
+        fixtures_dir.join(format!("{name}_basic.fixture.yaml")),
+        fixture_stub,
+    )?;
+
+    // README
+    let readme = format!(
+        r#"# {name} Pack
+
+A permit0 pack for `{name}` tool calls.
+
+## Structure
+
+```
+{name}/
+├── normalizers/
+│   └── {name}.normalizer.yaml
+├── risk_rules/
+│   └── {name}.risk_rule.yaml
+└── fixtures/
+    └── {name}_basic.fixture.yaml
+```
+
+## Usage
+
+```sh
+permit0 pack validate packs/{name}
+permit0 pack test packs/{name}
+```
+"#
+    );
+    std::fs::write(pack_dir.join("README.md"), readme)?;
+
+    println!("Created pack scaffold at {}", pack_dir.display());
+    println!("  normalizers/{name}.normalizer.yaml");
+    println!("  risk_rules/{name}.risk_rule.yaml");
+    println!("  fixtures/{name}_basic.fixture.yaml");
+    println!("  README.md");
+    println!();
+    println!("Next steps:");
+    println!("  1. Edit the normalizer to match your tool's input format");
+    println!("  2. Add risk flags and amplifiers in the risk rule");
+    println!("  3. Add fixture test cases");
+    println!("  4. Run: permit0 pack validate packs/{name}");
+
+    Ok(())
+}
+
 fn is_yaml(path: &Path) -> bool {
     path.extension()
         .is_some_and(|e| e == "yaml" || e == "yml")

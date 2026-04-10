@@ -1,0 +1,12 @@
+# Default owners for everything
+* @AnissL93
+
+# Pack directory — maintainers review all pack changes
+packs/ @AnissL93
+
+# Core crates — require core team review
+crates/ @AnissL93
+
+# CI and project config
+.github/ @AnissL93
+Cargo.toml @AnissL93

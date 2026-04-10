@@ -1077,6 +1077,7 @@ name = "permit0-cli"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "axum",
  "clap",
  "permit0-dsl",
  "permit0-engine",

@@ -1,6 +1,7 @@
 #![forbid(unsafe_code)]
 
-use std::process::Command;
+use std::io::Write;
+use std::process::{Command, Stdio};
 
 fn permit0_bin() -> Command {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_permit0"));
@@ -145,6 +146,106 @@ fn calibrate_diff_fintech() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("FINANCIAL"));
     assert!(stdout.contains("payments.charge"));
+}
+
+// ── Phase 16: Host Adapter Tests ──
+
+#[test]
+fn hook_with_safe_command() {
+    let input = r#"{"tool_name":"bash","tool_input":{"command":"ls -la"}}"#;
+    let mut child = permit0_bin()
+        .args(["hook"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child.stdin.take().unwrap().write_all(input.as_bytes()).unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success(), "hook failed: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert!(
+        parsed["decision"] == "allow" || parsed["decision"] == "ask_user",
+        "expected allow or ask_user, got: {stdout}"
+    );
+}
+
+#[test]
+fn hook_with_device_write_blocks() {
+    // Device write is a known deny case from the bash pack
+    let input = r#"{"tool_name":"bash","tool_input":{"command":"echo data > /dev/sda"}}"#;
+    let mut child = permit0_bin()
+        .args(["hook"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child.stdin.take().unwrap().write_all(input.as_bytes()).unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    assert_eq!(
+        parsed["decision"], "block",
+        "expected block for device write, got: {stdout}"
+    );
+}
+
+#[test]
+fn gateway_processes_jsonl() {
+    let input = r#"{"tool_name":"bash","parameters":{"command":"echo hello"}}"#;
+    let mut child = permit0_bin()
+        .args(["gateway"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child.stdin.take().unwrap().write_all(input.as_bytes()).unwrap();
+    let output = child.wait_with_output().unwrap();
+    assert!(output.status.success(), "gateway failed: {}", String::from_utf8_lossy(&output.stderr));
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
+    assert!(parsed["permission"].is_string());
+    assert!(parsed["action_type"].is_string());
+}
+
+#[test]
+fn pack_new_creates_scaffold() {
+    // Use a temp dir to avoid polluting the workspace
+    let tmp = std::env::temp_dir().join("permit0_test_pack_new");
+    let _ = std::fs::remove_dir_all(&tmp);
+    std::fs::create_dir_all(tmp.join("packs")).unwrap();
+
+    let output = Command::new(env!("CARGO_BIN_EXE_permit0"))
+        .current_dir(&tmp)
+        .args(["pack", "new", "test_service"])
+        .output()
+        .unwrap();
+    assert!(output.status.success(), "pack new failed: {}", String::from_utf8_lossy(&output.stderr));
+
+    // Verify scaffold files exist
+    assert!(tmp.join("packs/test_service/normalizers/test_service.normalizer.yaml").exists());
+    assert!(tmp.join("packs/test_service/risk_rules/test_service.risk_rule.yaml").exists());
+    assert!(tmp.join("packs/test_service/fixtures/test_service_basic.fixture.yaml").exists());
+    assert!(tmp.join("packs/test_service/README.md").exists());
+
+    // Cleanup
+    let _ = std::fs::remove_dir_all(&tmp);
+}
+
+#[test]
+fn serve_help() {
+    let output = permit0_bin()
+        .args(["serve", "--help"])
+        .output()
+        .unwrap();
+    assert!(output.status.success());
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("--port"));
+    assert!(stdout.contains("--ui"));
 }
 
 #[test]

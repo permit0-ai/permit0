@@ -26,6 +26,39 @@ enum Commands {
         #[arg(long, default_value = "default.org")]
         org_domain: String,
     },
+    /// Claude Code PreToolUse hook adapter (reads JSON from stdin)
+    Hook {
+        /// Domain profile to use
+        #[arg(long)]
+        profile: Option<String>,
+        /// Organization domain
+        #[arg(long, default_value = "default.org")]
+        org_domain: String,
+    },
+    /// Generic stdin/stdout JSON gateway (JSONL mode)
+    Gateway {
+        /// Domain profile to use
+        #[arg(long)]
+        profile: Option<String>,
+        /// Organization domain
+        #[arg(long, default_value = "default.org")]
+        org_domain: String,
+    },
+    /// Start HTTP server for remote agents
+    Serve {
+        /// Port to listen on
+        #[arg(long, default_value = "9090")]
+        port: u16,
+        /// Domain profile to use
+        #[arg(long)]
+        profile: Option<String>,
+        /// Organization domain
+        #[arg(long, default_value = "default.org")]
+        org_domain: String,
+        /// Mount the approval UI API
+        #[arg(long)]
+        ui: bool,
+    },
     /// Pack management: validate, test, scaffold
     #[command(subcommand)]
     Pack(PackCmd),
@@ -45,6 +78,11 @@ enum PackCmd {
     Test {
         /// Path to the pack directory or glob pattern
         path: String,
+    },
+    /// Scaffold a new pack with normalizer, risk rule, and fixture stubs
+    New {
+        /// Pack name (e.g. "slack", "jira")
+        name: String,
     },
 }
 
@@ -83,9 +121,24 @@ fn main() -> anyhow::Result<()> {
             profile,
             org_domain,
         } => cmd::check::run(input, profile, &org_domain),
+        Commands::Hook {
+            profile,
+            org_domain,
+        } => cmd::hook::run(profile, &org_domain),
+        Commands::Gateway {
+            profile,
+            org_domain,
+        } => cmd::gateway::run(profile, &org_domain),
+        Commands::Serve {
+            port,
+            profile,
+            org_domain,
+            ui,
+        } => cmd::serve::run(port, profile, &org_domain, ui),
         Commands::Pack(pack_cmd) => match pack_cmd {
             PackCmd::Validate { path } => cmd::pack::validate(&path),
             PackCmd::Test { path } => cmd::pack::test(&path),
+            PackCmd::New { name } => cmd::pack::new_pack(&name),
         },
         Commands::Calibrate(cal_cmd) => match cal_cmd {
             CalibrateCmd::Test { corpus } => cmd::calibrate::test_corpus(&corpus),
