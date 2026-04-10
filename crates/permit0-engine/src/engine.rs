@@ -9,6 +9,7 @@ use permit0_dsl::schema::risk_rule::RiskRuleDef;
 use permit0_dsl::validate;
 use permit0_normalize::{NormalizerRegistry, Normalizer};
 use permit0_scoring::{ScoringConfig, compute_hybrid};
+use permit0_agent::{AgentReviewer, ReviewInput, ReviewVerdict};
 use permit0_session::{SessionContext, evaluate_session_block_rules, session_amplifier_score};
 use permit0_store::{InMemoryStore, Store};
 use permit0_types::{DecisionRecord, NormAction, Permission, RawToolCall, RiskScore, Tier};
@@ -36,6 +37,7 @@ pub enum DecisionSource {
     Allowlist,
     PolicyCache,
     Scorer,
+    AgentReviewer,
 }
 
 impl DecisionSource {
@@ -45,6 +47,7 @@ impl DecisionSource {
             Self::Allowlist => "allowlist",
             Self::PolicyCache => "policy_cache",
             Self::Scorer => "scorer",
+            Self::AgentReviewer => "agent_reviewer",
         }
     }
 }
@@ -58,6 +61,7 @@ pub struct Engine {
     risk_rules: HashMap<String, RiskRuleDef>,
     config: ScoringConfig,
     store: Arc<dyn Store>,
+    reviewer: Option<AgentReviewer>,
 }
 
 impl Engine {
@@ -139,7 +143,35 @@ impl Engine {
         let risk_score = self.assess(&tool_call.parameters, &norm, ctx.session.as_ref())?;
 
         // Step 7: Score → permission routing
-        let permission = score_to_permission(risk_score.tier, risk_score.blocked);
+        let base_permission = score_to_permission(risk_score.tier, risk_score.blocked);
+
+        // Step 7b: Agent reviewer for MEDIUM tier
+        let (permission, source) =
+            if base_permission == Permission::HumanInTheLoop {
+                if let Some(ref reviewer) = self.reviewer {
+                    let review_input = ReviewInput {
+                        norm_action: norm.clone(),
+                        risk_score: risk_score.clone(),
+                        raw_tool_call: tool_call.clone(),
+                        task_goal: ctx.task_goal.clone(),
+                        session_summary: None,
+                        org_policy: None,
+                    };
+                    let review = reviewer.handle_medium(
+                        &review_input,
+                        ctx.session.as_ref(),
+                    );
+                    let perm = match review.verdict {
+                        ReviewVerdict::HumanInTheLoop => Permission::HumanInTheLoop,
+                        ReviewVerdict::Deny => Permission::Deny,
+                    };
+                    (perm, DecisionSource::AgentReviewer)
+                } else {
+                    (base_permission, DecisionSource::Scorer)
+                }
+            } else {
+                (base_permission, DecisionSource::Scorer)
+            };
 
         // Cache the result
         self.store.policy_cache_set(norm_hash, permission)?;
@@ -148,7 +180,7 @@ impl Engine {
             permission,
             norm_action: norm,
             risk_score: Some(risk_score),
-            source: DecisionSource::Scorer,
+            source,
         };
         self.log_decision(&result);
         Ok(result)
@@ -298,6 +330,7 @@ pub struct EngineBuilder {
     risk_rules: HashMap<String, RiskRuleDef>,
     config: ScoringConfig,
     store: Option<Arc<dyn Store>>,
+    reviewer: Option<AgentReviewer>,
 }
 
 impl EngineBuilder {
@@ -307,6 +340,7 @@ impl EngineBuilder {
             risk_rules: HashMap::new(),
             config: ScoringConfig::default(),
             store: None,
+            reviewer: None,
         }
     }
 
@@ -327,6 +361,12 @@ impl EngineBuilder {
         let store = permit0_store::SqliteStore::open(path)
             .map_err(|e| EngineError::Build(e.to_string()))?;
         Ok(self.with_store(Arc::new(store)))
+    }
+
+    /// Set an agent reviewer for MEDIUM-tier calls.
+    pub fn with_reviewer(mut self, reviewer: AgentReviewer) -> Self {
+        self.reviewer = Some(reviewer);
+        self
     }
 
     /// Install a YAML normalizer from a parsed definition.
@@ -391,6 +431,7 @@ impl EngineBuilder {
             risk_rules: self.risk_rules,
             config: self.config,
             store,
+            reviewer: self.reviewer,
         })
     }
 }
