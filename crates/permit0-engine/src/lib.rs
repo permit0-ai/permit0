@@ -4,6 +4,7 @@
 mod context;
 mod engine;
 mod error;
+pub mod learning;
 
 pub use context::PermissionCtx;
 pub use engine::{DecisionSource, Engine, EngineBuilder, PermissionResult};
