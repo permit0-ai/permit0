@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+pub mod audit;
 pub mod calibrate;
 pub mod check;
 pub mod gateway;

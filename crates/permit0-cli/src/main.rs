@@ -65,6 +65,9 @@ enum Commands {
     /// Calibration: profiles, corpus testing, guardrail validation
     #[command(subcommand)]
     Calibrate(CalibrateCmd),
+    /// Audit trail verification and inspection
+    #[command(subcommand)]
+    Audit(AuditCmd),
 }
 
 #[derive(Subcommand)]
@@ -83,6 +86,34 @@ enum PackCmd {
     New {
         /// Pack name (e.g. "slack", "jira")
         name: String,
+    },
+}
+
+#[derive(Subcommand)]
+enum AuditCmd {
+    /// Verify chain integrity and signatures of a JSONL audit file
+    Verify {
+        /// Path to the JSONL audit file
+        path: String,
+        /// ed25519 public key (hex)
+        #[arg(long)]
+        public_key: String,
+    },
+    /// Inspect audit entries: show summary table
+    Inspect {
+        /// Path to the JSONL audit file
+        path: String,
+        /// Maximum entries to display
+        #[arg(long, default_value = "50")]
+        limit: usize,
+    },
+    /// Dump full JSON of a single entry by sequence number
+    Dump {
+        /// Path to the JSONL audit file
+        path: String,
+        /// Sequence number to dump
+        #[arg(long)]
+        seq: u64,
     },
 }
 
@@ -139,6 +170,11 @@ fn main() -> anyhow::Result<()> {
             PackCmd::Validate { path } => cmd::pack::validate(&path),
             PackCmd::Test { path } => cmd::pack::test(&path),
             PackCmd::New { name } => cmd::pack::new_pack(&name),
+        },
+        Commands::Audit(audit_cmd) => match audit_cmd {
+            AuditCmd::Verify { path, public_key } => cmd::audit::verify(&path, &public_key),
+            AuditCmd::Inspect { path, limit } => cmd::audit::inspect(&path, limit),
+            AuditCmd::Dump { path, seq } => cmd::audit::dump_entry(&path, seq),
         },
         Commands::Calibrate(cal_cmd) => match cal_cmd {
             CalibrateCmd::Test { corpus } => cmd::calibrate::test_corpus(&corpus),
