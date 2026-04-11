@@ -322,6 +322,59 @@ impl PyEngine {
         Ok(PyDecisionResult::from_result(&result))
     }
 
+    /// Evaluate a tool call with session context for cumulative risk detection.
+    ///
+    /// After the check, the result is automatically pushed into the session
+    /// so subsequent calls see the full history.
+    #[pyo3(signature = (session, tool_name, parameters, org_domain="default.org"))]
+    fn check_with_session(
+        &self,
+        session: &mut PySession,
+        tool_name: &str,
+        parameters: &Bound<'_, PyDict>,
+        org_domain: &str,
+    ) -> PyResult<PyDecisionResult> {
+        let params_json = pydict_to_json_value(parameters)?;
+
+        let tool_call = permit0_types::RawToolCall {
+            tool_name: tool_name.to_string(),
+            parameters: params_json,
+            metadata: Default::default(),
+        };
+
+        let ctx = PermissionCtx::new(NormalizeCtx::new().with_org_domain(org_domain))
+            .with_session(session.inner.clone());
+
+        let result = self
+            .inner
+            .get_permission(&tool_call, &ctx)
+            .map_err(|e| PyRuntimeError::new_err(format!("engine error: {e}")))?;
+
+        // Auto-push result into session for subsequent calls
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs_f64();
+
+        session.inner.push(permit0_session::ActionRecord {
+            action_type: result.norm_action.action_type.as_action_str(),
+            tier: result
+                .risk_score
+                .as_ref()
+                .map(|s| s.tier)
+                .unwrap_or(Tier::Minimal),
+            flags: result
+                .risk_score
+                .as_ref()
+                .map(|s| s.flags.clone())
+                .unwrap_or_default(),
+            timestamp: now,
+            entities: result.norm_action.entities.clone(),
+        });
+
+        Ok(PyDecisionResult::from_result(&result))
+    }
+
     fn __repr__(&self) -> &'static str {
         "Engine()"
     }
@@ -378,6 +431,19 @@ impl PyEngineBuilder {
         Ok(())
     }
 
+    /// Attach an audit bundle to this builder. The resulting engine will
+    /// write signed audit entries for every decision.
+    fn with_audit(&mut self, bundle: &PyAuditBundle) -> PyResult<()> {
+        let builder = self
+            .inner
+            .take()
+            .ok_or_else(|| PyRuntimeError::new_err("builder already consumed"))?;
+        self.inner = Some(
+            builder.with_audit(bundle.sink.clone(), bundle.signer.clone()),
+        );
+        Ok(())
+    }
+
     /// Build the engine from the current configuration.
     fn build(&mut self) -> PyResult<PyEngine> {
         let builder = self
@@ -388,6 +454,166 @@ impl PyEngineBuilder {
             .build()
             .map_err(|e| PyRuntimeError::new_err(format!("engine build failed: {e}")))?;
         Ok(PyEngine { inner: engine })
+    }
+}
+
+// ── Session ──
+
+/// Session context that accumulates action history for session-aware scoring.
+///
+/// Example:
+///     session = Session("checkout-agent")
+///     result = engine.check_with_session(session, "http", {...})
+///     # session is auto-updated with the result
+#[pyclass(name = "Session")]
+pub struct PySession {
+    inner: permit0_session::SessionContext,
+}
+
+#[pymethods]
+impl PySession {
+    #[new]
+    fn new(session_id: &str) -> Self {
+        Self {
+            inner: permit0_session::SessionContext::new(session_id),
+        }
+    }
+
+    /// Number of recorded actions.
+    #[getter]
+    fn len(&self) -> usize {
+        self.inner.records.len()
+    }
+
+    /// The session ID.
+    #[getter]
+    fn session_id(&self) -> &str {
+        &self.inner.session_id
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "Session(id='{}', records={})",
+            self.inner.session_id,
+            self.inner.records.len()
+        )
+    }
+}
+
+// ── Audit Bundle ──
+
+/// Export and verify signed audit bundles.
+///
+/// Usage:
+///     bundle = AuditBundle()
+///     # ... make engine calls ...
+///     bundle.export_jsonl("audit.jsonl")
+///     ok = AuditBundle.verify_jsonl("audit.jsonl", bundle.public_key)
+#[pyclass(name = "AuditBundle")]
+pub struct PyAuditBundle {
+    sink: std::sync::Arc<permit0_store::audit::InMemoryAuditSink>,
+    signer: std::sync::Arc<permit0_store::audit::Ed25519Signer>,
+}
+
+#[pymethods]
+impl PyAuditBundle {
+    #[new]
+    fn new() -> Self {
+        Self {
+            sink: std::sync::Arc::new(permit0_store::audit::InMemoryAuditSink::new()),
+            signer: std::sync::Arc::new(permit0_store::audit::Ed25519Signer::generate()),
+        }
+    }
+
+    /// The ed25519 public key (hex) for this bundle's signer.
+    #[getter]
+    fn public_key(&self) -> String {
+        use permit0_store::audit::AuditSigner;
+        self.signer.public_key_hex()
+    }
+
+    /// Number of audit entries recorded.
+    #[getter]
+    fn entry_count(&self) -> usize {
+        self.sink.all_entries().len()
+    }
+
+    /// Export all audit entries as JSONL to a file.
+    fn export_jsonl(&self, path: &str) -> PyResult<()> {
+        let entries = self.sink.all_entries();
+        let mut file = std::fs::File::create(path)
+            .map_err(|e| PyRuntimeError::new_err(format!("file create error: {e}")))?;
+        permit0_store::audit::export_jsonl(&entries, &mut file)
+            .map_err(|e| PyRuntimeError::new_err(format!("export error: {e}")))?;
+        Ok(())
+    }
+
+    /// Verify chain integrity of a JSONL audit file.
+    ///
+    /// Returns (valid, entries_checked, failure_reason).
+    #[staticmethod]
+    fn verify_jsonl(path: &str, public_key_hex: &str) -> PyResult<(bool, u64, Option<String>)> {
+        let content = std::fs::read_to_string(path)
+            .map_err(|e| PyRuntimeError::new_err(format!("file read error: {e}")))?;
+
+        let verifier = permit0_store::audit::Ed25519Verifier::from_hex(public_key_hex)
+            .map_err(|e| PyRuntimeError::new_err(format!("invalid public key: {e}")))?;
+
+        let mut entries: Vec<permit0_store::audit::AuditEntry> = Vec::new();
+        for line in content.lines() {
+            if line.trim().is_empty() {
+                continue;
+            }
+            let entry: permit0_store::audit::AuditEntry = serde_json::from_str(line)
+                .map_err(|e| PyRuntimeError::new_err(format!("JSON parse error: {e}")))?;
+            entries.push(entry);
+        }
+
+        if entries.is_empty() {
+            return Ok((true, 0, None));
+        }
+
+        // Verify each entry's hash and signature
+        for (i, entry) in entries.iter().enumerate() {
+            if !permit0_store::audit::chain::verify_entry_hash(entry) {
+                return Ok((
+                    false,
+                    i as u64,
+                    Some(format!("entry {} has invalid hash", entry.sequence)),
+                ));
+            }
+            if !verifier.verify(&entry.entry_hash, &entry.signature) {
+                return Ok((
+                    false,
+                    i as u64,
+                    Some(format!("entry {} has invalid signature", entry.sequence)),
+                ));
+            }
+        }
+
+        // Verify chain links
+        for window in entries.windows(2) {
+            if !permit0_store::audit::chain::verify_chain_link(&window[0], &window[1]) {
+                return Ok((
+                    false,
+                    window[1].sequence,
+                    Some(format!(
+                        "chain broken between {} and {}",
+                        window[0].sequence, window[1].sequence
+                    )),
+                ));
+            }
+        }
+
+        Ok((true, entries.len() as u64, None))
+    }
+
+    fn __repr__(&self) -> String {
+        format!(
+            "AuditBundle(entries={}, pubkey='{:.16}...')",
+            self.entry_count(),
+            self.public_key()
+        )
     }
 }
 
@@ -525,5 +751,7 @@ fn permit0(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<PyDecisionResult>()?;
     m.add_class::<PyEngine>()?;
     m.add_class::<PyEngineBuilder>()?;
+    m.add_class::<PySession>()?;
+    m.add_class::<PyAuditBundle>()?;
     Ok(())
 }

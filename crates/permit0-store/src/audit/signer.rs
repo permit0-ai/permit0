@@ -24,8 +24,7 @@ impl Ed25519Signer {
         Self { signing_key }
     }
 
-    /// Generate a new random signer for testing.
-    #[cfg(test)]
+    /// Generate a new random signer.
     pub fn generate() -> Self {
         use rand::rngs::OsRng;
         let signing_key = SigningKey::generate(&mut OsRng);

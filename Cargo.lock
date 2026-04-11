@@ -1271,6 +1271,7 @@ dependencies = [
  "permit0-engine",
  "permit0-normalize",
  "permit0-scoring",
+ "permit0-session",
  "permit0-store",
  "permit0-types",
  "pyo3",
