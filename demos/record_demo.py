@@ -37,7 +37,7 @@ from pathlib import Path
 # ── Config ──────────────────────────────────────────────────
 
 DEMO_URL = "http://localhost:8000"
-VOICE = "en-US-AndrewMultilingualNeural"  # Warm, confident male voice
+VOICE = "en-US-AvaMultilingualNeural"  # Expressive, warm female voice
 VOICE_RATE = "-5%"  # Slightly slower for clarity
 OUTPUT_DIR = Path("demos/recording_output")
 SERVER_STARTUP_WAIT = 3

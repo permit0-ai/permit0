@@ -25,3 +25,4 @@ dist/
 # Test artifacts
 *.profraw
 lcov.info
+__pycache__/
