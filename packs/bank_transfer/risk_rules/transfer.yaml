@@ -1,0 +1,39 @@
+permit0_pack: "permit0/bank_transfer"
+action_type: "payments.transfer"
+base:
+  flags:
+    financial_write: primary
+    external_transfer: secondary
+  amplifiers:
+    amount: 5
+    scope: 4
+    reversibility: 6
+rules:
+  - when:
+      amount:
+        gt: 50000
+    then:
+      - add_flag:
+          flag: high_value_transfer
+          role: primary
+      - upgrade:
+          dim: amount
+          delta: 3
+
+  - when:
+      amount:
+        gt: 250000
+    then:
+      - gate: "extremely_high_value_transfer"
+
+session_rules:
+  - when:
+      daily_total:
+        gt: 100000
+    then:
+      - add_flag:
+          flag: velocity_alert
+          role: primary
+      - upgrade:
+          dim: scope
+          delta: 2

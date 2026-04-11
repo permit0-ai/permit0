@@ -1,0 +1,40 @@
+permit0_pack: "permit0/filesystem"
+action_type: "files.read"
+base:
+  flags:
+    file_access: primary
+  amplifiers:
+    sensitivity: 2
+    scope: 2
+    reversibility: 8
+rules:
+  - when:
+      path:
+        contains_any: ["credentials", "secret", "password", ".env", "private_key", "token"]
+    then:
+      - add_flag:
+          flag: EXPOSURE
+          role: primary
+      - upgrade:
+          dim: sensitivity
+          delta: 4
+
+  - when:
+      path:
+        contains_any: ["/etc/shadow", "/etc/passwd"]
+    then:
+      - add_flag:
+          flag: EXPOSURE
+          role: primary
+      - gate: "system_credential_access"
+
+  - when:
+      pii:
+        exists: true
+    then:
+      - add_flag:
+          flag: pii_detected
+          role: secondary
+      - upgrade:
+          dim: sensitivity
+          delta: 2

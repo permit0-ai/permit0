@@ -1,0 +1,3 @@
+name: "permit0/bank_transfer"
+description: "Wire transfer and ACH payment normalizers and risk rules"
+version: "0.1.0"

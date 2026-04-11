@@ -1,0 +1,28 @@
+permit0_pack: "permit0/filesystem"
+id: "fs:read"
+priority: 85
+match:
+  all:
+    - tool: file_read
+normalize:
+  action_type: "files.read"
+  domain: "files"
+  verb: "read"
+  channel: "local"
+  entities:
+    path:
+      from: "path"
+      type: "string"
+      required: true
+    file_type:
+      compute: "classify_file_type"
+      args:
+        - "path"
+    path_depth:
+      compute: "parse_path_depth"
+      args:
+        - "path"
+    pii:
+      compute: "detect_pii_patterns"
+      args:
+        - "content"

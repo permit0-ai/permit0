@@ -1,0 +1,31 @@
+permit0_pack: "permit0/bank_transfer"
+id: "bank:wire_transfer"
+priority: 98
+match:
+  all:
+    - tool: bank_transfer
+normalize:
+  action_type: "payments.transfer"
+  domain: "payments"
+  verb: "transfer"
+  channel: "bank"
+  entities:
+    amount:
+      from: "amount"
+      type: "number"
+      required: true
+    currency:
+      from: "currency"
+      type: "string"
+      default: "usd"
+      lowercase: true
+    recipient:
+      from: "recipient_account"
+      type: "string"
+      required: true
+    recipient_name:
+      from: "recipient_name"
+      type: "string"
+    memo:
+      from: "memo"
+      type: "string"
