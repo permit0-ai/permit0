@@ -2,23 +2,26 @@ permit0_pack: "permit0/stripe"
 action_type: "payments.charge"
 base:
   flags:
-    financial_write: primary
-    external_transfer: secondary
+    FINANCIAL: primary
+    OUTBOUND: primary
+    MUTATION: secondary
   amplifiers:
-    amount: 5
-    scope: 3
-    reversibility: 4
+    amount: 12
+    scope: 8
+    irreversibility: 10
+    destination: 15
+    boundary: 8
 rules:
   - when:
       body.amount:
-        gt: 10000
+        gt: 5000
     then:
-      - add_flag:
-          flag: high_value
-          role: primary
       - upgrade:
           dim: amount
-          delta: 3
+          delta: 6
+      - upgrade:
+          dim: destination
+          delta: 5
 
   - when:
       body.amount:
@@ -38,16 +41,47 @@ rules:
     then:
       - downgrade:
           dim: amount
-          delta: 2
+          delta: 6
 
 session_rules:
+  # Rapid micro-charges: aggressively escalate risk as charge count accumulates
+  # Fires after 2 charges, pushing charges 3-4 into Medium/HITL
+  # before the card_testing session block rule fires at 5.
+  # Deltas are high to compensate for micro-charge amount downgrade.
   - when:
-      daily_total:
-        gt: 50000
+      record_count:
+        gt: 2
     then:
       - add_flag:
-          flag: velocity_alert
+          flag: GOVERNANCE
           role: primary
       - upgrade:
           dim: scope
-          delta: 2
+          delta: 24
+      - upgrade:
+          dim: amount
+          delta: 22
+      - upgrade:
+          dim: sensitivity
+          delta: 18
+      - upgrade:
+          dim: destination
+          delta: 13
+
+  # Large daily totals also escalate
+  - when:
+      daily_total:
+        gt: 10000
+    then:
+      - add_flag:
+          flag: GOVERNANCE
+          role: primary
+      - upgrade:
+          dim: scope
+          delta: 10
+      - upgrade:
+          dim: amount
+          delta: 8
+      - upgrade:
+          dim: sensitivity
+          delta: 6

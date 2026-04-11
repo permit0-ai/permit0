@@ -2,55 +2,59 @@ permit0_pack: "permit0/bash"
 action_type: "process.shell"
 base:
   flags:
-    shell_exec: primary
+    EXECUTION: primary
   amplifiers:
-    scope: 3
-    reversibility: 5
-    blast_radius: 3
+    scope: 5
+    irreversibility: 6
+    boundary: 4
+    environment: 3
 rules:
   - when:
       command:
         contains_any: ["rm -rf", "rm -r", "rmdir"]
     then:
       - add_flag:
-          flag: destructive_delete
+          flag: DESTRUCTION
           role: primary
       - upgrade:
-          dim: reversibility
-          delta: 4
+          dim: irreversibility
+          delta: 6
       - upgrade:
-          dim: blast_radius
-          delta: 3
+          dim: scope
+          delta: 4
 
   - when:
       command:
         regex: "\\|.*\\|.*\\|"
     then:
-      - add_flag:
-          flag: complex_pipeline
-          role: secondary
       - upgrade:
           dim: scope
-          delta: 2
+          delta: 3
 
   - when:
       command:
         contains_any: ["sudo", "su -"]
     then:
       - add_flag:
-          flag: privilege_escalation
+          flag: PRIVILEGE
           role: primary
       - upgrade:
           dim: scope
-          delta: 3
+          delta: 4
+      - upgrade:
+          dim: boundary
+          delta: 4
 
   - when:
       command:
         contains_any: ["curl", "wget"]
     then:
       - add_flag:
-          flag: network_access
+          flag: OUTBOUND
           role: secondary
+      - upgrade:
+          dim: boundary
+          delta: 3
 
   - when:
       command:

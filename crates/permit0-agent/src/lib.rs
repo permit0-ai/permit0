@@ -6,7 +6,7 @@ pub mod error;
 pub mod reviewer;
 pub mod types;
 
-pub use client::{LlmClient, MockLlmClient};
+pub use client::{CallbackLlmClient, LlmClient, MockLlmClient};
 pub use error::LlmError;
 pub use reviewer::AgentReviewer;
 pub use types::{

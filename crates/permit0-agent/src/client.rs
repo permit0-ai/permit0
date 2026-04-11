@@ -57,3 +57,28 @@ impl LlmClient for MockLlmClient {
         Ok(self.response.clone())
     }
 }
+
+/// Callback-based LLM client.
+///
+/// The caller provides a closure that performs the actual LLM call.
+/// This enables host languages (Python, TypeScript) to supply their
+/// own LLM SDK while Rust runs the full reviewer pipeline.
+pub struct CallbackLlmClient {
+    callback: Box<dyn Fn(&str) -> Result<String, LlmError> + Send + Sync>,
+}
+
+impl CallbackLlmClient {
+    pub fn new(
+        callback: impl Fn(&str) -> Result<String, LlmError> + Send + Sync + 'static,
+    ) -> Self {
+        Self {
+            callback: Box::new(callback),
+        }
+    }
+}
+
+impl LlmClient for CallbackLlmClient {
+    fn review(&self, prompt: &str) -> Result<String, LlmError> {
+        (self.callback)(prompt)
+    }
+}

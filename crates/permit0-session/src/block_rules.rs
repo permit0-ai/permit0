@@ -192,7 +192,7 @@ fn card_testing(
     if current_is_micro {
         micro_charges.push(entities);
     }
-    if micro_charges.len() < 3 {
+    if micro_charges.len() < 5 {
         return SessionBlockResult::pass();
     }
     // Check for distinct customers
@@ -204,7 +204,7 @@ fn card_testing(
             }
         }
     }
-    if customers.len() < 3 {
+    if customers.len() < 5 {
         return SessionBlockResult::pass();
     }
     SessionBlockResult::block(
@@ -232,7 +232,7 @@ fn scatter_transfer(
             recipients.push(recip.clone());
         }
     }
-    if recipients.len() < 5 {
+    if recipients.len() < 6 {
         return SessionBlockResult::pass();
     }
     SessionBlockResult::block(
@@ -380,11 +380,25 @@ mod tests {
             &[],
             vec![("amount", json!(100)), ("customer", json!("cus_bbb"))],
         ));
+        session.push(make_record(
+            "payments.charge",
+            Tier::Low,
+            ts + 2.0,
+            &[],
+            vec![("amount", json!(75)), ("customer", json!("cus_ccc"))],
+        ));
+        session.push(make_record(
+            "payments.charge",
+            Tier::Low,
+            ts + 3.0,
+            &[],
+            vec![("amount", json!(60)), ("customer", json!("cus_ddd"))],
+        ));
 
-        // Third micro-charge to a third customer
+        // Fifth micro-charge to a fifth distinct customer → block
         let mut entities = serde_json::Map::new();
-        entities.insert("amount".into(), json!(75));
-        entities.insert("customer".into(), json!("cus_ccc"));
+        entities.insert("amount".into(), json!(80));
+        entities.insert("customer".into(), json!("cus_eee"));
         let result = evaluate_session_block_rules(&session, "payments.charge", &entities);
         assert!(result.blocked);
         assert_eq!(result.rule_name.as_deref(), Some("card_testing"));
@@ -394,7 +408,10 @@ mod tests {
     fn scatter_transfer_fires() {
         let ts = base_ts();
         let mut session = SessionContext::new("test");
-        for (i, recip) in ["bank_a", "bank_b", "bank_c", "bank_d"].iter().enumerate() {
+        for (i, recip) in ["bank_a", "bank_b", "bank_c", "bank_d", "bank_e"]
+            .iter()
+            .enumerate()
+        {
             session.push(make_record(
                 "payments.transfer",
                 Tier::Medium,
@@ -404,9 +421,9 @@ mod tests {
             ));
         }
 
-        // 5th distinct recipient
+        // 6th distinct recipient
         let mut entities = serde_json::Map::new();
-        entities.insert("recipient".into(), json!("bank_e"));
+        entities.insert("recipient".into(), json!("bank_f"));
         let result = evaluate_session_block_rules(&session, "payments.transfer", &entities);
         assert!(result.blocked);
         assert_eq!(result.rule_name.as_deref(), Some("scatter_transfer"));
@@ -488,15 +505,29 @@ mod tests {
         session.push(make_record(
             "payments.charge",
             Tier::Low,
-            ts + 30.0,
+            ts + 10.0,
             &[],
             vec![("amount", json!(100)), ("customer", json!("cus_bbb"))],
         ));
+        session.push(make_record(
+            "payments.charge",
+            Tier::Low,
+            ts + 20.0,
+            &[],
+            vec![("amount", json!(75)), ("customer", json!("cus_ccc"))],
+        ));
+        session.push(make_record(
+            "payments.charge",
+            Tier::Low,
+            ts + 30.0,
+            &[],
+            vec![("amount", json!(90)), ("customer", json!("cus_ddd"))],
+        ));
 
-        // Call 3: third micro-charge to distinct customer → block
+        // Call 5: fifth micro-charge to distinct customer → block
         let mut entities = serde_json::Map::new();
-        entities.insert("amount".into(), json!(75));
-        entities.insert("customer".into(), json!("cus_ccc"));
+        entities.insert("amount".into(), json!(60));
+        entities.insert("customer".into(), json!("cus_eee"));
         let result = evaluate_session_block_rules(&session, "payments.charge", &entities);
         assert!(result.blocked);
         assert_eq!(result.rule_name.as_deref(), Some("card_testing"));

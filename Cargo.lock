@@ -1268,6 +1268,7 @@ dependencies = [
 name = "permit0-py"
 version = "0.1.0"
 dependencies = [
+ "permit0-agent",
  "permit0-engine",
  "permit0-normalize",
  "permit0-scoring",

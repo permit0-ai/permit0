@@ -7,6 +7,7 @@ use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
+use permit0_agent::{AgentReviewer, CallbackLlmClient, LlmError};
 use permit0_engine::{EngineBuilder, PermissionCtx, PermissionResult};
 use permit0_normalize::NormalizeCtx;
 use permit0_types::{Permission, RiskScore, Tier};
@@ -428,6 +429,36 @@ impl PyEngineBuilder {
                 .install_risk_rule_yaml(yaml)
                 .map_err(|e| PyValueError::new_err(format!("risk rule error: {e}")))?,
         );
+        Ok(())
+    }
+
+    /// Set an agent reviewer for MEDIUM-tier calls.
+    ///
+    /// The callback is a Python callable: `def review(prompt: str) -> str`
+    /// It will be called by the Rust reviewer pipeline when a MEDIUM-tier
+    /// action needs LLM review. The callback should call an LLM and return
+    /// the raw text response.
+    fn with_reviewer(&mut self, callback: PyObject) -> PyResult<()> {
+        let builder = self
+            .inner
+            .take()
+            .ok_or_else(|| PyRuntimeError::new_err("builder already consumed"))?;
+
+        // Wrap the Python callable in a Rust closure.
+        // PyO3 handles re-entrant GIL acquisition on the same thread.
+        let client = CallbackLlmClient::new(move |prompt: &str| {
+            Python::with_gil(|py| {
+                let result = callback
+                    .call1(py, (prompt,))
+                    .map_err(|e| LlmError::RequestFailed(format!("Python callback error: {e}")))?;
+                result
+                    .extract::<String>(py)
+                    .map_err(|e| LlmError::ParseError(format!("expected str from callback: {e}")))
+            })
+        });
+
+        let reviewer = AgentReviewer::new(Box::new(client));
+        self.inner = Some(builder.with_reviewer(reviewer));
         Ok(())
     }
 

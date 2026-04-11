@@ -84,7 +84,8 @@ def main() -> None:
         {"amount": 50, "currency": "usd", "customer": "cus_alice_001"},
         {"amount": 75, "currency": "usd", "customer": "cus_bob_002"},
         {"amount": 100, "currency": "usd", "customer": "cus_carol_003"},
-        {"amount": 25, "currency": "usd", "customer": "cus_dave_004"},  # should not reach
+        {"amount": 25, "currency": "usd", "customer": "cus_dave_004"},
+        {"amount": 50, "currency": "usd", "customer": "cus_eve_005"},
     ]
 
     for i, charge in enumerate(charges, 1):

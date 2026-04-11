@@ -837,42 +837,40 @@ mod tests {
             .as_secs_f64();
 
         let mut session = SessionContext::new("checkout-agent");
-        // Two prior micro-charges to distinct customers
-        session.push(permit0_session::ActionRecord {
-            action_type: "payments.charge".into(),
-            tier: Tier::Low,
-            timestamp: now - 30.0,
-            flags: vec![],
-            entities: {
-                let mut m = serde_json::Map::new();
-                m.insert("amount".into(), json!(50));
-                m.insert("customer".into(), json!("cus_aaa"));
-                m
-            },
-        });
-        session.push(permit0_session::ActionRecord {
-            action_type: "payments.charge".into(),
-            tier: Tier::Low,
-            timestamp: now - 15.0,
-            flags: vec![],
-            entities: {
-                let mut m = serde_json::Map::new();
-                m.insert("amount".into(), json!(100));
-                m.insert("customer".into(), json!("cus_bbb"));
-                m
-            },
-        });
+        // Four prior micro-charges to distinct customers
+        for (i, (cust, amt)) in [
+            ("cus_aaa", 50),
+            ("cus_bbb", 100),
+            ("cus_ccc", 75),
+            ("cus_ddd", 60),
+        ]
+        .iter()
+        .enumerate()
+        {
+            session.push(permit0_session::ActionRecord {
+                action_type: "payments.charge".into(),
+                tier: Tier::Low,
+                timestamp: now - (40.0 - i as f64 * 10.0),
+                flags: vec![],
+                entities: {
+                    let mut m = serde_json::Map::new();
+                    m.insert("amount".into(), json!(amt));
+                    m.insert("customer".into(), json!(cust));
+                    m
+                },
+            });
+        }
 
         let ctx = PermissionCtx::new(NormalizeCtx::new().with_org_domain("acme.com"))
             .with_session(session);
 
-        // Third micro-charge to a third customer → card_testing block should fire
+        // Fifth micro-charge to a fifth customer → card_testing block should fire
         let raw = RawToolCall {
             tool_name: "http".into(),
             parameters: json!({
                 "method": "POST",
                 "url": "https://api.stripe.com/v1/charges",
-                "body": {"amount": 75, "currency": "usd", "customer": "cus_ccc"}
+                "body": {"amount": 80, "currency": "usd", "customer": "cus_eee"}
             }),
             metadata: Default::default(),
         };
