@@ -1,0 +1,19 @@
+permit0_pack: "permit0/claude_code"
+id: "claude_code:agent"
+priority: 206
+match:
+  tool: Agent
+normalize:
+  action_type: "ai.prompt"
+  domain: "ai"
+  verb: "prompt"
+  channel: "claude_code"
+  entities:
+    prompt_length:
+      compute: "string_length"
+      args:
+        - "prompt"
+    subagent_type:
+      from: "subagent_type"
+      type: "string"
+      default: "general-purpose"

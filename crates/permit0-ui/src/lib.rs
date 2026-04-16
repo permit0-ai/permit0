@@ -3,7 +3,9 @@
 
 pub mod approval;
 pub mod auth;
+pub mod dashboard_routes;
 pub mod oidc;
+pub mod pack_routes;
 pub mod routes;
 pub mod server;
 pub mod state;

@@ -1,5 +1,6 @@
 #![forbid(unsafe_code)]
 
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use permit0_store::{AuditSink, Store};
@@ -14,4 +15,6 @@ pub struct AppState {
     pub audit_sink: Option<Arc<dyn AuditSink>>,
     pub token_store: Arc<TokenStore>,
     pub approval_manager: Arc<ApprovalManager>,
+    pub packs_dir: Option<PathBuf>,
+    pub profiles_dir: Option<PathBuf>,
 }

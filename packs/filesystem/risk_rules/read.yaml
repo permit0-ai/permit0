@@ -9,11 +9,13 @@ base:
     destination: 2
 rules:
   # Credential / secret file access — escalate to Medium for agent reviewer.
-  # Reading credential files is a precursor to exfiltration attacks.
-  # The LLM reviewer evaluates whether the read is justified by the task goal.
+  # Checks both "path" (filesystem tools) and "file_path" (Claude Code Read).
   - when:
-      path:
-        contains_any: ["credentials", "secret", "password", ".env", "private_key", "token"]
+      any:
+        - path:
+            contains_any: ["credentials", "secret", "password", ".env", "private_key", "token"]
+        - file_path:
+            contains_any: ["credentials", "secret", "password", ".env", "private_key", "token"]
     then:
       - add_flag:
           flag: EXPOSURE
@@ -41,8 +43,11 @@ rules:
           delta: 16
 
   - when:
-      path:
-        contains_any: ["/etc/shadow", "/etc/passwd"]
+      any:
+        - path:
+            contains_any: ["/etc/shadow", "/etc/passwd"]
+        - file_path:
+            contains_any: ["/etc/shadow", "/etc/passwd"]
     then:
       - add_flag:
           flag: EXPOSURE
@@ -59,3 +64,52 @@ rules:
       - upgrade:
           dim: sensitivity
           delta: 8
+
+  # SSH keys
+  - when:
+      any:
+        - path:
+            contains: ".ssh/"
+        - file_path:
+            contains: ".ssh/"
+    then:
+      - add_flag:
+          flag: EXPOSURE
+          role: primary
+      - upgrade:
+          dim: sensitivity
+          delta: 20
+      - upgrade:
+          dim: boundary
+          delta: 12
+
+  # Claude Code configuration (reading settings to plan escalation)
+  - when:
+      any:
+        - path:
+            contains_any: [".claude/settings", "claude.json"]
+        - file_path:
+            contains_any: [".claude/settings", "claude.json"]
+    then:
+      - add_flag:
+          flag: GOVERNANCE
+          role: secondary
+      - upgrade:
+          dim: sensitivity
+          delta: 8
+      - upgrade:
+          dim: scope
+          delta: 4
+
+session_rules:
+  # Rapid diverse file reads — potential reconnaissance
+  - when:
+      record_count:
+        gt: 10
+    then:
+      - upgrade:
+          dim: scope
+          delta: 4
+      - upgrade:
+          dim: sensitivity
+          delta: 3

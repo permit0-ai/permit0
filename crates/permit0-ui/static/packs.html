@@ -1,0 +1,988 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>permit0 Pack Editor</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root {
+  --bg: #0a0e17;
+  --surface: #111827;
+  --surface-hover: #1a2332;
+  --surface-active: #1e2d42;
+  --border: #1e293b;
+  --text: #e2e8f0;
+  --text-muted: #94a3b8;
+  --text-dim: #64748b;
+  --accent: #3b82f6;
+  --accent-hover: #2563eb;
+  --accent-dim: rgba(59, 130, 246, 0.15);
+  --success: #22c55e;
+  --success-dim: rgba(34, 197, 94, 0.15);
+  --warning: #f59e0b;
+  --warning-dim: rgba(245, 158, 11, 0.15);
+  --danger: #ef4444;
+  --danger-dim: rgba(239, 68, 68, 0.15);
+  --font-mono: 'JetBrains Mono', 'Fira Code', 'Cascadia Code', 'Consolas', monospace;
+  --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --radius: 6px;
+  --radius-lg: 10px;
+  --shadow: 0 2px 8px rgba(0,0,0,0.3);
+}
+html, body {
+  height: 100%;
+  font-family: var(--font-sans);
+  background: var(--bg);
+  color: var(--text);
+  overflow: hidden;
+}
+
+/* --- Layout --- */
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+}
+.topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 20px;
+  height: 52px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.topbar-title {
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  color: var(--text);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.topbar-title .logo {
+  width: 22px; height: 22px;
+  border-radius: 4px;
+  background: var(--accent);
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 12px; font-weight: 800; color: #fff;
+}
+.topbar-status {
+  font-size: 12px;
+  color: var(--text-muted);
+  display: flex; align-items: center; gap: 6px;
+}
+.status-dot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  background: var(--success);
+}
+.status-dot.error { background: var(--danger); }
+.status-dot.loading { background: var(--warning); animation: pulse 1s ease infinite; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+.panels {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+/* --- Pack List (left) --- */
+.panel-packs {
+  width: 220px;
+  min-width: 180px;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.panel-header {
+  padding: 14px 16px 10px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1.2px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  flex-shrink: 0;
+}
+.panel-scroll {
+  flex: 1;
+  overflow-y: auto;
+  padding: 0 8px 12px;
+}
+.pack-item {
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  cursor: pointer;
+  margin-bottom: 2px;
+  transition: background 0.15s;
+}
+.pack-item:hover { background: var(--surface-hover); }
+.pack-item.active { background: var(--accent-dim); border-left: 3px solid var(--accent); }
+.pack-item-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+  margin-bottom: 3px;
+}
+.pack-item-meta {
+  font-size: 11px;
+  color: var(--text-dim);
+  display: flex;
+  gap: 10px;
+}
+.pack-item-meta span { display: flex; align-items: center; gap: 3px; }
+
+/* --- File List (middle) --- */
+.panel-files {
+  width: 230px;
+  min-width: 180px;
+  background: var(--bg);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.file-section {
+  margin-bottom: 4px;
+}
+.file-section-header {
+  padding: 12px 16px 6px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-shrink: 0;
+}
+.file-section-count {
+  background: var(--surface);
+  padding: 1px 7px;
+  border-radius: 10px;
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+.file-item {
+  padding: 7px 16px 7px 24px;
+  font-size: 13px;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: background 0.12s, color 0.12s;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.file-item:hover { background: var(--surface-hover); color: var(--text); }
+.file-item.active { background: var(--accent-dim); color: var(--accent); font-weight: 600; }
+
+/* --- Editor (right) --- */
+.panel-editor {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+}
+.editor-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  flex-shrink: 0;
+  gap: 12px;
+}
+.editor-file-name {
+  font-size: 14px;
+  font-weight: 600;
+  font-family: var(--font-mono);
+  color: var(--text);
+  display: flex; align-items: center; gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.unsaved-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--warning);
+  flex-shrink: 0;
+  display: none;
+}
+.unsaved-dot.visible { display: inline-block; }
+.editor-actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+.btn {
+  padding: 6px 16px;
+  border-radius: var(--radius);
+  border: 1px solid var(--border);
+  background: var(--surface);
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s;
+  display: flex; align-items: center; gap: 5px;
+  white-space: nowrap;
+}
+.btn:hover { background: var(--surface-hover); color: var(--text); }
+.btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+.btn-primary:hover { background: var(--accent-hover); }
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn .shortcut {
+  font-size: 10px;
+  color: var(--text-dim);
+  margin-left: 4px;
+}
+.btn-primary .shortcut { color: rgba(255,255,255,0.5); }
+
+.editor-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+  padding: 0;
+}
+
+/* Metadata */
+.meta-panel {
+  padding: 16px 20px;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  flex-shrink: 0;
+}
+.meta-title {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin-bottom: 10px;
+}
+.meta-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 8px 24px;
+}
+.meta-field {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 13px;
+}
+.meta-label {
+  color: var(--text-dim);
+  font-weight: 600;
+  font-size: 12px;
+  min-width: 90px;
+  flex-shrink: 0;
+}
+.meta-value {
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  word-break: break-all;
+}
+.meta-value.tag {
+  background: var(--accent-dim);
+  color: var(--accent);
+  padding: 1px 8px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+/* YAML Editor */
+.yaml-wrap {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  padding: 0 20px 12px;
+  min-height: 200px;
+}
+.yaml-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 0 8px;
+}
+.yaml-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.yaml-line-count {
+  font-size: 11px;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+}
+.yaml-textarea {
+  flex: 1;
+  width: 100%;
+  min-height: 280px;
+  padding: 14px 16px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  color: var(--text);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.6;
+  resize: vertical;
+  tab-size: 2;
+  outline: none;
+  transition: border-color 0.15s;
+}
+.yaml-textarea:focus { border-color: var(--accent); }
+
+/* Error panel */
+.error-panel {
+  margin: 0 20px 16px;
+  border-radius: var(--radius);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.error-panel.hidden { display: none; }
+.error-panel-header {
+  padding: 8px 14px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  display: flex; align-items: center; gap: 6px;
+}
+.error-panel.is-error .error-panel-header {
+  background: var(--danger-dim);
+  color: var(--danger);
+}
+.error-panel.is-success .error-panel-header {
+  background: var(--success-dim);
+  color: var(--success);
+}
+.error-panel-body {
+  padding: 10px 14px;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  line-height: 1.6;
+  max-height: 160px;
+  overflow-y: auto;
+}
+.error-panel.is-error .error-panel-body {
+  background: rgba(239, 68, 68, 0.05);
+  color: var(--text-muted);
+}
+.error-panel.is-success .error-panel-body {
+  background: rgba(34, 197, 94, 0.05);
+  color: var(--text-muted);
+}
+
+/* Welcome/Info screen */
+.welcome-screen, .pack-info-screen {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 40px;
+  color: var(--text-dim);
+}
+.welcome-screen h2, .pack-info-screen h2 {
+  font-size: 20px;
+  color: var(--text-muted);
+  margin-bottom: 12px;
+  font-weight: 700;
+}
+.welcome-screen p, .pack-info-screen p {
+  font-size: 13px;
+  line-height: 1.7;
+  max-width: 400px;
+  text-align: center;
+}
+.pack-info-screen .info-grid {
+  margin-top: 24px;
+  display: grid;
+  gap: 12px;
+  width: 100%;
+  max-width: 400px;
+}
+.pack-info-screen .info-row {
+  display: flex;
+  gap: 12px;
+  font-size: 13px;
+}
+.pack-info-screen .info-label {
+  color: var(--text-dim);
+  min-width: 100px;
+  font-weight: 600;
+  text-align: right;
+}
+.pack-info-screen .info-value {
+  color: var(--text);
+  font-family: var(--font-mono);
+}
+
+/* Toast */
+.toast-container {
+  position: fixed;
+  top: 60px;
+  right: 20px;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.toast {
+  padding: 10px 18px;
+  border-radius: var(--radius);
+  font-size: 13px;
+  font-weight: 500;
+  box-shadow: var(--shadow);
+  animation: toastIn 0.25s ease;
+  max-width: 380px;
+}
+.toast.success { background: var(--success-dim); color: var(--success); border: 1px solid rgba(34,197,94,0.3); }
+.toast.error   { background: var(--danger-dim);  color: var(--danger);  border: 1px solid rgba(239,68,68,0.3); }
+.toast.info    { background: var(--accent-dim);  color: var(--accent);  border: 1px solid rgba(59,130,246,0.3); }
+@keyframes toastIn { from{transform:translateX(40px);opacity:0} to{transform:translateX(0);opacity:1} }
+
+/* Spinner */
+.spinner {
+  width: 14px; height: 14px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+  display: inline-block;
+}
+@keyframes spin { to{transform:rotate(360deg)} }
+
+/* Footer */
+.footer {
+  padding: 8px 20px;
+  font-size: 11px;
+  color: var(--text-dim);
+  background: var(--surface);
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: space-between;
+  flex-shrink: 0;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text-dim); }
+
+/* Empty state */
+.empty-list {
+  padding: 20px 16px;
+  font-size: 12px;
+  color: var(--text-dim);
+  text-align: center;
+}
+
+/* Responsive */
+@media (max-width: 900px) {
+  .panels { flex-direction: column; }
+  .panel-packs, .panel-files {
+    width: 100%;
+    max-height: 180px;
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+  .panel-packs .panel-scroll, .panel-files .panel-scroll {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    padding: 4px 8px;
+  }
+  .pack-item { flex: 0 0 auto; }
+  .file-item { display: inline-block; padding: 4px 12px; }
+}
+</style>
+</head>
+<body>
+
+<div class="app">
+  <!-- Top bar -->
+  <header class="topbar">
+    <div class="topbar-title">
+      <span class="logo">P</span>
+      permit0 Pack Editor
+    </div>
+    <div class="topbar-status" id="globalStatus">
+      <span class="status-dot" id="statusDot"></span>
+      <span id="statusText">Ready</span>
+    </div>
+  </header>
+
+  <!-- Three-panel layout -->
+  <div class="panels">
+    <!-- Left: Pack list -->
+    <aside class="panel-packs">
+      <div class="panel-header">Packs</div>
+      <div class="panel-scroll" id="packList">
+        <div class="empty-list" id="packLoading"><span class="spinner"></span></div>
+      </div>
+    </aside>
+
+    <!-- Middle: File list -->
+    <nav class="panel-files">
+      <div class="panel-scroll" id="fileList">
+        <div class="empty-list" style="margin-top:40px">Select a pack to view files</div>
+      </div>
+    </nav>
+
+    <!-- Right: Editor -->
+    <main class="panel-editor" id="editorPanel">
+      <div class="welcome-screen" id="welcomeScreen">
+        <h2>permit0 Pack Editor</h2>
+        <p>Select a pack from the left panel to browse normalizers and risk rules. Click a file to open it in the editor.</p>
+        <p style="margin-top:16px;font-size:12px;color:var(--text-dim)">
+          Keyboard shortcuts: Ctrl+S to save, Ctrl+Shift+V to validate
+        </p>
+      </div>
+    </main>
+  </div>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <span>permit0 v0.1.0</span>
+    <span id="footerInfo"></span>
+  </footer>
+</div>
+
+<!-- Toast container -->
+<div class="toast-container" id="toastContainer"></div>
+
+<script>
+(function() {
+  'use strict';
+
+  // --- State ---
+  const state = {
+    packs: [],
+    activePack: null,
+    packDetail: null,
+    activeFile: null,   // { kind: 'normalizer'|'risk_rule', file: string }
+    fileData: null,
+    originalYaml: '',
+    loading: false,
+  };
+
+  // --- DOM refs ---
+  const $ = (s, p) => (p || document).querySelector(s);
+  const $$ = (s, p) => [...(p || document).querySelectorAll(s)];
+  const packListEl = $('#packList');
+  const fileListEl = $('#fileList');
+  const editorPanel = $('#editorPanel');
+  const welcomeScreen = $('#welcomeScreen');
+  const toastContainer = $('#toastContainer');
+  const statusDot = $('#statusDot');
+  const statusText = $('#statusText');
+  const footerInfo = $('#footerInfo');
+
+  // --- API helpers ---
+  async function api(method, path, body) {
+    setStatus('loading', 'Loading...');
+    try {
+      const opts = { method, headers: { 'Content-Type': 'application/json' } };
+      if (body) opts.body = JSON.stringify(body);
+      const resp = await fetch('/api/v1' + path, opts);
+      const json = await resp.json();
+      setStatus('ok', 'Ready');
+      if (!json.ok) throw new Error(json.error || 'Unknown error');
+      return json.data;
+    } catch (err) {
+      setStatus('error', 'Error');
+      throw err;
+    }
+  }
+
+  function setStatus(type, text) {
+    statusDot.className = 'status-dot' + (type === 'loading' ? ' loading' : type === 'error' ? ' error' : '');
+    statusText.textContent = text;
+  }
+
+  // --- Toast ---
+  function toast(message, type) {
+    type = type || 'info';
+    const el = document.createElement('div');
+    el.className = 'toast ' + type;
+    el.textContent = message;
+    toastContainer.appendChild(el);
+    setTimeout(function() {
+      el.style.opacity = '0';
+      el.style.transition = 'opacity 0.3s';
+      setTimeout(function() { el.remove(); }, 300);
+    }, 3500);
+  }
+
+  // --- Pack List ---
+  async function loadPacks() {
+    try {
+      state.packs = await api('GET', '/packs');
+      renderPacks();
+    } catch (err) {
+      packListEl.innerHTML = '<div class="empty-list">Failed to load packs</div>';
+      toast('Failed to load packs: ' + err.message, 'error');
+    }
+  }
+
+  function renderPacks() {
+    if (!state.packs || state.packs.length === 0) {
+      packListEl.innerHTML = '<div class="empty-list">No packs found</div>';
+      return;
+    }
+    packListEl.innerHTML = state.packs.map(function(p) {
+      var active = state.activePack === p.name ? ' active' : '';
+      return '<div class="pack-item' + active + '" data-pack="' + esc(p.name) + '">'
+        + '<div class="pack-item-name">' + esc(p.name) + '</div>'
+        + '<div class="pack-item-meta">'
+        + '<span>v' + esc(p.version || '?') + '</span>'
+        + '<span>' + (p.normalizer_count || 0) + ' norm</span>'
+        + '<span>' + (p.risk_rule_count || 0) + ' rules</span>'
+        + '</div></div>';
+    }).join('');
+
+    $$('.pack-item', packListEl).forEach(function(el) {
+      el.addEventListener('click', function() {
+        selectPack(el.dataset.pack);
+      });
+    });
+  }
+
+  async function selectPack(name) {
+    state.activePack = name;
+    state.activeFile = null;
+    state.fileData = null;
+    renderPacks();
+    try {
+      state.packDetail = await api('GET', '/packs/' + encodeURIComponent(name));
+      renderFiles();
+      renderPackInfo();
+    } catch (err) {
+      fileListEl.innerHTML = '<div class="empty-list">Failed to load pack</div>';
+      toast('Failed to load pack: ' + err.message, 'error');
+    }
+  }
+
+  // --- File List ---
+  function renderFiles() {
+    var d = state.packDetail;
+    if (!d) { fileListEl.innerHTML = ''; return; }
+
+    var norms = d.normalizers || [];
+    var rules = d.risk_rules || [];
+
+    var html = '<div class="file-section">'
+      + '<div class="file-section-header">Normalizers <span class="file-section-count">' + norms.length + '</span></div>';
+    if (norms.length === 0) {
+      html += '<div class="empty-list">None</div>';
+    } else {
+      norms.forEach(function(f) {
+        var active = state.activeFile && state.activeFile.kind === 'normalizer' && state.activeFile.file === f ? ' active' : '';
+        html += '<div class="file-item' + active + '" data-kind="normalizer" data-file="' + esc(f) + '">' + esc(f) + '</div>';
+      });
+    }
+    html += '</div>';
+
+    html += '<div class="file-section">'
+      + '<div class="file-section-header">Risk Rules <span class="file-section-count">' + rules.length + '</span></div>';
+    if (rules.length === 0) {
+      html += '<div class="empty-list">None</div>';
+    } else {
+      rules.forEach(function(f) {
+        var active = state.activeFile && state.activeFile.kind === 'risk_rule' && state.activeFile.file === f ? ' active' : '';
+        html += '<div class="file-item' + active + '" data-kind="risk_rule" data-file="' + esc(f) + '">' + esc(f) + '</div>';
+      });
+    }
+    html += '</div>';
+
+    fileListEl.innerHTML = html;
+
+    $$('.file-item', fileListEl).forEach(function(el) {
+      el.addEventListener('click', function() {
+        selectFile(el.dataset.kind, el.dataset.file);
+      });
+    });
+  }
+
+  async function selectFile(kind, file) {
+    state.activeFile = { kind: kind, file: file };
+    renderFiles();
+    try {
+      var endpoint = kind === 'normalizer' ? 'normalizers' : 'risk_rules';
+      state.fileData = await api('GET', '/packs/' + encodeURIComponent(state.activePack) + '/' + endpoint + '/' + encodeURIComponent(file));
+      state.originalYaml = state.fileData.yaml || '';
+      renderEditor();
+      document.title = file + ' - permit0 Pack Editor';
+    } catch (err) {
+      toast('Failed to load file: ' + err.message, 'error');
+    }
+  }
+
+  // --- Pack Info (when pack selected but no file) ---
+  function renderPackInfo() {
+    var d = state.packDetail;
+    editorPanel.innerHTML = '';
+    var screen = document.createElement('div');
+    screen.className = 'pack-info-screen';
+    screen.innerHTML = '<h2>' + esc(d.name) + '</h2>'
+      + '<div class="info-grid">'
+      + infoRow('Version', d.version || 'unknown')
+      + infoRow('Vendor', d.vendor || 'unknown')
+      + infoRow('Description', d.description || 'No description')
+      + infoRow('Normalizers', (d.normalizers || []).length)
+      + infoRow('Risk Rules', (d.risk_rules || []).length)
+      + '</div>'
+      + '<p style="margin-top:24px;font-size:12px">Click a file in the middle panel to open the editor.</p>';
+    editorPanel.appendChild(screen);
+    document.title = d.name + ' - permit0 Pack Editor';
+  }
+
+  function infoRow(label, value) {
+    return '<div class="info-row"><span class="info-label">' + esc(label) + '</span><span class="info-value">' + esc(String(value)) + '</span></div>';
+  }
+
+  // --- Editor ---
+  function renderEditor() {
+    var fd = state.fileData;
+    var kind = state.activeFile.kind;
+    editorPanel.innerHTML = '';
+
+    // Toolbar
+    var toolbar = document.createElement('div');
+    toolbar.className = 'editor-toolbar';
+    toolbar.innerHTML = '<div class="editor-file-name">'
+      + '<span class="unsaved-dot" id="unsavedDot"></span>'
+      + esc(state.activeFile.file)
+      + '</div>'
+      + '<div class="editor-actions">'
+      + '<button class="btn" id="btnValidate">Validate<span class="shortcut">Ctrl+Shift+V</span></button>'
+      + '<button class="btn btn-primary" id="btnSave">Save<span class="shortcut">Ctrl+S</span></button>'
+      + '</div>';
+    editorPanel.appendChild(toolbar);
+
+    // Editor body wrapper
+    var body = document.createElement('div');
+    body.className = 'editor-body';
+
+    // Metadata
+    var meta = fd.meta || {};
+    var metaPanel = document.createElement('div');
+    metaPanel.className = 'meta-panel';
+    var metaHtml = '<div class="meta-title">Metadata</div><div class="meta-grid">';
+    if (kind === 'normalizer') {
+      metaHtml += metaField('id', meta.id);
+      metaHtml += metaField('action_type', meta.action_type);
+      metaHtml += metaField('priority', meta.priority);
+      metaHtml += metaField('channel', meta.channel);
+    } else {
+      metaHtml += metaField('action_type', meta.action_type);
+      metaHtml += metaFieldArray('flags', meta.flags);
+      metaHtml += metaFieldArray('amplifiers', meta.amplifiers);
+    }
+    metaHtml += '</div>';
+    metaPanel.innerHTML = metaHtml;
+    body.appendChild(metaPanel);
+
+    // YAML area
+    var yamlWrap = document.createElement('div');
+    yamlWrap.className = 'yaml-wrap';
+
+    var yamlHeader = document.createElement('div');
+    yamlHeader.className = 'yaml-header';
+    var lineCount = (fd.yaml || '').split('\n').length;
+    yamlHeader.innerHTML = '<span class="yaml-label">YAML Source</span><span class="yaml-line-count" id="lineCount">' + lineCount + ' lines</span>';
+    yamlWrap.appendChild(yamlHeader);
+
+    var textarea = document.createElement('textarea');
+    textarea.className = 'yaml-textarea';
+    textarea.id = 'yamlEditor';
+    textarea.value = fd.yaml || '';
+    textarea.spellcheck = false;
+    textarea.setAttribute('autocomplete', 'off');
+    textarea.setAttribute('autocorrect', 'off');
+    textarea.setAttribute('autocapitalize', 'off');
+    yamlWrap.appendChild(textarea);
+    body.appendChild(yamlWrap);
+
+    // Error panel
+    var errPanel = document.createElement('div');
+    errPanel.className = 'error-panel hidden';
+    errPanel.id = 'errorPanel';
+    errPanel.innerHTML = '<div class="error-panel-header" id="errorHeader"></div>'
+      + '<div class="error-panel-body" id="errorBody"></div>';
+    body.appendChild(errPanel);
+
+    editorPanel.appendChild(body);
+
+    // --- Wire events ---
+    var btnSave = $('#btnSave');
+    var btnValidate = $('#btnValidate');
+
+    textarea.addEventListener('input', function() {
+      updateUnsaved();
+      updateLineCount();
+    });
+
+    textarea.addEventListener('keydown', function(e) {
+      // Tab support
+      if (e.key === 'Tab') {
+        e.preventDefault();
+        var start = textarea.selectionStart;
+        var end = textarea.selectionEnd;
+        var val = textarea.value;
+        textarea.value = val.substring(0, start) + '  ' + val.substring(end);
+        textarea.selectionStart = textarea.selectionEnd = start + 2;
+        updateUnsaved();
+        updateLineCount();
+      }
+    });
+
+    btnSave.addEventListener('click', doSave);
+    btnValidate.addEventListener('click', doValidate);
+  }
+
+  function metaField(label, value) {
+    if (value === undefined || value === null) value = '-';
+    return '<div class="meta-field"><span class="meta-label">' + esc(label) + '</span><span class="meta-value">' + esc(String(value)) + '</span></div>';
+  }
+
+  function metaFieldArray(label, arr) {
+    if (!arr || !Array.isArray(arr) || arr.length === 0) {
+      return '<div class="meta-field"><span class="meta-label">' + esc(label) + '</span><span class="meta-value">-</span></div>';
+    }
+    var tags = arr.map(function(v) { return '<span class="meta-value tag">' + esc(String(v)) + '</span>'; }).join(' ');
+    return '<div class="meta-field"><span class="meta-label">' + esc(label) + '</span><span>' + tags + '</span></div>';
+  }
+
+  function updateUnsaved() {
+    var dot = $('#unsavedDot');
+    var ta = $('#yamlEditor');
+    if (dot && ta) {
+      var changed = ta.value !== state.originalYaml;
+      dot.classList.toggle('visible', changed);
+    }
+  }
+
+  function updateLineCount() {
+    var ta = $('#yamlEditor');
+    var lc = $('#lineCount');
+    if (ta && lc) {
+      lc.textContent = ta.value.split('\n').length + ' lines';
+    }
+  }
+
+  // --- Save ---
+  async function doSave() {
+    if (!state.activeFile || !state.activePack) return;
+    var ta = $('#yamlEditor');
+    if (!ta) return;
+    var yaml = ta.value;
+    var endpoint = state.activeFile.kind === 'normalizer' ? 'normalizers' : 'risk_rules';
+    var btnSave = $('#btnSave');
+    btnSave.disabled = true;
+    btnSave.innerHTML = '<span class="spinner"></span> Saving...';
+    try {
+      await api('PUT', '/packs/' + encodeURIComponent(state.activePack) + '/' + endpoint + '/' + encodeURIComponent(state.activeFile.file), { yaml: yaml });
+      state.originalYaml = yaml;
+      updateUnsaved();
+      showFeedback('success', 'Saved', 'File saved successfully.');
+      toast('File saved successfully', 'success');
+    } catch (err) {
+      showFeedback('error', 'Save Failed', err.message);
+      toast('Save failed: ' + err.message, 'error');
+    } finally {
+      btnSave.disabled = false;
+      btnSave.innerHTML = 'Save<span class="shortcut">Ctrl+S</span>';
+    }
+  }
+
+  // --- Validate ---
+  async function doValidate() {
+    if (!state.activeFile) return;
+    var ta = $('#yamlEditor');
+    if (!ta) return;
+    var yaml = ta.value;
+    var kind = state.activeFile.kind;
+    var btnValidate = $('#btnValidate');
+    btnValidate.disabled = true;
+    btnValidate.innerHTML = '<span class="spinner"></span> Validating...';
+    try {
+      var result = await api('POST', '/packs/validate', { kind: kind, yaml: yaml });
+      if (result.valid) {
+        showFeedback('success', 'Valid', 'YAML is valid. No errors found.');
+        toast('Validation passed', 'success');
+      } else {
+        var errors = (result.errors || []).join('\n');
+        showFeedback('error', 'Validation Errors', errors || 'Unknown validation error');
+      }
+    } catch (err) {
+      showFeedback('error', 'Validation Failed', err.message);
+    } finally {
+      btnValidate.disabled = false;
+      btnValidate.innerHTML = 'Validate<span class="shortcut">Ctrl+Shift+V</span>';
+    }
+  }
+
+  // --- Feedback panel ---
+  function showFeedback(type, title, body) {
+    var panel = $('#errorPanel');
+    var header = $('#errorHeader');
+    var bodyEl = $('#errorBody');
+    if (!panel) return;
+    panel.className = 'error-panel is-' + type;
+    var icon = type === 'success' ? '\u2713' : '\u2717';
+    header.textContent = icon + ' ' + title;
+    bodyEl.textContent = body;
+  }
+
+  // --- Keyboard shortcuts ---
+  document.addEventListener('keydown', function(e) {
+    if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+      e.preventDefault();
+      doSave();
+    }
+    if ((e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'V' || e.key === 'v')) {
+      e.preventDefault();
+      doValidate();
+    }
+  });
+
+  // --- Escape helper ---
+  function esc(s) {
+    if (s === null || s === undefined) return '';
+    var div = document.createElement('div');
+    div.appendChild(document.createTextNode(String(s)));
+    return div.innerHTML;
+  }
+
+  // --- Init ---
+  loadPacks();
+})();
+</script>
+</body>
+</html>

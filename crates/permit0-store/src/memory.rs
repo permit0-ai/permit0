@@ -51,6 +51,11 @@ impl Store for InMemoryStore {
         Ok(())
     }
 
+    fn denylist_list(&self) -> Result<Vec<(NormHash, String)>, StoreError> {
+        let guard = self.denylist.read().map_err(|e| StoreError::Io(e.to_string()))?;
+        Ok(guard.iter().map(|(k, v)| (*k, v.clone())).collect())
+    }
+
     fn allowlist_check(&self, hash: &NormHash) -> Result<bool, StoreError> {
         let guard = self.allowlist.read().map_err(|e| StoreError::Io(e.to_string()))?;
         Ok(guard.contains_key(hash))
@@ -66,6 +71,11 @@ impl Store for InMemoryStore {
         let mut guard = self.allowlist.write().map_err(|e| StoreError::Io(e.to_string()))?;
         guard.remove(hash);
         Ok(())
+    }
+
+    fn allowlist_list(&self) -> Result<Vec<(NormHash, String)>, StoreError> {
+        let guard = self.allowlist.read().map_err(|e| StoreError::Io(e.to_string()))?;
+        Ok(guard.iter().map(|(k, v)| (*k, v.clone())).collect())
     }
 
     fn policy_cache_get(&self, hash: &NormHash) -> Result<Option<Permission>, StoreError> {

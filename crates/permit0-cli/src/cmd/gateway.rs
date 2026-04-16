@@ -68,7 +68,7 @@ pub struct GatewayError {
 
 /// Run the JSON gateway.
 pub fn run(profile: Option<String>, org_domain: &str) -> Result<()> {
-    let engine = engine_factory::build_engine_from_packs(profile.as_deref())?;
+    let engine = engine_factory::build_engine_from_packs(profile.as_deref(), None)?;
     let ctx = PermissionCtx::new(NormalizeCtx::new().with_org_domain(org_domain));
 
     let stdin = io::stdin();

@@ -17,7 +17,7 @@ pub fn test_corpus(corpus_path: &str) -> Result<()> {
     }
 
     // Build engine with all packs (no profile — base config)
-    let engine = engine_factory::build_engine_from_packs(None)?;
+    let engine = engine_factory::build_engine_from_packs(None, None)?;
     let ctx = PermissionCtx::new(NormalizeCtx::new().with_org_domain("calibration.test"));
 
     let mut passed = 0;

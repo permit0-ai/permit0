@@ -34,6 +34,15 @@ enum Commands {
         /// Organization domain
         #[arg(long, default_value = "default.org")]
         org_domain: String,
+        /// SQLite database path for session persistence
+        #[arg(long)]
+        db: Option<String>,
+        /// Session ID (default: derived from CLAUDE_SESSION_ID or PPID)
+        #[arg(long)]
+        session_id: Option<String>,
+        /// Path to packs directory (default: ./packs/ or ~/.permit0/packs/)
+        #[arg(long)]
+        packs_dir: Option<String>,
     },
     /// Generic stdin/stdout JSON gateway (JSONL mode)
     Gateway {
@@ -155,7 +164,10 @@ fn main() -> anyhow::Result<()> {
         Commands::Hook {
             profile,
             org_domain,
-        } => cmd::hook::run(profile, &org_domain),
+            db,
+            session_id,
+            packs_dir,
+        } => cmd::hook::run(profile, &org_domain, db, session_id, packs_dir),
         Commands::Gateway {
             profile,
             org_domain,

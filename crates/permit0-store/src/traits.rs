@@ -25,6 +25,9 @@ pub trait Store: Send + Sync {
     /// Remove a norm_hash from the denylist.
     fn denylist_remove(&self, hash: &NormHash) -> Result<(), StoreError>;
 
+    /// List all denylist entries as (hash, reason) pairs.
+    fn denylist_list(&self) -> Result<Vec<(NormHash, String)>, StoreError>;
+
     // ── Allowlist ──
 
     /// Check if a norm_hash is on the allowlist.
@@ -35,6 +38,9 @@ pub trait Store: Send + Sync {
 
     /// Remove a norm_hash from the allowlist.
     fn allowlist_remove(&self, hash: &NormHash) -> Result<(), StoreError>;
+
+    /// List all allowlist entries as (hash, justification) pairs.
+    fn allowlist_list(&self) -> Result<Vec<(NormHash, String)>, StoreError>;
 
     // ── Policy Cache ──
 

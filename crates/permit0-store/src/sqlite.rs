@@ -165,6 +165,25 @@ impl Store for SqliteStore {
         Ok(())
     }
 
+    fn denylist_list(&self) -> Result<Vec<(NormHash, String)>, StoreError> {
+        let conn = self.conn.lock().map_err(|e| StoreError::Io(e.to_string()))?;
+        let mut stmt = conn
+            .prepare("SELECT norm_hash, reason FROM denylist")
+            .map_err(|e| StoreError::Io(e.to_string()))?;
+        let rows = stmt
+            .query_map([], |row| {
+                let blob: Vec<u8> = row.get(0)?;
+                let reason: String = row.get(1)?;
+                Ok((blob_to_hash(&blob), reason))
+            })
+            .map_err(|e| StoreError::Io(e.to_string()))?;
+        let mut results = Vec::new();
+        for row in rows {
+            results.push(row.map_err(|e| StoreError::Io(e.to_string()))?);
+        }
+        Ok(results)
+    }
+
     fn allowlist_check(&self, hash: &NormHash) -> Result<bool, StoreError> {
         let conn = self.conn.lock().map_err(|e| StoreError::Io(e.to_string()))?;
         let mut stmt = conn
@@ -196,6 +215,25 @@ impl Store for SqliteStore {
         )
         .map_err(|e| StoreError::Io(e.to_string()))?;
         Ok(())
+    }
+
+    fn allowlist_list(&self) -> Result<Vec<(NormHash, String)>, StoreError> {
+        let conn = self.conn.lock().map_err(|e| StoreError::Io(e.to_string()))?;
+        let mut stmt = conn
+            .prepare("SELECT norm_hash, justification FROM allowlist")
+            .map_err(|e| StoreError::Io(e.to_string()))?;
+        let rows = stmt
+            .query_map([], |row| {
+                let blob: Vec<u8> = row.get(0)?;
+                let justification: String = row.get(1)?;
+                Ok((blob_to_hash(&blob), justification))
+            })
+            .map_err(|e| StoreError::Io(e.to_string()))?;
+        let mut results = Vec::new();
+        for row in rows {
+            results.push(row.map_err(|e| StoreError::Io(e.to_string()))?);
+        }
+        Ok(results)
     }
 
     fn policy_cache_get(&self, hash: &NormHash) -> Result<Option<Permission>, StoreError> {

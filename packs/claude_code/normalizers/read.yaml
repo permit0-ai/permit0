@@ -1,0 +1,23 @@
+permit0_pack: "permit0/claude_code"
+id: "claude_code:read"
+priority: 203
+match:
+  tool: Read
+normalize:
+  action_type: "files.read"
+  domain: "files"
+  verb: "read"
+  channel: "claude_code"
+  entities:
+    path:
+      from: "file_path"
+      type: "string"
+      required: true
+    file_type:
+      compute: "classify_file_type"
+      args:
+        - "file_path"
+    path_depth:
+      compute: "parse_path_depth"
+      args:
+        - "file_path"

@@ -1,0 +1,104 @@
+permit0_pack: "permit0/claude_code"
+action_type: "files.write"
+base:
+  flags:
+    MUTATION: primary
+  amplifiers:
+    scope: 4
+    irreversibility: 5
+    sensitivity: 3
+rules:
+  # Sensitive configuration files
+  - when:
+      file_path:
+        contains_any: [".env", "credentials", "secret", "private_key", "token"]
+    then:
+      - add_flag:
+          flag: EXPOSURE
+          role: primary
+      - add_flag:
+          flag: GOVERNANCE
+          role: primary
+      - upgrade:
+          dim: sensitivity
+          delta: 20
+      - upgrade:
+          dim: scope
+          delta: 12
+      - upgrade:
+          dim: irreversibility
+          delta: 10
+      - upgrade:
+          dim: boundary
+          delta: 14
+
+  # System paths
+  - when:
+      file_path:
+        contains_any: ["/etc/", "/usr/", "/var/"]
+    then:
+      - add_flag:
+          flag: PRIVILEGE
+          role: primary
+      - upgrade:
+          dim: boundary
+          delta: 8
+      - upgrade:
+          dim: scope
+          delta: 6
+
+  # SSH directory
+  - when:
+      file_path:
+        contains: ".ssh/"
+    then:
+      - gate: "ssh_directory_write"
+
+  # Git internals
+  - when:
+      file_path:
+        contains: ".git/"
+    then:
+      - add_flag:
+          flag: GOVERNANCE
+          role: secondary
+      - upgrade:
+          dim: irreversibility
+          delta: 4
+      - upgrade:
+          dim: scope
+          delta: 3
+
+  # Claude Code settings (privilege escalation vector)
+  - when:
+      file_path:
+        contains_any: [".claude/settings", "claude.json", "CLAUDE.md"]
+    then:
+      - add_flag:
+          flag: PRIVILEGE
+          role: primary
+      - add_flag:
+          flag: GOVERNANCE
+          role: primary
+      - upgrade:
+          dim: sensitivity
+          delta: 16
+      - upgrade:
+          dim: scope
+          delta: 10
+      - upgrade:
+          dim: boundary
+          delta: 8
+
+session_rules:
+  # Many writes in session — potential bulk modification
+  - when:
+      record_count:
+        gt: 8
+    then:
+      - upgrade:
+          dim: scope
+          delta: 6
+      - upgrade:
+          dim: sensitivity
+          delta: 4

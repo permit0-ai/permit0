@@ -1184,11 +1184,13 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum",
+ "chrono",
  "clap",
  "permit0-dsl",
  "permit0-engine",
  "permit0-normalize",
  "permit0-scoring",
+ "permit0-session",
  "permit0-store",
  "permit0-types",
  "permit0-ui",
@@ -1196,8 +1198,10 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "tokio",
+ "tower-http",
  "tracing",
  "tracing-subscriber",
+ "ulid",
 ]
 
 [[package]]
@@ -1296,6 +1300,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "permit0-types",
+ "rusqlite",
  "serde",
  "serde_json",
  "thiserror 2.0.18",
@@ -1350,6 +1355,7 @@ dependencies = [
  "base64 0.22.1",
  "chrono",
  "hex",
+ "permit0-dsl",
  "permit0-engine",
  "permit0-store",
  "permit0-types",
@@ -1358,6 +1364,7 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "sha2 0.10.9",
+ "tempfile",
  "thiserror 2.0.18",
  "tokio",
  "tower",

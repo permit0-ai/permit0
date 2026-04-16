@@ -26,7 +26,7 @@ pub fn run(input: Option<String>, profile: Option<String>, org_domain: &str) -> 
         serde_json::from_str(&json_str).context("parsing tool call JSON")?;
 
     // Build engine
-    let engine = engine_factory::build_engine_from_packs(profile.as_deref())?;
+    let engine = engine_factory::build_engine_from_packs(profile.as_deref(), None)?;
 
     // Build context
     let ctx = PermissionCtx::new(NormalizeCtx::new().with_org_domain(org_domain));

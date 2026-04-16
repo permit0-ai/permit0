@@ -1,0 +1,31 @@
+permit0_pack: "permit0/claude_code"
+id: "claude_code:edit"
+priority: 202
+match:
+  tool: Edit
+normalize:
+  action_type: "files.write"
+  domain: "files"
+  verb: "write"
+  channel: "claude_code"
+  entities:
+    path:
+      from: "file_path"
+      type: "string"
+      required: true
+    file_type:
+      compute: "classify_file_type"
+      args:
+        - "file_path"
+    old_string_length:
+      compute: "string_length"
+      args:
+        - "old_string"
+    new_string_length:
+      compute: "string_length"
+      args:
+        - "new_string"
+    path_depth:
+      compute: "parse_path_depth"
+      args:
+        - "file_path"

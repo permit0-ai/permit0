@@ -7,14 +7,21 @@ use permit0_engine::EngineBuilder;
 use permit0_scoring::{ProfileOverrides, ScoringConfig, Guardrails};
 
 /// Load all packs from the packs/ directory and build an engine.
-pub fn build_engine_from_packs(profile: Option<&str>) -> Result<permit0_engine::Engine> {
+///
+/// Search order for packs:
+/// 1. Explicit `packs_dir` if provided
+/// 2. `./packs/` relative to CWD
+/// 3. `~/.permit0/packs/`
+pub fn build_engine_from_packs(
+    profile: Option<&str>,
+    packs_dir: Option<&str>,
+) -> Result<permit0_engine::Engine> {
     let config = load_scoring_config(profile)?;
     let mut builder = EngineBuilder::new().with_config(config);
 
-    // Discover and install all pack normalizers and risk rules
-    let packs_dir = Path::new("packs");
-    if packs_dir.exists() {
-        for entry in std::fs::read_dir(packs_dir)? {
+    let resolved_dir = resolve_packs_dir(packs_dir);
+    if let Some(dir) = &resolved_dir {
+        for entry in std::fs::read_dir(dir)? {
             let entry = entry?;
             if entry.file_type()?.is_dir() {
                 builder = install_pack(builder, &entry.path())?;
@@ -23,6 +30,33 @@ pub fn build_engine_from_packs(profile: Option<&str>) -> Result<permit0_engine::
     }
 
     builder.build().map_err(Into::into)
+}
+
+/// Resolve the packs directory from explicit path, CWD, or ~/.permit0/packs/.
+pub fn resolve_packs_dir(explicit: Option<&str>) -> Option<std::path::PathBuf> {
+    if let Some(dir) = explicit {
+        let p = Path::new(dir);
+        if p.exists() {
+            return Some(p.to_path_buf());
+        }
+    }
+    // CWD/packs/
+    let cwd_packs = Path::new("packs");
+    if cwd_packs.exists() {
+        return Some(cwd_packs.to_path_buf());
+    }
+    // ~/.permit0/packs/
+    if let Some(home) = dirs_home() {
+        let home_packs = home.join(".permit0").join("packs");
+        if home_packs.exists() {
+            return Some(home_packs);
+        }
+    }
+    None
+}
+
+pub fn dirs_home() -> Option<std::path::PathBuf> {
+    std::env::var_os("HOME").map(std::path::PathBuf::from)
 }
 
 /// Load scoring config with optional profile overlay.

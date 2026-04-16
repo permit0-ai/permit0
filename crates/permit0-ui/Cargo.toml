@@ -11,6 +11,8 @@ rust-version.workspace = true
 permit0-types = { workspace = true }
 permit0-engine = { workspace = true }
 permit0-store = { workspace = true }
+permit0-dsl = { workspace = true }
+serde_yaml = { workspace = true }
 axum = { workspace = true }
 tower-http = { workspace = true }
 tokio = { workspace = true }
@@ -27,4 +29,4 @@ rand = { workspace = true }
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }
-serde_yaml = { workspace = true }
+tempfile = "3"

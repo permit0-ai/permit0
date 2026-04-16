@@ -13,7 +13,9 @@ use permit0_store::{AuditSink, Store};
 
 use crate::approval::ApprovalManager;
 use crate::auth::TokenStore;
+use crate::dashboard_routes;
 use crate::oidc;
+use crate::pack_routes;
 use crate::routes;
 use crate::state::AppState;
 
@@ -22,10 +24,35 @@ pub fn build_router(state: AppState) -> Router {
     let api = Router::new()
         .route("/health", get(routes::health))
         .route("/audit", get(routes::list_audit))
+        .route("/audit/export", get(dashboard_routes::audit_export))
+        .route("/stats", get(dashboard_routes::stats))
         .route("/approvals", get(routes::list_approvals))
         .route("/approvals/decide", post(routes::submit_approval))
-        .route("/lists/denylist", post(routes::denylist_add))
-        .route("/lists/allowlist", post(routes::allowlist_add));
+        .route(
+            "/lists/denylist",
+            get(dashboard_routes::list_denylist)
+                .post(routes::denylist_add)
+                .delete(dashboard_routes::denylist_remove_entry),
+        )
+        .route(
+            "/lists/allowlist",
+            get(dashboard_routes::list_allowlist)
+                .post(routes::allowlist_add)
+                .delete(dashboard_routes::allowlist_remove_entry),
+        )
+        .route("/profiles", get(dashboard_routes::list_profiles))
+        .route("/profiles/{name}", get(dashboard_routes::get_profile))
+        .route("/packs", get(pack_routes::list_packs))
+        .route("/packs/validate", post(pack_routes::validate_yaml))
+        .route("/packs/{pack_name}", get(pack_routes::get_pack))
+        .route(
+            "/packs/{pack_name}/normalizers/{filename}",
+            get(pack_routes::get_normalizer).put(pack_routes::update_normalizer),
+        )
+        .route(
+            "/packs/{pack_name}/risk_rules/{filename}",
+            get(pack_routes::get_risk_rule).put(pack_routes::update_risk_rule),
+        );
 
     Router::new()
         .nest("/api/v1", api)
@@ -39,10 +66,35 @@ pub fn build_router_with_auth(state: AppState) -> Router {
 
     let protected_api = Router::new()
         .route("/audit", get(routes::list_audit))
+        .route("/audit/export", get(dashboard_routes::audit_export))
+        .route("/stats", get(dashboard_routes::stats))
         .route("/approvals", get(routes::list_approvals))
         .route("/approvals/decide", post(routes::submit_approval))
-        .route("/lists/denylist", post(routes::denylist_add))
-        .route("/lists/allowlist", post(routes::allowlist_add))
+        .route(
+            "/lists/denylist",
+            get(dashboard_routes::list_denylist)
+                .post(routes::denylist_add)
+                .delete(dashboard_routes::denylist_remove_entry),
+        )
+        .route(
+            "/lists/allowlist",
+            get(dashboard_routes::list_allowlist)
+                .post(routes::allowlist_add)
+                .delete(dashboard_routes::allowlist_remove_entry),
+        )
+        .route("/profiles", get(dashboard_routes::list_profiles))
+        .route("/profiles/{name}", get(dashboard_routes::get_profile))
+        .route("/packs", get(pack_routes::list_packs))
+        .route("/packs/validate", post(pack_routes::validate_yaml))
+        .route("/packs/{pack_name}", get(pack_routes::get_pack))
+        .route(
+            "/packs/{pack_name}/normalizers/{filename}",
+            get(pack_routes::get_normalizer).put(pack_routes::update_normalizer),
+        )
+        .route(
+            "/packs/{pack_name}/risk_rules/{filename}",
+            get(pack_routes::get_risk_rule).put(pack_routes::update_risk_rule),
+        )
         .layer(middleware::from_fn_with_state(
             state.clone(),
             auth_middleware,
@@ -92,10 +144,35 @@ pub fn build_router_with_oidc(state: AppState, oidc_state: oidc::OidcState) -> R
 
     let protected_api = Router::new()
         .route("/audit", get(routes::list_audit))
+        .route("/audit/export", get(dashboard_routes::audit_export))
+        .route("/stats", get(dashboard_routes::stats))
         .route("/approvals", get(routes::list_approvals))
         .route("/approvals/decide", post(routes::submit_approval))
-        .route("/lists/denylist", post(routes::denylist_add))
-        .route("/lists/allowlist", post(routes::allowlist_add))
+        .route(
+            "/lists/denylist",
+            get(dashboard_routes::list_denylist)
+                .post(routes::denylist_add)
+                .delete(dashboard_routes::denylist_remove_entry),
+        )
+        .route(
+            "/lists/allowlist",
+            get(dashboard_routes::list_allowlist)
+                .post(routes::allowlist_add)
+                .delete(dashboard_routes::allowlist_remove_entry),
+        )
+        .route("/profiles", get(dashboard_routes::list_profiles))
+        .route("/profiles/{name}", get(dashboard_routes::get_profile))
+        .route("/packs", get(pack_routes::list_packs))
+        .route("/packs/validate", post(pack_routes::validate_yaml))
+        .route("/packs/{pack_name}", get(pack_routes::get_pack))
+        .route(
+            "/packs/{pack_name}/normalizers/{filename}",
+            get(pack_routes::get_normalizer).put(pack_routes::update_normalizer),
+        )
+        .route(
+            "/packs/{pack_name}/risk_rules/{filename}",
+            get(pack_routes::get_risk_rule).put(pack_routes::update_risk_rule),
+        )
         .layer(middleware::from_fn_with_state(
             oidc_state,
             oidc::routes::oidc_auth_middleware,
@@ -122,6 +199,8 @@ pub fn create_app_state(config: &ServerConfig) -> AppState {
         audit_sink: config.audit_sink.clone(),
         token_store: Arc::new(TokenStore::new()),
         approval_manager: Arc::new(ApprovalManager::new()),
+        packs_dir: None,
+        profiles_dir: None,
     }
 }
 
@@ -140,6 +219,8 @@ mod tests {
             audit_sink: None,
             token_store: Arc::new(TokenStore::new()),
             approval_manager: Arc::new(ApprovalManager::new()),
+            packs_dir: None,
+            profiles_dir: None,
         }
     }
 
