@@ -2,9 +2,51 @@
 
 Get someone else to a working setup. ~10 min (Outlook) or ~15 min (with Gmail).
 
-## Prereqs
+## 0. Install prereqs
 
-`cargo` 1.85+, `python` 3.10+, `claude` (any), `sqlite3`.
+Need: `cargo` 1.85+, `python` 3.10+, `sqlite3`, `claude` (Claude Code CLI).
+
+### macOS
+
+```bash
+# Rust
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+source "$HOME/.cargo/env"
+
+# Python + sqlite3 (system Python is fine; or via Homebrew)
+brew install python sqlite
+
+# Claude Code
+brew install --cask claude-code   # or: npm install -g @anthropic-ai/claude-code
+```
+
+### Linux (Debian / Ubuntu)
+
+```bash
+# Rust
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+source "$HOME/.cargo/env"
+
+# Python + sqlite3
+sudo apt update && sudo apt install -y python3 python3-pip python3-venv sqlite3 build-essential pkg-config libssl-dev
+
+# Claude Code (official install script — works on glibc Linux)
+curl -fsSL https://claude.ai/install.sh | sh
+# or via npm: npm install -g @anthropic-ai/claude-code
+```
+
+### Linux (other distros)
+
+Use your package manager's equivalents (`dnf`, `pacman`, etc.) for python3 + sqlite3 + build tools, then run the same `rustup` and Claude Code installer lines above.
+
+### Verify
+
+```bash
+cargo --version    # 1.85.0+
+python3 --version  # 3.10+
+sqlite3 --version
+claude --version
+```
 
 ## 1. Build + start daemon (calibrate mode)
 
