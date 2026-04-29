@@ -105,7 +105,7 @@ JSON strings, and `permit0` may not be on Claude Code's PATH:
         "hooks": [
           {
             "type": "command",
-            "command": "/abs/path/to/permit0 hook --db /home/you/.permit0/sessions.db"
+            "command": "/abs/path/to/permit0 hook --db /home/you/.permit0/sessions.db --packs-dir /abs/path/to/permit0-core/packs"
           }
         ]
       }
@@ -117,6 +117,13 @@ JSON strings, and `permit0` may not be on Claude Code's PATH:
 The omitted `matcher` field means "match all tool calls" (both
 built-in tools and MCP-prefixed ones). Put this **first** in the
 PreToolUse array so permit0 is the first gate.
+
+> **Critical**: pin `--packs-dir` to an absolute path. Claude Code runs
+> the hook with an unpredictable working directory; without the flag,
+> the hook falls back to `~/.permit0/packs/` which may not exist or
+> may contain stale pack copies, causing the engine to fail to build
+> and the hook to exit nonzero (silently treated as "no decision" →
+> tool runs unprompted).
 
 > **Schema gotcha**: Claude Code's hook schema is *nested* —
 > `{ matcher, hooks: [{ type, command }] }`, not the flat

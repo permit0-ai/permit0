@@ -129,7 +129,7 @@ Use absolute paths (PATH and `~` expansion can't be relied on):
         "hooks": [
           {
             "type": "command",
-            "command": "/abs/path/to/permit0 hook --db /home/<user>/.permit0/sessions.db"
+            "command": "/abs/path/to/permit0 hook --db /home/<user>/.permit0/sessions.db --packs-dir /abs/path/to/permit0-core/packs"
           }
         ]
       }
@@ -137,6 +137,12 @@ Use absolute paths (PATH and `~` expansion can't be relied on):
   }
 }
 ```
+
+**`--packs-dir` is required** (not optional). Claude Code runs the
+hook from an unpredictable cwd; without this flag, the hook either
+can't find packs or picks up a stale copy at `~/.permit0/packs/`,
+causing engine build failure and a nonzero exit (silently treated as
+"no decision" by Claude Code → tool runs unprompted).
 
 Omit `matcher` → match all tool calls (built-in + MCP). Insert at
 **index 0** so permit0 fires before other hooks. **Merge** with
@@ -200,8 +206,8 @@ Walk the user through diagnostic commands when something doesn't work:
 | Symptom | Diagnosis | Fix |
 |---------|-----------|-----|
 | MCP tools don't appear in Claude Code | `which permit0-outlook-mcp` empty, OR didn't fully quit Claude Code | Add pip's bin dir to PATH (or use absolute path in `~/.claude.json`); fully quit + relaunch |
-| Hook returns `ask_user` for every MCP call | Likely the hook can't find packs or normalizer doesn't match | `echo '{"tool_name":"mcp__permit0-outlook__outlook_send","tool_input":{"to":"a@b.com","subject":"x","body":"y"}}' \| permit0 hook` — should NOT say `unknown.unclassified`. If it does, check working dir contains `packs/` or add `--packs-dir /abs/path` to the hook command |
-| `Hook returns ask_user` for built-in tools (Bash etc.) | Expected — only the `email` pack ships normalizers; built-in tools fall through to unknown | Either accept (default deny → ask user), or add normalizers/risk rules under `packs/<your-domain>/` for the built-ins you use |
+| Claude Code "completely ignores" the hook (tool runs unprompted) | Most likely combo of: (1) wrong file — must be `~/.claude/settings.json`, not `~/.claude.json`; (2) wrong schema — must be nested `{matcher,hooks:[{type,command}]}`; (3) wrong output format — must be `hookSpecificOutput.permissionDecision` not legacy `{"decision":"..."}` ; (4) missing `--packs-dir` so engine build fails on stale `~/.permit0/packs/` | Run `cd /tmp && echo '{"tool_name":"mcp__permit0-outlook__outlook_search","tool_input":{}}' \| /abs/path/to/permit0 hook --db ~/.permit0/sessions.db --packs-dir /abs/path/to/permit0-core/packs` and check exit code is 0 + output starts with `{"hookSpecificOutput"`. If exit is nonzero, the engine build failed — check error message |
+| Hook returns `ask` (legacy: `ask_user`) for built-in tools (Bash etc.) | Expected — only the `email` pack ships normalizers; built-in tools fall through to `unknown.unclassified` → ask | Either accept (default human review), or add normalizers/risk rules under `packs/<your-domain>/` for the built-ins you use |
 | Daemon not reachable | `curl http://localhost:9090/api/v1/health` fails | Daemon crashed or was killed; restart in terminal 1. Or port collision — try a different port and update the hook URL via `PERMIT0_URL` env var |
 | Outlook auth: "AADSTS65001" | Work/school account requires admin consent for the public Graph PowerShell client | Use personal `@outlook.com` account, OR register own Azure App and set `MSGRAPH_CLIENT_ID` |
 | Gmail OAuth "redirect_uri_mismatch" | OAuth client was created as Web app instead of Desktop | Delete the credential, create a new **Desktop app** type, re-download |
