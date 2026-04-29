@@ -61,10 +61,14 @@ The fastest path to a real, useful permit0 deployment: gate every email
 operation Claude Code performs on your **personal Outlook or Gmail account**
 through a single PreToolUse hook. ~10 minutes, fully gated, fully audited.
 
-> **Need a zero-to-running walkthrough with troubleshooting?**
-> See [**docs/claude-code-integration.md**](docs/claude-code-integration.md) —
-> step-by-step from `git clone` to "Claude Code organizes my mailbox with
-> permit0 in the loop", including OAuth setup for both providers.
+> **Need a zero-to-running walkthrough?** Two formats:
+>
+> - [**docs/claude-code-integration.md**](docs/claude-code-integration.md) —
+>   100-line static recipe you read top-to-bottom.
+> - [**skills/permit0-claude-code-setup**](skills/permit0-claude-code-setup/SKILL.md) —
+>   a Claude Code skill that walks you through interactively (symlink it
+>   into `~/.claude/skills/` and tell Claude "set up permit0 with Claude
+>   Code"). See [`skills/README.md`](skills/README.md) for install steps.
 
 ### Architecture (single-layer)
 
