@@ -42,7 +42,14 @@ pub enum DecisionSource {
     Allowlist,
     PolicyCache,
     Scorer,
+    /// LLM-based agent reviewer (when configured via
+    /// `EngineBuilder::with_reviewer`) ran and produced a verdict on a
+    /// Medium-tier action.
     AgentReviewer,
+    /// A human approved/denied this action (typically via the dashboard
+    /// in calibration mode, or the HITL approval flow). The audit record
+    /// will also have a `reviewer` field set.
+    HumanReviewer,
 }
 
 impl DecisionSource {
@@ -53,6 +60,7 @@ impl DecisionSource {
             Self::PolicyCache => "policy_cache",
             Self::Scorer => "scorer",
             Self::AgentReviewer => "agent_reviewer",
+            Self::HumanReviewer => "human_reviewer",
         }
     }
 }

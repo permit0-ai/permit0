@@ -154,10 +154,10 @@ async fn check_action_handler(
     record_and_respond(&state, &result, surface_tool, String::new(), meta)
 }
 
-/// In calibration mode, escalate every fresh decision (Scorer or AgentReviewer
-/// source — i.e. not from list/cache) to a human-in-the-loop approval. The
-/// HTTP request blocks until the human submits a decision via the dashboard,
-/// or until the approval timeout expires.
+/// In calibration mode, escalate every fresh decision (engine-produced —
+/// not from list/cache or a previous human review) to a human-in-the-loop
+/// approval. The HTTP request blocks until the human submits a decision
+/// via the dashboard, or until the approval timeout expires.
 ///
 /// Cache is updated with the human's decision so subsequent identical calls
 /// reflect the calibrated answer.
@@ -169,11 +169,13 @@ async fn apply_calibration(
         return Ok((result, CalibrationMeta::default()));
     }
     // Skip when the decision came from a place where the human already had
-    // a say (allowlist/denylist) or we're replaying a previous decision.
+    // a say (allowlist/denylist/HumanReviewer) or we're replaying a previous
+    // decision (PolicyCache).
     match result.source {
         DecisionSource::Allowlist
         | DecisionSource::Denylist
-        | DecisionSource::PolicyCache => return Ok((result, CalibrationMeta::default())),
+        | DecisionSource::PolicyCache
+        | DecisionSource::HumanReviewer => return Ok((result, CalibrationMeta::default())),
         DecisionSource::Scorer | DecisionSource::AgentReviewer => {}
     }
 
@@ -247,7 +249,7 @@ async fn apply_calibration(
         permission: decision.permission,
         norm_action: result.norm_action,
         risk_score: result.risk_score,
-        source: DecisionSource::AgentReviewer,
+        source: DecisionSource::HumanReviewer,
     };
     Ok((new_result, meta))
 }
