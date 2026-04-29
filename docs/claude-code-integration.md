@@ -88,23 +88,55 @@ Open the device-login URL it prints, sign in, approve `Mail.ReadWrite` + `Mail.S
 
 ## 4. Configure Claude Code
 
-Add to `~/.claude.json` (merge if these keys already exist):
+Two files. **The hook lives in `~/.claude/settings.json`** (not
+`~/.claude.json`!). MCP servers live in `~/.claude.json`.
+
+### 4a. Hook → `~/.claude/settings.json`
+
+Add to the top-level `hooks.PreToolUse` array (merge with whatever's
+already there). Use **absolute paths** — `~` does NOT expand inside
+JSON strings, and `permit0` may not be on Claude Code's PATH:
 
 ```json
 {
   "hooks": {
-    "PreToolUse": [{ "command": "permit0 hook --db ~/.permit0/sessions.db" }]
-  },
-  "mcpServers": {
-    "permit0-outlook": { "command": "permit0-outlook-mcp" },
-    "permit0-gmail":   { "command": "permit0-gmail-mcp" }
+    "PreToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/abs/path/to/permit0 hook --db /home/you/.permit0/sessions.db"
+          }
+        ]
+      }
+    ]
   }
 }
 ```
 
-If `permit0-outlook-mcp` isn't on Claude Code's PATH, replace with the absolute path from `which permit0-outlook-mcp`.
+The omitted `matcher` field means "match all tool calls" (both
+built-in tools and MCP-prefixed ones). Put this **first** in the
+PreToolUse array so permit0 is the first gate.
 
-**Fully quit and relaunch** Claude Code.
+> **Schema gotcha**: Claude Code's hook schema is *nested* —
+> `{ matcher, hooks: [{ type, command }] }`, not the flat
+> `{ command }` you'll find in some older docs.
+
+### 4b. MCP servers → `~/.claude.json`
+
+```json
+{
+  "mcpServers": {
+    "permit0-outlook": { "command": "/abs/path/to/permit0-outlook-mcp" },
+    "permit0-gmail":   { "command": "/abs/path/to/permit0-gmail-mcp" }
+  }
+}
+```
+
+Find absolute paths via `which permit0`, `which permit0-outlook-mcp`, etc.
+
+**Fully quit and relaunch** Claude Code (reload-window does NOT reload
+hooks or MCP config).
 
 ## 5. Test
 

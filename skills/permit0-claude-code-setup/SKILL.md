@@ -115,29 +115,54 @@ permissions. Token caches to `~/.permit0/gmail_token.json`.
 
 ### 4. Configure Claude Code
 
-Edit `~/.claude.json`. Merge these top-level keys (don't overwrite
-existing keys with same name — merge their contents):
+**Two files** — different schemas:
+
+**4a. Hook → `~/.claude/settings.json`** (NOT `~/.claude.json`).
+Schema is *nested* — `{ matcher, hooks: [{ type, command }] }`.
+Use absolute paths (PATH and `~` expansion can't be relied on):
 
 ```json
 {
   "hooks": {
     "PreToolUse": [
-      { "command": "permit0 hook --db ~/.permit0/sessions.db" }
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/abs/path/to/permit0 hook --db /home/<user>/.permit0/sessions.db"
+          }
+        ]
+      }
     ]
-  },
-  "mcpServers": {
-    "permit0-outlook": { "command": "permit0-outlook-mcp" },
-    "permit0-gmail":   { "command": "permit0-gmail-mcp" }
   }
 }
 ```
 
-If `permit0` / `permit0-*-mcp` aren't on Claude Code's PATH, use absolute
-paths from `which`. Note: `~` in JSON does **not** expand — write
-`/home/<user>/.permit0/sessions.db` if you need an absolute path.
+Omit `matcher` → match all tool calls (built-in + MCP). Insert at
+**index 0** so permit0 fires before other hooks. **Merge** with
+existing `PreToolUse` entries; don't overwrite.
+
+**4b. MCP servers → `~/.claude.json`**:
+
+```json
+{
+  "mcpServers": {
+    "permit0-outlook": { "command": "/abs/path/to/permit0-outlook-mcp" },
+    "permit0-gmail":   { "command": "/abs/path/to/permit0-gmail-mcp" }
+  }
+}
+```
+
+Resolve abs paths via `which permit0`, `which permit0-outlook-mcp`, etc.
 
 **Tell the user to fully quit and relaunch Claude Code** — reload-window
 does not reload hooks or MCP config.
+
+> **Common trap**: putting hooks in `~/.claude.json` (wrong file) or
+> using flat `{ "command": "..." }` schema (wrong shape) → hook is
+> silently ignored, no error message. Verify by checking
+> `~/.claude/settings.json` after editing and confirm the schema looks
+> like other working hooks already in that file.
 
 ### 5. Verify
 

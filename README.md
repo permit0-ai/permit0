@@ -137,24 +137,38 @@ Both flows cache tokens in `~/.permit0/`.
 
 ### 4. Wire into Claude Code
 
-Add **both** the PreToolUse hook (the gate) and the MCP servers (the
-actuators) to `~/.claude.json`:
+**Two files**, different schemas. Use absolute paths
+(`~` doesn't expand in JSON, and `permit0` / `permit0-*-mcp` may not
+be on Claude Code's PATH).
+
+**Hook** → `~/.claude/settings.json` (the nested-schema file Claude
+Code actually reads for hooks):
 
 ```json
 {
   "hooks": {
-    "PreToolUse": [{
-      "command": "permit0 hook --db ~/.permit0/sessions.db",
-      "description": "permit0 — gate every tool call (built-in + MCP)"
-    }]
-  },
+    "PreToolUse": [
+      {
+        "hooks": [{
+          "type": "command",
+          "command": "/abs/path/to/permit0 hook --db /home/<user>/.permit0/sessions.db"
+        }]
+      }
+    ]
+  }
+}
+```
+
+(Insert at index 0 so permit0 fires before any other PreToolUse hooks.
+Omit `matcher` to gate all tool calls, both built-in and MCP-prefixed.)
+
+**MCP servers** → `~/.claude.json`:
+
+```json
+{
   "mcpServers": {
-    "permit0-outlook": {
-      "command": "permit0-outlook-mcp"
-    },
-    "permit0-gmail": {
-      "command": "permit0-gmail-mcp"
-    }
+    "permit0-outlook": { "command": "/abs/path/to/permit0-outlook-mcp" },
+    "permit0-gmail":   { "command": "/abs/path/to/permit0-gmail-mcp" }
   }
 }
 ```
