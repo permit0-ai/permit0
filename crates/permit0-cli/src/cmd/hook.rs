@@ -110,17 +110,67 @@ pub struct HookInput {
     pub tool_input: serde_json::Value,
 }
 
-/// Claude Code hook output format.
+/// Claude Code PreToolUse hook output. Schema per
+/// <https://code.claude.com/docs/en/hooks>:
+///
+/// ```json
+/// {
+///   "hookSpecificOutput": {
+///     "hookEventName": "PreToolUse",
+///     "permissionDecision": "allow" | "deny" | "ask" | "defer",
+///     "permissionDecisionReason": "..."
+///   }
+/// }
+/// ```
+///
+/// Anything else is silently ignored by Claude Code (which is exactly the
+/// trap that hid this bug — the legacy `{"decision":"allow"}` shape just
+/// passed through as a no-op).
 #[derive(Debug, Serialize)]
 pub struct HookOutput {
-    /// One of: "allow", "block", "ask_user".
-    pub decision: String,
-    /// Reason (for "block" or "ask_user").
+    #[serde(rename = "hookSpecificOutput")]
+    pub hook_specific_output: HookSpecificOutput,
+}
+
+#[derive(Debug, Serialize)]
+pub struct HookSpecificOutput {
+    #[serde(rename = "hookEventName")]
+    pub hook_event_name: &'static str,
+    #[serde(rename = "permissionDecision")]
+    pub permission_decision: &'static str,
+    #[serde(rename = "permissionDecisionReason")]
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub reason: Option<String>,
-    /// Message to show the user (for "ask_user").
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub message: Option<String>,
+    pub permission_decision_reason: Option<String>,
+}
+
+impl HookOutput {
+    pub fn allow() -> Self {
+        Self {
+            hook_specific_output: HookSpecificOutput {
+                hook_event_name: "PreToolUse",
+                permission_decision: "allow",
+                permission_decision_reason: None,
+            },
+        }
+    }
+    pub fn deny(reason: impl Into<String>) -> Self {
+        Self {
+            hook_specific_output: HookSpecificOutput {
+                hook_event_name: "PreToolUse",
+                permission_decision: "deny",
+                permission_decision_reason: Some(reason.into()),
+            },
+        }
+    }
+    pub fn ask(reason: impl Into<String>) -> Self {
+        Self {
+            hook_specific_output: HookSpecificOutput {
+                hook_event_name: "PreToolUse",
+                permission_decision: "ask",
+                permission_decision_reason: Some(reason.into()),
+            },
+        }
+    }
 }
 
 /// Derive session ID from available sources.
@@ -256,28 +306,25 @@ pub fn run(
         store.record_action(sid, &record);
     }
 
-    // Map to hook output
-    let real_output = match result.permission {
-        Permission::Allow => HookOutput {
-            decision: "allow".into(),
-            reason: None,
-            message: None,
-        },
-        Permission::Deny => {
-            let reason = result
+    // Resolve to Claude Code's permissionDecision values:
+    //   allow  → tool runs unprompted
+    //   deny   → tool blocked, reason shown to user/agent
+    //   ask    → user prompted; their choice routes the call
+    //   defer  → fall through to next hook / default behavior
+    let (decision_label, reason): (&'static str, String) = match result.permission {
+        Permission::Allow => ("allow", String::new()),
+        Permission::Deny => (
+            "deny",
+            result
                 .risk_score
                 .as_ref()
                 .and_then(|s| s.block_reason.clone())
-                .unwrap_or_else(|| format!("denied: {:?}", result.source));
-            HookOutput {
-                decision: "block".into(),
-                reason: Some(reason),
-                message: None,
-            }
-        }
-        Permission::HumanInTheLoop => {
-            let msg = format!(
-                "permit0: {} ({}) — risk {}/100 {:?}. Allow this action?",
+                .unwrap_or_else(|| format!("permit0 denied: {:?}", result.source)),
+        ),
+        Permission::HumanInTheLoop => (
+            "ask",
+            format!(
+                "permit0: {} ({}) — risk {}/100 {:?}",
                 result.norm_action.action_type.as_action_str(),
                 result.norm_action.channel,
                 result.risk_score.as_ref().map_or(0, |s| s.score),
@@ -285,40 +332,30 @@ pub fn run(
                     permit0_types::Tier::Medium,
                     |s| s.tier
                 ),
-            );
-            HookOutput {
-                decision: "ask_user".into(),
-                reason: None,
-                message: Some(msg),
-            }
-        }
+            ),
+        ),
     };
 
     // Shadow mode: log the would-be decision and always allow.
     let output = if shadow {
-        if real_output.decision != "allow" {
-            let action = result.norm_action.action_type.as_action_str();
-            let channel = &result.norm_action.channel;
-            let score = result.risk_score.as_ref().map_or(0, |s| s.score);
-            let detail = real_output.reason.as_deref()
-                .or(real_output.message.as_deref())
-                .unwrap_or("");
+        if decision_label != "allow" {
             eprintln!(
                 "[permit0 shadow] WOULD {}: {} ({}) score={}/100  {}",
-                real_output.decision.to_uppercase(),
-                action,
-                channel,
-                score,
-                detail,
+                decision_label.to_uppercase(),
+                result.norm_action.action_type.as_action_str(),
+                result.norm_action.channel,
+                result.risk_score.as_ref().map_or(0, |s| s.score),
+                reason,
             );
         }
-        HookOutput {
-            decision: "allow".into(),
-            reason: None,
-            message: None,
-        }
+        HookOutput::allow()
     } else {
-        real_output
+        match decision_label {
+            "allow" => HookOutput::allow(),
+            "deny" => HookOutput::deny(reason),
+            "ask" => HookOutput::ask(reason),
+            _ => HookOutput::allow(), // unreachable, but defensible
+        }
     };
 
     // Write JSON response to stdout
@@ -339,41 +376,32 @@ mod tests {
         assert_eq!(input.tool_input["command"], "rm -rf /");
     }
 
+    // Tests assert the exact schema Claude Code expects: a top-level
+    // `hookSpecificOutput` envelope with `hookEventName=PreToolUse` and a
+    // `permissionDecision` of allow|deny|ask|defer.
+
     #[test]
     fn hook_output_allow_serialization() {
-        let output = HookOutput {
-            decision: "allow".into(),
-            reason: None,
-            message: None,
-        };
-        let json = serde_json::to_string(&output).unwrap();
-        assert!(json.contains(r#""decision":"allow""#));
-        assert!(!json.contains("reason"));
-        assert!(!json.contains("message"));
+        let json = serde_json::to_string(&HookOutput::allow()).unwrap();
+        assert!(json.contains(r#""hookSpecificOutput""#), "got: {json}");
+        assert!(json.contains(r#""hookEventName":"PreToolUse""#), "got: {json}");
+        assert!(json.contains(r#""permissionDecision":"allow""#), "got: {json}");
+        // No reason on plain allow.
+        assert!(!json.contains("permissionDecisionReason"));
     }
 
     #[test]
-    fn hook_output_block_serialization() {
-        let output = HookOutput {
-            decision: "block".into(),
-            reason: Some("dangerous command".into()),
-            message: None,
-        };
-        let json = serde_json::to_string(&output).unwrap();
-        assert!(json.contains(r#""decision":"block""#));
-        assert!(json.contains(r#""reason":"dangerous command""#));
+    fn hook_output_deny_serialization() {
+        let json = serde_json::to_string(&HookOutput::deny("dangerous command")).unwrap();
+        assert!(json.contains(r#""permissionDecision":"deny""#), "got: {json}");
+        assert!(json.contains(r#""permissionDecisionReason":"dangerous command""#), "got: {json}");
     }
 
     #[test]
-    fn hook_output_ask_user_serialization() {
-        let output = HookOutput {
-            decision: "ask_user".into(),
-            reason: None,
-            message: Some("Allow this?".into()),
-        };
-        let json = serde_json::to_string(&output).unwrap();
-        assert!(json.contains(r#""decision":"ask_user""#));
-        assert!(json.contains(r#""message":"Allow this?""#));
+    fn hook_output_ask_serialization() {
+        let json = serde_json::to_string(&HookOutput::ask("Allow this?")).unwrap();
+        assert!(json.contains(r#""permissionDecision":"ask""#), "got: {json}");
+        assert!(json.contains(r#""permissionDecisionReason":"Allow this?""#), "got: {json}");
     }
 
     #[test]
