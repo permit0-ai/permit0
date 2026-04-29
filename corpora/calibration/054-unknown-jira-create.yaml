@@ -1,7 +1,0 @@
-name: "Unknown tool: JIRA create issue"
-tool_name: "jira_create_issue"
-parameters:
-  project: "ENG"
-  summary: "Fix login timeout"
-  type: "Bug"
-expected_permission: "HUMAN"

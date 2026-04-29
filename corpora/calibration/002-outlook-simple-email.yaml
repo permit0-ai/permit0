@@ -1,0 +1,8 @@
+name: outlook_simple_email
+tool_name: outlook_send
+parameters:
+  to: "alice@external.com"
+  subject: "Meeting notes"
+  body: "Attached."
+expected_tier: "Minimal"
+expected_permission: "Allow"

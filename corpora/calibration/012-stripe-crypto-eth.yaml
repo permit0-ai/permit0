@@ -1,9 +1,0 @@
-name: "Stripe charge with ETH currency (gate fires)"
-tool_name: "http"
-parameters:
-  method: "POST"
-  url: "https://api.stripe.com/v1/charges"
-  body:
-    amount: 500
-    currency: "eth"
-expected_permission: "DENY"

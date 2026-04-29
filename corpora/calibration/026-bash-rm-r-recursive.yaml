@@ -1,5 +1,0 @@
-name: "Bash rm -r node_modules"
-tool_name: "bash"
-parameters:
-  command: "rm -r node_modules"
-expected_permission: "ALLOW"

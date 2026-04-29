@@ -1,5 +1,0 @@
-name: "Bash grep for pattern in file"
-tool_name: "bash"
-parameters:
-  command: "grep -r 'TODO' src/"
-expected_permission: "ALLOW"

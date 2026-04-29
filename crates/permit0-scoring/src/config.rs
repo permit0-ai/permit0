@@ -69,6 +69,13 @@ pub struct ScoringConfig {
     pub block_rules: Vec<BlockRule>,
     pub tanh_k: f64,
     pub action_type_floors: HashMap<ActionType, Tier>,
+    /// Named sets referenced by DSL `in_set` / `not_in_set` predicates.
+    /// Keyed by dotted identifier (e.g., `"org.trusted_domains"`).
+    ///
+    /// Later layers (profile, org) fully replace entries under the same key
+    /// — so an org policy can substitute its own allowlist for a profile's
+    /// default without merging.
+    pub named_sets: HashMap<String, std::collections::HashSet<String>>,
 }
 
 impl Default for ScoringConfig {
@@ -86,8 +93,37 @@ impl Default for ScoringConfig {
             block_rules: immutable_block_rules(),
             tanh_k: DEFAULT_TANH_K,
             action_type_floors: HashMap::new(),
+            named_sets: default_named_sets(),
         }
     }
+}
+
+/// Built-in named sets available to every config (unless overridden by profile / org).
+///
+/// These are conservative defaults that let packs use `in_set` out of the box.
+/// Change them by shipping an override under the same key in a profile or org policy.
+fn default_named_sets() -> HashMap<String, std::collections::HashSet<String>> {
+    let mut m: HashMap<String, std::collections::HashSet<String>> = HashMap::new();
+
+    // Default trusted outbound-HTTP destinations — small & conservative. Designed
+    // to cover the most common agent API surfaces so the default experience is
+    // reasonable; orgs are expected to override this in their profile.
+    m.insert(
+        "org.trusted_domains".into(),
+        [
+            "github.com",
+            "githubusercontent.com",
+            "stripe.com",
+            "anthropic.com",
+            "openai.com",
+            "googleapis.com",
+        ]
+        .into_iter()
+        .map(String::from)
+        .collect(),
+    );
+
+    m
 }
 
 impl ScoringConfig {
@@ -127,6 +163,10 @@ impl ScoringConfig {
             for (at, tier) in &profile.action_type_floors {
                 config.action_type_floors.insert(*at, *tier);
             }
+            // Each named set fully replaces the base-layer set under the same key.
+            for (name, set) in &profile.named_sets {
+                config.named_sets.insert(name.clone(), set.clone());
+            }
         }
 
         check_guardrails(&config, guardrails)?;
@@ -142,6 +182,9 @@ impl ScoringConfig {
             }
             for (at, tier) in &org.action_type_floors {
                 config.action_type_floors.insert(*at, *tier);
+            }
+            for (name, set) in &org.named_sets {
+                config.named_sets.insert(name.clone(), set.clone());
             }
         }
 
@@ -181,6 +224,10 @@ pub struct ProfileOverrides {
     pub additional_block_rules: Vec<BlockRule>,
     #[serde(default)]
     pub action_type_floors: HashMap<ActionType, Tier>,
+    /// Named sets used by DSL `in_set` / `not_in_set` predicates.
+    /// Each entry fully replaces the same-keyed set in the base config.
+    #[serde(default)]
+    pub named_sets: HashMap<String, std::collections::HashSet<String>>,
 }
 
 /// Org-policy-layer overrides (from YAML org policies).
@@ -196,6 +243,10 @@ pub struct OrgOverrides {
     pub additional_block_rules: Vec<BlockRule>,
     #[serde(default)]
     pub action_type_floors: HashMap<ActionType, Tier>,
+    /// Named sets used by DSL `in_set` / `not_in_set` predicates.
+    /// Org layer sets take precedence over profile + base.
+    #[serde(default)]
+    pub named_sets: HashMap<String, std::collections::HashSet<String>>,
 }
 
 /// Error returned when a configuration violates guardrails.

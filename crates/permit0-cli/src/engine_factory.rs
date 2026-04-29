@@ -125,6 +125,11 @@ struct ProfileYaml {
     amp_weight_adjustments: std::collections::HashMap<String, f64>,
     #[serde(default)]
     action_type_floors: std::collections::HashMap<String, String>,
+    /// Named sets for DSL `in_set` / `not_in_set` predicates. Each key is a
+    /// dotted identifier (e.g., `org.trusted_domains`); each value is a list
+    /// of strings. Later layers replace whole sets under the same key.
+    #[serde(default)]
+    named_sets: std::collections::HashMap<String, Vec<String>>,
     #[allow(dead_code)]
     #[serde(default)]
     additional_block_rules: Vec<serde_yaml::Value>,
@@ -151,10 +156,17 @@ impl ProfileYaml {
             floors.insert(at, tier);
         }
 
+        let named_sets: std::collections::HashMap<String, std::collections::HashSet<String>> =
+            self.named_sets
+                .into_iter()
+                .map(|(k, v)| (k, v.into_iter().collect()))
+                .collect();
+
         Ok(ProfileOverrides {
             risk_weight_adjustments: self.risk_weight_adjustments,
             amp_weight_adjustments: self.amp_weight_adjustments,
             action_type_floors: floors,
+            named_sets,
             ..Default::default()
         })
     }

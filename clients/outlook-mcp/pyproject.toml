@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "permit0-outlook-mcp"
+version = "0.1.0"
+description = "MCP server exposing Outlook (Microsoft Graph) tools, each gated by permit0"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+dependencies = [
+    "permit0",
+    "mcp>=1.2",
+    "msal>=1.28",
+    "httpx>=0.27",
+]
+
+[project.scripts]
+permit0-outlook-mcp = "permit0_outlook_mcp.server:main"
+
+[tool.setuptools.packages.find]
+include = ["permit0_outlook_mcp*"]

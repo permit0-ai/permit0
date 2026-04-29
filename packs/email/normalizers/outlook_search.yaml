@@ -1,0 +1,14 @@
+permit0_pack: "permit0/email"
+id: "email:outlook_search"
+priority: 100
+match:
+  tool: outlook_search
+normalize:
+  action_type: "email.search"
+  domain: "email"
+  verb: "search"
+  channel: "outlook"
+  entities:
+    query:
+      from: "query"
+      type: "string"

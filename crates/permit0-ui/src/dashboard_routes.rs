@@ -396,6 +396,156 @@ pub async fn get_profile(
     Ok(ok_response(content))
 }
 
+// ── Calibration ──
+
+#[derive(Debug, Serialize)]
+pub struct CalibrationStats {
+    /// Total calibration records (records with a reviewer set).
+    pub total: usize,
+    /// Records where engine and human agreed.
+    pub matched: usize,
+    /// Records where the human overrode permit0.
+    pub overridden: usize,
+    /// matched / total (0.0–1.0). Null if total = 0.
+    pub agreement_rate: Option<f64>,
+    /// Top reviewers by count: list of (reviewer, count).
+    pub by_reviewer: Vec<ReviewerCount>,
+    /// Most-overridden action types.
+    pub most_overridden_actions: Vec<ActionOverrideCount>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ReviewerCount {
+    pub reviewer: String,
+    pub count: usize,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ActionOverrideCount {
+    pub action_type: String,
+    pub count: usize,
+}
+
+/// GET /api/v1/calibration/stats — aggregate stats over calibration records.
+pub async fn calibration_stats(
+    State(state): State<AppState>,
+) -> Result<Json<ApiResponse<CalibrationStats>>, (StatusCode, Json<ApiResponse<CalibrationStats>>)> {
+    let records = state
+        .store
+        .query_decisions(&DecisionFilter {
+            limit: Some(10000),
+            ..Default::default()
+        })
+        .map_err(|e| err_response(StatusCode::INTERNAL_SERVER_ERROR, &format!("query failed: {e}")))?;
+
+    // Calibration records = those with a reviewer set.
+    let calib: Vec<_> = records.iter().filter(|r| r.reviewer.is_some()).collect();
+    let total = calib.len();
+
+    let mut matched = 0;
+    let mut overridden = 0;
+    for r in &calib {
+        if let Some(eng) = r.engine_permission {
+            if eng == r.permission {
+                matched += 1;
+            } else {
+                overridden += 1;
+            }
+        }
+    }
+
+    let mut by_reviewer_map: HashMap<String, usize> = HashMap::new();
+    for r in &calib {
+        if let Some(rev) = &r.reviewer {
+            *by_reviewer_map.entry(rev.clone()).or_insert(0) += 1;
+        }
+    }
+    let mut by_reviewer: Vec<ReviewerCount> = by_reviewer_map
+        .into_iter()
+        .map(|(reviewer, count)| ReviewerCount { reviewer, count })
+        .collect();
+    by_reviewer.sort_by(|a, b| b.count.cmp(&a.count));
+    by_reviewer.truncate(10);
+
+    let mut overridden_action_map: HashMap<String, usize> = HashMap::new();
+    for r in &calib {
+        if let Some(eng) = r.engine_permission {
+            if eng != r.permission {
+                *overridden_action_map.entry(r.action_type.clone()).or_insert(0) += 1;
+            }
+        }
+    }
+    let mut most_overridden_actions: Vec<ActionOverrideCount> = overridden_action_map
+        .into_iter()
+        .map(|(action_type, count)| ActionOverrideCount { action_type, count })
+        .collect();
+    most_overridden_actions.sort_by(|a, b| b.count.cmp(&a.count));
+    most_overridden_actions.truncate(10);
+
+    let agreement_rate = if total > 0 {
+        Some(matched as f64 / total as f64)
+    } else {
+        None
+    };
+
+    Ok(ok_response(CalibrationStats {
+        total,
+        matched,
+        overridden,
+        agreement_rate,
+        by_reviewer,
+        most_overridden_actions,
+    }))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CalibrationListQuery {
+    /// "matched" → only agreement; "overridden" → only mismatch; default → all
+    pub agreement: Option<String>,
+    /// Filter by reviewer name (exact match)
+    pub reviewer: Option<String>,
+    /// Max records to return
+    pub limit: Option<u32>,
+}
+
+/// GET /api/v1/calibration/records — calibration-only audit subset.
+pub async fn calibration_records(
+    State(state): State<AppState>,
+    Query(q): Query<CalibrationListQuery>,
+) -> Result<
+    Json<ApiResponse<Vec<serde_json::Value>>>,
+    (StatusCode, Json<ApiResponse<Vec<serde_json::Value>>>),
+> {
+    let records = state
+        .store
+        .query_decisions(&DecisionFilter {
+            limit: Some(q.limit.unwrap_or(500)),
+            ..Default::default()
+        })
+        .map_err(|e| err_response(StatusCode::INTERNAL_SERVER_ERROR, &format!("query failed: {e}")))?;
+
+    let filtered: Vec<serde_json::Value> = records
+        .into_iter()
+        .filter(|r| r.reviewer.is_some())
+        .filter(|r| match q.reviewer.as_deref() {
+            Some(rev) => r.reviewer.as_deref() == Some(rev),
+            None => true,
+        })
+        .filter(|r| match q.agreement.as_deref() {
+            Some("matched") => {
+                r.engine_permission.is_some() && r.engine_permission == Some(r.permission)
+            }
+            Some("overridden") => {
+                r.engine_permission.is_some() && r.engine_permission != Some(r.permission)
+            }
+            _ => true,
+        })
+        .filter_map(|r| serde_json::to_value(&r).ok())
+        .collect();
+
+    Ok(ok_response(filtered))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

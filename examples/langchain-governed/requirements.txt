@@ -1,0 +1,4 @@
+langchain-core>=0.3.0
+# permit0 is not yet on PyPI. Install locally from the workspace:
+#   cd ../../crates/permit0-py && maturin develop
+permit0

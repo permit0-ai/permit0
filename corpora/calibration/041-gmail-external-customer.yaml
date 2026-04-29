@@ -1,7 +1,0 @@
-name: "Gmail send to external customer"
-tool_name: "gmail_send"
-parameters:
-  to: "jane.doe@gmail.com"
-  subject: "Your order confirmation"
-  body: "Thank you for your purchase. Your order #12345 has been confirmed."
-expected_permission: "ALLOW"

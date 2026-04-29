@@ -104,7 +104,9 @@ pub fn run(
     db_path: Option<String>,
     session_id: Option<String>,
     packs_dir: Option<String>,
+    shadow: bool,
 ) -> Result<()> {
+    let shadow = shadow || std::env::var("PERMIT0_SHADOW").is_ok_and(|v| !v.is_empty() && v != "0");
     // Read hook input from stdin
     let mut buf = String::new();
     std::io::stdin()
@@ -187,7 +189,7 @@ pub fn run(
     }
 
     // Map to hook output
-    let output = match result.permission {
+    let real_output = match result.permission {
         Permission::Allow => HookOutput {
             decision: "allow".into(),
             reason: None,
@@ -222,6 +224,33 @@ pub fn run(
                 message: Some(msg),
             }
         }
+    };
+
+    // Shadow mode: log the would-be decision and always allow.
+    let output = if shadow {
+        if real_output.decision != "allow" {
+            let action = result.norm_action.action_type.as_action_str();
+            let channel = &result.norm_action.channel;
+            let score = result.risk_score.as_ref().map_or(0, |s| s.score);
+            let detail = real_output.reason.as_deref()
+                .or(real_output.message.as_deref())
+                .unwrap_or("");
+            eprintln!(
+                "[permit0 shadow] WOULD {}: {} ({}) score={}/100  {}",
+                real_output.decision.to_uppercase(),
+                action,
+                channel,
+                score,
+                detail,
+            );
+        }
+        HookOutput {
+            decision: "allow".into(),
+            reason: None,
+            message: None,
+        }
+    } else {
+        real_output
     };
 
     // Write JSON response to stdout

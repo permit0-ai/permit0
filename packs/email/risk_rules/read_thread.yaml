@@ -1,0 +1,22 @@
+permit0_pack: "permit0/email"
+action_type: "email.read_thread"
+# default tier: MINIMAL — but a thread can have many messages, slightly more
+# exposure than a single read. Outlook implementation may fetch many messages.
+base:
+  flags:
+    EXPOSURE: secondary
+  amplifiers:
+    sensitivity: 5
+    scope: 3
+rules: []
+session_rules:
+  - when:
+      record_count:
+        gt: 50
+    then:
+      - add_flag:
+          flag: EXPOSURE
+          role: primary
+      - upgrade:
+          dim: scope
+          delta: 8

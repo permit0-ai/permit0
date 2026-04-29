@@ -1,0 +1,15 @@
+permit0_pack: "permit0/email"
+id: "email:gmail_mark_spam"
+priority: 125
+match:
+  tool: gmail_mark_spam
+normalize:
+  action_type: "email.mark_spam"
+  domain: "email"
+  verb: "mark_spam"
+  channel: "gmail"
+  entities:
+    message_id:
+      from: "id"
+      type: "string"
+      required: true

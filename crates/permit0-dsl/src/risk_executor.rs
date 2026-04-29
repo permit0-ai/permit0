@@ -3,23 +3,38 @@
 use permit0_scoring::template::RiskTemplate;
 use permit0_types::FlagRole;
 
-use crate::eval::matcher::{eval_condition, MatchContext};
+use crate::eval::matcher::{eval_condition, MatchContext, NamedSets};
 use crate::schema::risk_rule::{MutationDef, RiskRuleDef};
 
 /// Build a RiskTemplate from a risk rule definition and action data.
 ///
-/// Steps:
-/// 1. Initialize template from the `base` section (flags + amplifiers).
-/// 2. Evaluate each `rule` — if its `when` matches, apply its `then` mutations.
-/// 3. Return the fully-mutated template (session_rules are evaluated later by the engine).
+/// Back-compat wrapper: evaluates rules with no named sets available. Rules
+/// using `in_set` / `not_in_set` fail closed under this path — use
+/// [`execute_risk_rules_with_sets`] to pass named sets in.
 pub fn execute_risk_rules(
     rule_def: &RiskRuleDef,
     data: &serde_json::Value,
     tool_name: Option<&str>,
 ) -> RiskTemplate {
+    execute_risk_rules_with_sets(rule_def, data, tool_name, None)
+}
+
+/// Build a RiskTemplate from a risk rule definition and action data, with access
+/// to named sets (for `in_set` / `not_in_set` predicates).
+///
+/// Steps:
+/// 1. Initialize template from the `base` section (flags + amplifiers).
+/// 2. Evaluate each `rule` — if its `when` matches, apply its `then` mutations.
+/// 3. Return the fully-mutated template (session_rules are evaluated later by the engine).
+pub fn execute_risk_rules_with_sets(
+    rule_def: &RiskRuleDef,
+    data: &serde_json::Value,
+    tool_name: Option<&str>,
+    named_sets: Option<&NamedSets>,
+) -> RiskTemplate {
     let mut template = build_base(&rule_def.base);
 
-    let ctx = MatchContext { data, tool_name };
+    let ctx = MatchContext::with_sets(data, tool_name, named_sets);
 
     for rule in &rule_def.rules {
         if eval_condition(&rule.when, &ctx) {
@@ -97,16 +112,23 @@ fn apply_one(template: &mut RiskTemplate, mutation: &MutationDef) {
     }
 }
 
-/// Evaluate session rules against session data. Called separately from per-action evaluation.
+/// Evaluate session rules against session data (back-compat, no named sets).
 pub fn execute_session_rules(
     rule_def: &RiskRuleDef,
     template: &mut RiskTemplate,
     session_data: &serde_json::Value,
 ) {
-    let ctx = MatchContext {
-        data: session_data,
-        tool_name: None,
-    };
+    execute_session_rules_with_sets(rule_def, template, session_data, None);
+}
+
+/// Evaluate session rules against session data with named sets available.
+pub fn execute_session_rules_with_sets(
+    rule_def: &RiskRuleDef,
+    template: &mut RiskTemplate,
+    session_data: &serde_json::Value,
+    named_sets: Option<&NamedSets>,
+) {
+    let ctx = MatchContext::with_sets(session_data, None, named_sets);
     for rule in &rule_def.session_rules {
         if eval_condition(&rule.when, &ctx) {
             apply_mutations(template, &rule.then);

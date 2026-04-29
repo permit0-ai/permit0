@@ -26,3 +26,23 @@ dist/
 *.profraw
 lcov.info
 __pycache__/
+
+# Python virtualenvs
+.venv/
+**/.venv/
+
+# Built native bindings
+*.node
+
+# Demo recordings (regenerated)
+demos/recording_output/
+
+# Local scratch
+README_tmp.html
+
+# Python build artifacts (egg-info, build/)
+**/*.egg-info/
+**/build/
+
+# pip-installed in-place artifacts
+crates/permit0-py/dist/

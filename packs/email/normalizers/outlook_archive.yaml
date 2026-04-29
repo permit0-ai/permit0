@@ -1,0 +1,15 @@
+permit0_pack: "permit0/email"
+id: "email:outlook_archive"
+priority: 109
+match:
+  tool: outlook_archive
+normalize:
+  action_type: "email.archive"
+  domain: "email"
+  verb: "archive"
+  channel: "outlook"
+  entities:
+    message_id:
+      from: "message_id"
+      type: "string"
+      required: true

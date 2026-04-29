@@ -1,0 +1,21 @@
+permit0_pack: "permit0/email"
+action_type: "email.read"
+# default tier: MINIMAL — reading one message is normal but exposes content
+base:
+  flags:
+    EXPOSURE: secondary
+  amplifiers:
+    sensitivity: 4
+    scope: 2
+rules: []
+session_rules:
+  - when:
+      record_count:
+        gt: 100
+    then:
+      - add_flag:
+          flag: EXPOSURE
+          role: primary
+      - upgrade:
+          dim: scope
+          delta: 8

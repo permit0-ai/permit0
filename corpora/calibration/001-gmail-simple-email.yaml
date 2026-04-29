@@ -1,0 +1,8 @@
+name: gmail_simple_email
+tool_name: gmail_send
+parameters:
+  to: "bob@external.com"
+  subject: "Hello"
+  body: "Quick note"
+expected_tier: "Minimal"
+expected_permission: "Allow"

@@ -1,0 +1,15 @@
+permit0_pack: "permit0/email"
+id: "email:gmail_read"
+priority: 116
+match:
+  tool: gmail_read
+normalize:
+  action_type: "email.read"
+  domain: "email"
+  verb: "read"
+  channel: "gmail"
+  entities:
+    message_id:
+      from: "id"
+      type: "string"
+      required: true

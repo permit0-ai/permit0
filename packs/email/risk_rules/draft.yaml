@@ -1,0 +1,22 @@
+permit0_pack: "permit0/email"
+action_type: "email.draft"
+# default tier: LOW — drafts don't leave the mailbox. Sensitive-content rule
+# bumps it because the draft might be sent later.
+base:
+  flags:
+    MUTATION: secondary
+  amplifiers:
+    scope: 3
+    sensitivity: 4
+rules:
+  - when:
+      body:
+        contains_any: ["password", "api_key", "credential", "token", "PASSWORD", "API_KEY", "SECRET"]
+    then:
+      - add_flag:
+          flag: EXPOSURE
+          role: secondary
+      - upgrade:
+          dim: sensitivity
+          delta: 8
+session_rules: []

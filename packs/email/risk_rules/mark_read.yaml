@@ -1,0 +1,10 @@
+permit0_pack: "permit0/email"
+action_type: "email.mark_read"
+# default tier: MINIMAL — toggling read state is benign
+base:
+  flags:
+    MUTATION: secondary
+  amplifiers:
+    scope: 1
+rules: []
+session_rules: []

@@ -1,0 +1,19 @@
+permit0_pack: "permit0/email"
+id: "email:gmail_create_mailbox"
+priority: 127
+match:
+  tool: gmail_create_mailbox
+normalize:
+  action_type: "email.create_mailbox"
+  domain: "email"
+  verb: "create_mailbox"
+  channel: "gmail"
+  entities:
+    name:
+      from: "name"
+      type: "string"
+      required: true
+    parent_id:
+      from: "parent_id"
+      type: "string"
+      optional: true

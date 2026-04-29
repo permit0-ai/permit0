@@ -1,9 +1,0 @@
-name: "Stripe charge $10000 USD (well above gate)"
-tool_name: "http"
-parameters:
-  method: "POST"
-  url: "https://api.stripe.com/v1/charges"
-  body:
-    amount: 1000000
-    currency: "usd"
-expected_permission: "DENY"

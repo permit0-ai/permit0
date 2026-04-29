@@ -47,10 +47,9 @@ impl Normalizer for DslNormalizer {
     }
 
     fn matches(&self, raw: &RawToolCall) -> bool {
-        let ctx = MatchContext {
-            data: &raw.parameters,
-            tool_name: Some(&raw.tool_name),
-        };
+        // Normalizer matching operates purely on tool parameters — it never
+        // needs named sets, so pass None.
+        let ctx = MatchContext::new(&raw.parameters, Some(&raw.tool_name));
         eval_condition(&self.def.match_expr, &ctx)
     }
 

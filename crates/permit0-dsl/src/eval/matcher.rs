@@ -1,9 +1,15 @@
 #![forbid(unsafe_code)]
 
+use std::collections::{HashMap, HashSet};
+
 use regex::Regex;
 
 use crate::eval::path::{as_f64, as_string, resolve_path};
 use crate::schema::condition::{ConditionExpr, Predicate, PredicateOps};
+
+/// Named sets keyed by dotted identifier (e.g., `org.trusted_domains`).
+/// Values inside a set are string-compared (membership by exact equality).
+pub type NamedSets = HashMap<String, HashSet<String>>;
 
 /// Context for evaluating conditions — wraps the data being matched against.
 pub struct MatchContext<'a> {
@@ -11,6 +17,36 @@ pub struct MatchContext<'a> {
     pub data: &'a serde_json::Value,
     /// Tool name (for the `tool` shorthand).
     pub tool_name: Option<&'a str>,
+    /// Named sets used by `in_set` / `not_in_set` predicates. `None` means
+    /// no sets are configured — predicates that reference sets will fail closed
+    /// (treated as "not in the set" for `in_set`, and "is in the set" for
+    /// `not_in_set`) so missing configuration never opens a hole.
+    pub named_sets: Option<&'a NamedSets>,
+}
+
+impl<'a> MatchContext<'a> {
+    /// Construct a context with no named sets (for use cases that don't need them —
+    /// notably normalizer matching, which operates purely on tool parameters).
+    pub fn new(data: &'a serde_json::Value, tool_name: Option<&'a str>) -> Self {
+        Self {
+            data,
+            tool_name,
+            named_sets: None,
+        }
+    }
+
+    /// Construct a context with named sets.
+    pub fn with_sets(
+        data: &'a serde_json::Value,
+        tool_name: Option<&'a str>,
+        named_sets: Option<&'a NamedSets>,
+    ) -> Self {
+        Self {
+            data,
+            tool_name,
+            named_sets,
+        }
+    }
 }
 
 /// Evaluate a condition expression against a context.
@@ -34,7 +70,7 @@ pub fn eval_condition(expr: &ConditionExpr, ctx: &MatchContext<'_>) -> bool {
                 }
 
                 let value = resolve_field(field, ctx);
-                eval_predicate(pred, value)
+                eval_predicate(pred, value, ctx)
             })
         }
     }
@@ -47,16 +83,16 @@ fn resolve_field<'a>(field: &str, ctx: &MatchContext<'a>) -> Option<&'a serde_js
     resolve_path(ctx.data, path)
 }
 
-fn eval_predicate(pred: &Predicate, value: Option<&serde_json::Value>) -> bool {
+fn eval_predicate(pred: &Predicate, value: Option<&serde_json::Value>, ctx: &MatchContext<'_>) -> bool {
     match pred {
         Predicate::Exact(expected) => {
             value.is_some_and(|v| values_equal(v, expected))
         }
-        Predicate::Compound(ops) => eval_compound(ops.as_ref(), value),
+        Predicate::Compound(ops) => eval_compound(ops.as_ref(), value, ctx),
     }
 }
 
-fn eval_compound(ops: &PredicateOps, value: Option<&serde_json::Value>) -> bool {
+fn eval_compound(ops: &PredicateOps, value: Option<&serde_json::Value>, ctx: &MatchContext<'_>) -> bool {
     // exists check is special — it works on presence/absence
     if let Some(should_exist) = ops.exists {
         let exists = value.is_some_and(|v| !v.is_null());
@@ -165,16 +201,85 @@ fn eval_compound(ops: &PredicateOps, value: Option<&serde_json::Value>) -> bool 
     }
 
     if let Some(ref contains_any) = ops.contains_any {
-        let s = match as_string(val) {
-            Some(s) => s,
-            None => return false,
-        };
-        if !contains_any.iter().any(|sub| s.contains(sub.as_str())) {
+        // Array case: check if any element of the array equals any needle (exact match).
+        // Useful for matching session.distinct_flags, session.flag_sequence, etc.
+        if let serde_json::Value::Array(arr) = val {
+            let matched = contains_any.iter().any(|needle| {
+                arr.iter().any(|item| {
+                    item.as_str().is_some_and(|s| s == needle.as_str())
+                })
+            });
+            if !matched {
+                return false;
+            }
+        } else {
+            // String case: substring match (original behavior).
+            let s = match as_string(val) {
+                Some(s) => s,
+                None => return false,
+            };
+            if !contains_any.iter().any(|sub| s.contains(sub.as_str())) {
+                return false;
+            }
+        }
+    }
+
+    if let Some(ref set_name) = ops.in_set {
+        if !is_in_named_set(val, set_name, ctx) {
+            return false;
+        }
+    }
+
+    if let Some(ref set_name) = ops.not_in_set {
+        if is_in_named_set(val, set_name, ctx) {
             return false;
         }
     }
 
     true
+}
+
+/// Membership check against a named set.
+///
+/// Resolves the value to its string form, then checks against the set
+/// identified by `set_name`. Comparison is case-insensitive and supports
+/// suffix match for dotted identifiers (so a set entry `github.com`
+/// matches values `github.com` and `*.github.com`).
+///
+/// If the set is not configured, returns `false` (fail closed — callers
+/// decide whether that's "block" or "allow" via `in_set` vs `not_in_set`).
+fn is_in_named_set(val: &serde_json::Value, set_name: &str, ctx: &MatchContext<'_>) -> bool {
+    let sets = match ctx.named_sets {
+        Some(s) => s,
+        None => return false,
+    };
+    let set = match sets.get(set_name) {
+        Some(s) => s,
+        None => return false,
+    };
+
+    // Resolve to a string for comparison. For arrays, check if any element
+    // is a member (useful for multi-value fields like email recipient lists).
+    match val {
+        serde_json::Value::Array(arr) => arr.iter().any(|item| {
+            item.as_str()
+                .is_some_and(|s| set_contains(set, s))
+        }),
+        _ => match as_string(val) {
+            Some(s) => set_contains(set, &s),
+            None => false,
+        },
+    }
+}
+
+/// Check a string against a set with case-insensitive equality + dotted-suffix
+/// match (so `api.github.com` is in a set containing `github.com`).
+fn set_contains(set: &HashSet<String>, needle: &str) -> bool {
+    let needle_lower = needle.to_lowercase();
+    set.iter().any(|entry| {
+        let entry = entry.to_lowercase();
+        needle_lower == entry || needle_lower.ends_with(&format!(".{entry}"))
+    })
 }
 
 fn is_only_exists(ops: &PredicateOps) -> bool {
@@ -255,6 +360,19 @@ mod tests {
         MatchContext {
             data,
             tool_name: tool,
+            named_sets: None,
+        }
+    }
+
+    fn ctx_with_sets<'a>(
+        data: &'a serde_json::Value,
+        tool: Option<&'a str>,
+        sets: &'a NamedSets,
+    ) -> MatchContext<'a> {
+        MatchContext {
+            data,
+            tool_name: tool,
+            named_sets: Some(sets),
         }
     }
 
@@ -440,5 +558,168 @@ body:
         assert!(eval_condition(&cond, &ctx_from(&data, None)));
         let data2 = json!({"body": "nothing here"});
         assert!(!eval_condition(&cond, &ctx_from(&data2, None)));
+    }
+
+    #[test]
+    fn in_set_exact_match() {
+        let mut sets: NamedSets = HashMap::new();
+        sets.insert(
+            "org.trusted_domains".to_string(),
+            ["github.com".to_string(), "stripe.com".to_string()]
+                .into_iter()
+                .collect(),
+        );
+
+        let cond = parse_condition(
+            r#"
+host:
+  in_set: "org.trusted_domains"
+"#,
+        );
+
+        let yes = json!({"host": "github.com"});
+        assert!(eval_condition(&cond, &ctx_with_sets(&yes, None, &sets)));
+
+        let no = json!({"host": "evil.com"});
+        assert!(!eval_condition(&cond, &ctx_with_sets(&no, None, &sets)));
+    }
+
+    #[test]
+    fn in_set_suffix_match() {
+        // `github.com` in the set should match `api.github.com` (subdomain).
+        let mut sets: NamedSets = HashMap::new();
+        sets.insert(
+            "org.trusted_domains".to_string(),
+            ["github.com".to_string()].into_iter().collect(),
+        );
+
+        let cond = parse_condition(
+            r#"
+host:
+  in_set: "org.trusted_domains"
+"#,
+        );
+
+        let subdomain = json!({"host": "api.github.com"});
+        assert!(eval_condition(&cond, &ctx_with_sets(&subdomain, None, &sets)));
+
+        // Guard against string-suffix tricking: `eviltgithub.com` must not match `github.com`.
+        let trick = json!({"host": "eviltgithub.com"});
+        assert!(!eval_condition(&cond, &ctx_with_sets(&trick, None, &sets)));
+    }
+
+    #[test]
+    fn in_set_case_insensitive() {
+        let mut sets: NamedSets = HashMap::new();
+        sets.insert(
+            "org.trusted_domains".to_string(),
+            ["GitHub.com".to_string()].into_iter().collect(),
+        );
+
+        let cond = parse_condition(
+            r#"
+host:
+  in_set: "org.trusted_domains"
+"#,
+        );
+
+        let mixed = json!({"host": "API.GITHUB.com"});
+        assert!(eval_condition(&cond, &ctx_with_sets(&mixed, None, &sets)));
+    }
+
+    #[test]
+    fn not_in_set() {
+        let mut sets: NamedSets = HashMap::new();
+        sets.insert(
+            "org.trusted_domains".to_string(),
+            ["github.com".to_string()].into_iter().collect(),
+        );
+
+        let cond = parse_condition(
+            r#"
+host:
+  not_in_set: "org.trusted_domains"
+"#,
+        );
+
+        let untrusted = json!({"host": "attacker.example.com"});
+        assert!(eval_condition(&cond, &ctx_with_sets(&untrusted, None, &sets)));
+
+        let trusted = json!({"host": "github.com"});
+        assert!(!eval_condition(&cond, &ctx_with_sets(&trusted, None, &sets)));
+    }
+
+    #[test]
+    fn in_set_missing_sets_fails_closed() {
+        // When no named_sets are provided, `in_set` returns false (nothing is
+        // in the set) and `not_in_set` returns true (everything is "not in").
+        // This is the fail-closed behaviour: missing config doesn't open holes.
+        let cond = parse_condition(
+            r#"
+host:
+  in_set: "org.trusted_domains"
+"#,
+        );
+        let data = json!({"host": "github.com"});
+        assert!(!eval_condition(&cond, &ctx_from(&data, None)));
+    }
+
+    #[test]
+    fn in_set_unknown_set_name_fails_closed() {
+        let sets: NamedSets = HashMap::new();
+        let cond = parse_condition(
+            r#"
+host:
+  in_set: "org.typo_sett"
+"#,
+        );
+        let data = json!({"host": "github.com"});
+        assert!(!eval_condition(&cond, &ctx_with_sets(&data, None, &sets)));
+    }
+
+    #[test]
+    fn in_set_array_field_any_match() {
+        // When the field is an array (e.g., email recipients), in_set passes
+        // if ANY element is in the named set.
+        let mut sets: NamedSets = HashMap::new();
+        sets.insert(
+            "org.domains".to_string(),
+            ["acme.com".to_string()].into_iter().collect(),
+        );
+        let cond = parse_condition(
+            r#"
+recipient_domains:
+  in_set: "org.domains"
+"#,
+        );
+        // Note: our set-contains does case-insensitive equality + dotted-suffix
+        // match. "alice@acme.com" wouldn't match because it's not a dotted form
+        // ending in `.acme.com`. Raw domains in the array is the canonical shape.
+        let yes = json!({"recipient_domains": ["evil.com", "acme.com"]});
+        assert!(eval_condition(&cond, &ctx_with_sets(&yes, None, &sets)));
+
+        let no = json!({"recipient_domains": ["evil.com", "other.com"]});
+        assert!(!eval_condition(&cond, &ctx_with_sets(&no, None, &sets)));
+    }
+
+    #[test]
+    fn contains_any_on_array_field() {
+        // For array fields (e.g., session.distinct_flags), contains_any matches
+        // exact element equality, not substring.
+        let cond = parse_condition(
+            r#"
+distinct_flags:
+  contains_any: [DESTRUCTION, PHYSICAL]
+"#,
+        );
+        let matches_destruction = json!({"distinct_flags": ["EXPOSURE", "DESTRUCTION", "MUTATION"]});
+        assert!(eval_condition(&cond, &ctx_from(&matches_destruction, None)));
+
+        let no_match = json!({"distinct_flags": ["EXPOSURE", "MUTATION"]});
+        assert!(!eval_condition(&cond, &ctx_from(&no_match, None)));
+
+        // Substring match must NOT trigger on arrays (semantic difference vs strings)
+        let substring_only = json!({"distinct_flags": ["DESTRUCTION_LITE"]});
+        assert!(!eval_condition(&cond, &ctx_from(&substring_only, None)));
     }
 }

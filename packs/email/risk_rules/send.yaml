@@ -1,0 +1,127 @@
+permit0_pack: "permit0/email"
+action_type: "email.send"
+# default tier: HIGH — outbound, irreversible, may carry sensitive content.
+# Escalates to CRITICAL when amplifiers (destination external, attachments,
+# bulk recipients, credentials in body) fire.
+base:
+  flags:
+    OUTBOUND: primary
+    MUTATION: primary
+    EXPOSURE: secondary
+  amplifiers:
+    scope: 18
+    irreversibility: 18
+    sensitivity: 14
+    destination: 28
+    # boundary capped < 0.90 (=18) so credential rule can add GOVERNANCE
+    # without triggering the global "trust_boundary" auto-deny gate.
+    boundary: 14
+rules:
+  # Multiple recipients → bigger blast radius
+  - when:
+      to:
+        contains: ","
+    then:
+      - upgrade:
+          dim: scope
+          delta: 6
+      - upgrade:
+          dim: amount
+          delta: 6
+
+  # Sensitive subject keywords
+  - when:
+      subject:
+        contains_any: ["confidential", "private", "secret", "internal only", "restricted"]
+    then:
+      - add_flag:
+          flag: EXPOSURE
+          role: primary
+      - upgrade:
+          dim: sensitivity
+          delta: 12
+
+  # Credentials in body — escalate to HIGH (HITL).
+  # GOVERNANCE primary activates the "control" risk category (40% weight)
+  # which is what pushes the score into HIGH. Base boundary is held at 14
+  # (<0.90) so the global trust_boundary auto-deny gate does NOT fire.
+  # The classified_external_send gate also won't fire because we keep
+  # sensitivity below the 0.94 ceiling.
+  - when:
+      body:
+        contains_any: ["password", "api_key", "credential", "token", "PASSWORD", "API_KEY", "SECRET", "private_key"]
+    then:
+      # Activate three risk categories: data (EXPOSURE), control (GOVERNANCE),
+      # power (PRIVILEGE). Together they push the score into HIGH tier without
+      # tripping any global block rule (privileged_prod_execution needs
+      # EXECUTION which we don't add).
+      - add_flag:
+          flag: EXPOSURE
+          role: primary
+      - add_flag:
+          flag: GOVERNANCE
+          role: primary
+      - add_flag:
+          flag: PRIVILEGE
+          role: primary
+      - upgrade:
+          dim: sensitivity
+          delta: 14    # 14 + 14 = 28; ratio 0.80, below 0.94 gate
+      - upgrade:
+          dim: scope
+          delta: 14
+      - upgrade:
+          dim: boundary
+          delta: 3     # 14 + 3 = 17; ratio 0.85, below 0.90 gate
+
+  # External recipient → escalate to HITL (Medium/High tier).
+  # `recipient_scope` is computed in the normalizer: "internal" if the
+  # recipient domain matches `org_domain` (NormalizeCtx), "external" otherwise.
+  # Adds GOVERNANCE primary (activates control category, 40% weight) and
+  # PRIVILEGE secondary (touches power category) — together they push the
+  # score from LOW into MEDIUM/HIGH without tripping the global trust_boundary
+  # gate (boundary stays < 18).
+  - when:
+      recipient_scope:
+        contains: "external"
+    then:
+      - add_flag:
+          flag: GOVERNANCE
+          role: primary
+      - add_flag:
+          flag: PRIVILEGE
+          role: secondary
+      - upgrade:
+          dim: scope
+          delta: 12
+      - upgrade:
+          dim: destination
+          delta: 8
+      - upgrade:
+          dim: sensitivity
+          delta: 6
+
+  # Sending from an existing draft is potentially a content-injection vector
+  # (the agent fills a draft, then sends it later, possibly bypassing review).
+  - when:
+      from_draft_id:
+        exists: true
+    then:
+      - add_flag:
+          flag: GOVERNANCE
+          role: secondary
+      - upgrade:
+          dim: scope
+          delta: 4
+
+session_rules:
+  - when:
+      emails_sent_today:
+        gt: 50
+    then:
+      - upgrade:
+          dim: scope
+          delta: 8
+      - upgrade:
+          dim: amount
+          delta: 6

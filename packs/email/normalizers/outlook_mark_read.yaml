@@ -1,0 +1,20 @@
+permit0_pack: "permit0/email"
+id: "email:outlook_mark_read"
+priority: 106
+match:
+  tool: outlook_mark_read
+normalize:
+  action_type: "email.mark_read"
+  domain: "email"
+  verb: "mark_read"
+  channel: "outlook"
+  entities:
+    message_id:
+      from: "message_id"
+      type: "string"
+      required: true
+    read:
+      from: "read"
+      type: "boolean"
+      optional: true
+      default: true

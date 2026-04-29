@@ -1,0 +1,19 @@
+permit0_pack: "permit0/email"
+id: "email:outlook_set_forwarding"
+priority: 113
+match:
+  tool: outlook_set_forwarding
+normalize:
+  action_type: "email.set_forwarding"
+  domain: "email"
+  verb: "set_forwarding"
+  channel: "outlook"
+  entities:
+    destination:
+      from: "forwarding_address"
+      type: "string"
+      required: true
+    enabled:
+      from: "enabled"
+      type: "boolean"
+      optional: true

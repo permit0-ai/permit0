@@ -1,5 +1,0 @@
-name: "Bash su - switch user (privilege escalation flag)"
-tool_name: "bash"
-parameters:
-  command: "su - postgres -c 'psql -l'"
-expected_permission: "ALLOW"

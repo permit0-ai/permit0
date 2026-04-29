@@ -1,9 +1,0 @@
-name: "Stripe medium charge GBP"
-tool_name: "http"
-parameters:
-  method: "POST"
-  url: "https://api.stripe.com/v1/charges"
-  body:
-    amount: 7500
-    currency: "gbp"
-expected_permission: "ALLOW"

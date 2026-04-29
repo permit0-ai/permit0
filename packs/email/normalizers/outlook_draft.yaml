@@ -1,0 +1,32 @@
+permit0_pack: "permit0/email"
+id: "email:outlook_draft"
+priority: 104
+match:
+  tool: outlook_draft
+normalize:
+  action_type: "email.draft"
+  domain: "email"
+  verb: "draft"
+  channel: "outlook"
+  entities:
+    draft_id:
+      from: "draft_id"
+      type: "string"
+      optional: true
+    to:
+      from: "to"
+      type: "string"
+    subject:
+      from: "subject"
+      type: "string"
+    body:
+      from: "body"
+      type: "string"
+    in_reply_to:
+      from: "in_reply_to"
+      type: "string"
+      optional: true
+    forward_from:
+      from: "forward_from"
+      type: "string"
+      optional: true

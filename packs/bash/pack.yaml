@@ -1,9 +1,0 @@
-name: permit0-pack-bash
-version: 0.1.0
-permit0_pack: v1
-vendor: bash
-description: Shell command normalizer and risk rules
-
-normalizers: []
-
-risk_rules: []

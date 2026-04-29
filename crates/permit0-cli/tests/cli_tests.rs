@@ -19,50 +19,39 @@ fn help_exits_zero() {
 }
 
 #[test]
-fn check_stripe_low_charge_allow() {
-    let input = r#"{"tool_name":"http","parameters":{"method":"POST","url":"https://api.stripe.com/v1/charges","body":{"amount":50,"currency":"usd"}}}"#;
+fn check_gmail_send_normalizes() {
+    let input = r#"{"tool_name":"gmail_send","parameters":{"to":"bob@external.com","subject":"Hi","body":"ok"}}"#;
     let output = permit0_bin()
         .args(["check", "--input", input])
         .output()
         .unwrap();
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("ALLOW"), "expected ALLOW, got: {stdout}");
-    assert_eq!(output.status.code(), Some(0));
+    assert!(
+        stdout.contains("email.send"),
+        "expected email.send action, got: {stdout}"
+    );
+    assert!(
+        stdout.contains("gmail"),
+        "expected gmail channel, got: {stdout}"
+    );
 }
 
 #[test]
-fn check_stripe_crypto_deny() {
-    let input = r#"{"tool_name":"http","parameters":{"method":"POST","url":"https://api.stripe.com/v1/charges","body":{"amount":1000,"currency":"btc"}}}"#;
+fn check_outlook_send_normalizes() {
+    let input = r#"{"tool_name":"outlook_send","parameters":{"to":"bob@external.com","subject":"Hi","body":"ok"}}"#;
     let output = permit0_bin()
         .args(["check", "--input", input])
         .output()
         .unwrap();
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("DENY"), "expected DENY, got: {stdout}");
-    assert_eq!(output.status.code(), Some(2));
-}
-
-#[test]
-fn check_bash_safe_command_allow() {
-    let input = r#"{"tool_name":"bash","parameters":{"command":"echo hello"}}"#;
-    let output = permit0_bin()
-        .args(["check", "--input", input])
-        .output()
-        .unwrap();
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("ALLOW"), "expected ALLOW, got: {stdout}");
-}
-
-#[test]
-fn check_bash_device_write_deny() {
-    let input = r#"{"tool_name":"bash","parameters":{"command":"echo data > /dev/sda"}}"#;
-    let output = permit0_bin()
-        .args(["check", "--input", input])
-        .output()
-        .unwrap();
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("DENY"), "expected DENY, got: {stdout}");
-    assert_eq!(output.status.code(), Some(2));
+    assert!(
+        stdout.contains("email.send"),
+        "expected email.send action, got: {stdout}"
+    );
+    assert!(
+        stdout.contains("outlook"),
+        "expected outlook channel, got: {stdout}"
+    );
 }
 
 #[test]
@@ -78,42 +67,18 @@ fn check_unknown_tool_human() {
 }
 
 #[test]
-fn pack_validate_stripe() {
+fn pack_validate_email() {
     let output = permit0_bin()
-        .args(["pack", "validate", "packs/stripe"])
-        .output()
-        .unwrap();
-    assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("valid"));
-}
-
-#[test]
-fn pack_validate_all_packs() {
-    for pack in ["packs/stripe", "packs/bash", "packs/gmail"] {
-        let output = permit0_bin()
-            .args(["pack", "validate", pack])
-            .output()
-            .unwrap();
-        assert!(
-            output.status.success(),
-            "pack validate failed for {pack}: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-    }
-}
-
-#[test]
-fn pack_test_stripe() {
-    let output = permit0_bin()
-        .args(["pack", "test", "packs/stripe"])
+        .args(["pack", "validate", "packs/email"])
         .output()
         .unwrap();
     assert!(
         output.status.success(),
-        "pack test failed: {}",
+        "pack validate failed: {}",
         String::from_utf8_lossy(&output.stderr)
     );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("valid"));
 }
 
 #[test]
@@ -145,14 +110,11 @@ fn calibrate_diff_fintech() {
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("FINANCIAL"));
-    assert!(stdout.contains("payments.charge"));
 }
 
-// ── Phase 16: Host Adapter Tests ──
-
 #[test]
-fn hook_with_safe_command() {
-    let input = r#"{"tool_name":"bash","tool_input":{"command":"ls -la"}}"#;
+fn hook_with_safe_email() {
+    let input = r#"{"tool_name":"gmail_send","tool_input":{"to":"bob@external.com","subject":"Hi","body":"ok"}}"#;
     let mut child = permit0_bin()
         .args(["hook"])
         .stdin(Stdio::piped())
@@ -162,7 +124,11 @@ fn hook_with_safe_command() {
         .unwrap();
     child.stdin.take().unwrap().write_all(input.as_bytes()).unwrap();
     let output = child.wait_with_output().unwrap();
-    assert!(output.status.success(), "hook failed: {}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "hook failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     let stdout = String::from_utf8_lossy(&output.stdout);
     let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
     assert!(
@@ -172,30 +138,8 @@ fn hook_with_safe_command() {
 }
 
 #[test]
-fn hook_with_device_write_blocks() {
-    // Device write is a known deny case from the bash pack
-    let input = r#"{"tool_name":"bash","tool_input":{"command":"echo data > /dev/sda"}}"#;
-    let mut child = permit0_bin()
-        .args(["hook"])
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .unwrap();
-    child.stdin.take().unwrap().write_all(input.as_bytes()).unwrap();
-    let output = child.wait_with_output().unwrap();
-    assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
-    assert_eq!(
-        parsed["decision"], "block",
-        "expected block for device write, got: {stdout}"
-    );
-}
-
-#[test]
 fn gateway_processes_jsonl() {
-    let input = r#"{"tool_name":"bash","parameters":{"command":"echo hello"}}"#;
+    let input = r#"{"tool_name":"gmail_send","parameters":{"to":"bob@external.com","subject":"Hi","body":"ok"}}"#;
     let mut child = permit0_bin()
         .args(["gateway"])
         .stdin(Stdio::piped())
@@ -205,7 +149,11 @@ fn gateway_processes_jsonl() {
         .unwrap();
     child.stdin.take().unwrap().write_all(input.as_bytes()).unwrap();
     let output = child.wait_with_output().unwrap();
-    assert!(output.status.success(), "gateway failed: {}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "gateway failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     let stdout = String::from_utf8_lossy(&output.stdout);
     let parsed: serde_json::Value = serde_json::from_str(stdout.trim()).unwrap();
     assert!(parsed["permission"].is_string());
@@ -224,7 +172,11 @@ fn pack_new_creates_scaffold() {
         .args(["pack", "new", "test_service"])
         .output()
         .unwrap();
-    assert!(output.status.success(), "pack new failed: {}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "pack new failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 
     // Verify scaffold files exist
     assert!(tmp.join("packs/test_service/normalizers/test_service.normalizer.yaml").exists());
@@ -250,7 +202,7 @@ fn serve_help() {
 
 #[test]
 fn check_output_format() {
-    let input = r#"{"tool_name":"http","parameters":{"method":"POST","url":"https://api.stripe.com/v1/charges","body":{"amount":100,"currency":"usd"}}}"#;
+    let input = r#"{"tool_name":"gmail_send","parameters":{"to":"bob@external.com","subject":"Hi","body":"ok"}}"#;
     let output = permit0_bin()
         .args(["check", "--input", input])
         .output()

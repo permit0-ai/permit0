@@ -1,0 +1,19 @@
+permit0_pack: "permit0/email"
+id: "email:outlook_move"
+priority: 108
+match:
+  tool: outlook_move
+normalize:
+  action_type: "email.move"
+  domain: "email"
+  verb: "move"
+  channel: "outlook"
+  entities:
+    message_id:
+      from: "message_id"
+      type: "string"
+      required: true
+    destination:
+      from: "folder_id"
+      type: "string"
+      required: true

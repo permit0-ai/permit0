@@ -1,0 +1,19 @@
+permit0_pack: "permit0/email"
+id: "email:gmail_add_delegate"
+priority: 129
+match:
+  tool: gmail_add_delegate
+normalize:
+  action_type: "email.add_delegate"
+  domain: "email"
+  verb: "add_delegate"
+  channel: "gmail"
+  entities:
+    delegate:
+      from: "delegate_email"
+      type: "string"
+      required: true
+    permissions:
+      from: "permissions"
+      type: "string"
+      optional: true

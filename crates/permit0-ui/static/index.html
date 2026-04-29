@@ -505,6 +505,74 @@ textarea.input {
   display: flex;
   gap: 8px;
   align-items: center;
+  margin-top: 12px;
+}
+/* Risk flags row, e.g. [OUTBOUND] [MUTATION] [GOVERNANCE] */
+.approval-flags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 8px 0 4px 0;
+}
+.badge-flag {
+  display: inline-block;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  background: var(--surface-2, var(--surface));
+  color: var(--text-muted);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}
+/* Collapsible entity table — what the agent actually passed in */
+.approval-entities {
+  margin: 8px 0 0 0;
+  background: var(--surface-2, var(--surface));
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+.approval-entities summary {
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+  user-select: none;
+}
+.approval-entities[open] summary {
+  margin-bottom: 8px;
+  border-bottom: 1px dashed var(--border);
+  padding-bottom: 6px;
+}
+.kv-table {
+  width: 100%;
+  font-size: 13px;
+  border-collapse: collapse;
+}
+.kv-table td {
+  padding: 4px 8px 4px 0;
+  vertical-align: top;
+}
+.kv-table .kv-key {
+  font-weight: 600;
+  color: var(--text-muted);
+  white-space: nowrap;
+  width: 1%;
+}
+.kv-table .kv-value {
+  color: var(--text);
+  word-break: break-word;
+}
+.kv-value-string {
+  white-space: pre-wrap;
+  font-family: -apple-system, 'Segoe UI', sans-serif;
+  max-height: 240px;
+  overflow-y: auto;
+}
+.kv-null {
+  color: var(--text-muted);
+  font-style: italic;
 }
 .approval-form {
   display: none;
@@ -1039,6 +1107,7 @@ textarea.input {
       </div>
     </div>
     <div class="topbar-right">
+      <span id="reviewerStatus" style="display:none">reviewer: <strong id="reviewerName"></strong> <a href="#" id="reviewerSignOut" style="margin-left:6px;color:var(--accent);text-decoration:none">sign out</a></span>
       <span>profile: <strong id="activeProfile">default</strong></span>
       <span class="status-dot" id="globalStatusDot"></span>
     </div>
@@ -1052,6 +1121,7 @@ textarea.input {
     <button class="tab-btn" data-tab="policies">Policies</button>
     <button class="tab-btn" data-tab="config">Config</button>
     <button class="tab-btn" data-tab="live">Live</button>
+    <button class="tab-btn" data-tab="calibration">Calibration</button>
   </nav>
 
   <!-- Tab content -->
@@ -1133,10 +1203,14 @@ textarea.input {
               <th>Tier</th>
               <th>Score</th>
               <th>Source</th>
+              <th>permit0 said</th>
+              <th>human said</th>
+              <th>match?</th>
+              <th>Reviewer</th>
             </tr>
           </thead>
           <tbody id="auditBody">
-            <tr><td colspan="7" class="loading-state"><span class="spinner"></span> Loading...</td></tr>
+            <tr><td colspan="11" class="loading-state"><span class="spinner"></span> Loading...</td></tr>
           </tbody>
         </table>
       </div>
@@ -1248,6 +1322,70 @@ textarea.input {
       </div>
     </div>
 
+    <!-- ===================== TAB: Calibration ===================== -->
+    <div class="tab-panel" id="panel-calibration">
+      <div class="stat-cards">
+        <div class="stat-card">
+          <div class="stat-card-label">Total Calibrated</div>
+          <div class="stat-card-value" id="calStatTotal">--</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-card-label">Agreement Rate</div>
+          <div class="stat-card-value" id="calStatAgreement">--</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-card-label">Top Reviewer</div>
+          <div class="stat-card-value" id="calStatTopReviewer">--</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-card-label">Most Overridden Action</div>
+          <div class="stat-card-value" id="calStatMostOverridden">--</div>
+        </div>
+      </div>
+
+      <div class="filter-bar">
+        <label>Agreement</label>
+        <select class="input" id="calFilterAgreement">
+          <option value="">All</option>
+          <option value="matched">Matched</option>
+          <option value="overridden">Overridden</option>
+        </select>
+        <label>Reviewer</label>
+        <input class="input" type="text" id="calFilterReviewer" placeholder="reviewer name" style="width:160px">
+        <button class="btn btn-primary" id="calApplyBtn">Apply</button>
+      </div>
+
+      <div style="overflow-x:auto">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Timestamp</th>
+              <th>Action</th>
+              <th>Channel</th>
+              <th>permit0 said</th>
+              <th>human said</th>
+              <th>match</th>
+              <th>Reviewer</th>
+              <th>Reason</th>
+            </tr>
+          </thead>
+          <tbody id="calBody">
+            <tr><td colspan="8" class="loading-state"><span class="spinner"></span> Loading...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- Reviewer login modal -->
+<div id="reviewerModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:9999;align-items:center;justify-content:center">
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--radius-lg);padding:28px;width:380px;max-width:90vw;box-shadow:var(--shadow-lg)">
+    <h2 style="margin-bottom:8px;font-size:18px;color:var(--text)">Reviewer Identity</h2>
+    <p style="color:var(--text-muted);font-size:13px;margin-bottom:18px">Enter your name to use as the reviewer for approvals and audit calibration.</p>
+    <input class="input" type="text" id="reviewerLoginInput" placeholder="Your name" style="width:100%;margin-bottom:14px" autofocus>
+    <button class="btn btn-primary" id="reviewerLoginBtn" style="width:100%">Sign in</button>
   </div>
 </div>
 
@@ -1371,6 +1509,7 @@ textarea.input {
     else if (tab === 'policies') initPolicies();
     else if (tab === 'config') initConfig();
     else if (tab === 'live') initLive();
+    else if (tab === 'calibration') initCalibration();
   }
 
   $$('.tab-btn').forEach(function(b) {
@@ -1383,7 +1522,10 @@ textarea.input {
 
   function initDashboard() {
     loadDashboard();
-    dashInterval = setInterval(loadDashboard, 10000);
+    dashInterval = setInterval(function() {
+      if (document.hidden) return;
+      loadDashboard();
+    }, 10000);
   }
 
   async function loadDashboard() {
@@ -1461,6 +1603,8 @@ textarea.input {
     offset: 0
   };
 
+  var auditInterval = null;
+
   function initAudit() {
     $('#auditApplyBtn').addEventListener('click', function() {
       auditState.rows = [];
@@ -1477,6 +1621,21 @@ textarea.input {
       window.open('/api/v1/audit/export?format=csv', '_blank');
     });
     loadAudit(false);
+    // Auto-refresh: only when this tab is visible AND focused. Don't disrupt
+    // an in-progress filter (input focus) or "Load more" pagination state.
+    auditInterval = setInterval(function() {
+      if (currentTab !== 'audit') return;
+      if (document.hidden) return;
+      // Skip if user is editing a filter input or viewing details.
+      if (document.activeElement && document.activeElement.id &&
+          document.activeElement.id.startsWith('auditFilter')) return;
+      // Skip if "load more" has been used (offset > 0) — refreshing would
+      // reset their pagination. They can apply filters again to get fresh data.
+      if (auditState.offset > 0) return;
+      auditState.rows = [];
+      auditState.offset = 0;
+      loadAudit(false);
+    }, 5000);
   }
 
   async function loadAudit(append) {
@@ -1509,7 +1668,7 @@ textarea.input {
       btn.style.display = (data && data.length >= auditState.limit) ? '' : 'none';
     } catch (err) {
       if (!append) {
-        $('#auditBody').innerHTML = '<tr><td colspan="7" style="padding:20px;color:var(--danger)">Error: ' + esc(err.message) + '</td></tr>';
+        $('#auditBody').innerHTML = '<tr><td colspan="11" style="padding:20px;color:var(--danger)">Error: ' + esc(err.message) + '</td></tr>';
       }
       toast('Failed to load audit log: ' + err.message, 'error');
     } finally {
@@ -1521,11 +1680,12 @@ textarea.input {
   function renderAudit() {
     var rows = auditState.rows;
     if (!rows || rows.length === 0) {
-      $('#auditBody').innerHTML = '<tr><td colspan="7" style="padding:30px;text-align:center;color:var(--text-dim)">No audit entries match the filter</td></tr>';
+      $('#auditBody').innerHTML = '<tr><td colspan="11" style="padding:30px;text-align:center;color:var(--text-dim)">No audit entries match the filter</td></tr>';
       return;
     }
     var html = '';
     rows.forEach(function(r, i) {
+      var calib = calibrationCells(r);
       html += '<tr class="clickable-row" data-audit-idx="' + i + '">'
         + '<td class="mono">' + esc(formatTimestamp(r.timestamp)) + '</td>'
         + '<td>' + esc(r.action_type) + '</td>'
@@ -1534,6 +1694,10 @@ textarea.input {
         + '<td>' + tierBadge(r.tier) + '</td>'
         + '<td class="mono">' + esc(r.risk_raw != null ? r.risk_raw : '-') + '</td>'
         + '<td class="mono">' + esc(r.source || '-') + '</td>'
+        + '<td>' + calib.engine + '</td>'
+        + '<td>' + calib.human + '</td>'
+        + '<td style="text-align:center">' + calib.match + '</td>'
+        + '<td class="mono">' + esc(r.reviewer || '—') + '</td>'
         + '</tr>';
 
       // detail row
@@ -1546,7 +1710,7 @@ textarea.input {
       if (r.surface_command) surfaceHtml += '<div style="margin-top:4px"><strong>Surface Command:</strong> ' + esc(r.surface_command) + '</div>';
 
       html += '<tr class="detail-row" data-detail-idx="' + i + '">'
-        + '<td colspan="7"><div class="detail-content">'
+        + '<td colspan="11"><div class="detail-content">'
         + flagsHtml
         + surfaceHtml
         + '<div style="margin-top:8px"><strong>Full Record:</strong></div>'
@@ -1577,6 +1741,9 @@ textarea.input {
   async function loadApprovals() {
     try {
       var data = await api('GET', '/approvals');
+      // Don't blow away an open form mid-edit; resume on next tick once the
+      // user submits (the form closes / the row disappears).
+      if (document.querySelector('#approvalList .approval-form.open')) return;
       renderApprovals(data || []);
     } catch (err) {
       // silent on polling errors
@@ -1609,17 +1776,54 @@ textarea.input {
         + '<span>Risk: <strong>' + esc(a.risk_score != null ? a.risk_score : '-') + '</strong></span>'
         + '<span>Created: ' + esc(elapsed) + '</span>'
         + '</div>'
+        + renderApprovalDetails(a)
         + '<div class="approval-card-actions">'
         + '<button class="btn btn-success btn-sm" onclick="P0.showApprovalForm(\'' + esc(a.approval_id) + '\', \'allow\')">Approve</button>'
         + '<button class="btn btn-danger btn-sm" onclick="P0.showApprovalForm(\'' + esc(a.approval_id) + '\', \'deny\')">Deny</button>'
         + '</div>'
         + '<div class="approval-form" id="af-' + esc(a.approval_id) + '">'
         + '<div class="approval-form-row"><label>Reason</label><textarea class="input" rows="2" id="af-reason-' + esc(a.approval_id) + '" placeholder="Reason for decision"></textarea></div>'
-        + '<div class="approval-form-row"><label>Reviewer</label><input class="input" type="text" id="af-reviewer-' + esc(a.approval_id) + '" placeholder="Your name"></div>'
+        + '<div class="approval-form-row"><label>Reviewer</label><input class="input" type="text" id="af-reviewer-' + esc(a.approval_id) + '" placeholder="Your name" value="' + esc(localStorage.getItem("permit0.reviewer") || "") + '"></div>'
         + '<div class="approval-form-row"><label></label><button class="btn btn-primary btn-sm" id="af-submit-' + esc(a.approval_id) + '">Submit</button></div>'
         + '</div>'
         + '</div>';
     }).join('');
+  }
+
+  // Render the entity payload + risk flags so the human can audit before
+  // approving. Long string values (body, etc.) are rendered with line breaks
+  // preserved so multi-line emails are readable.
+  function renderApprovalDetails(a) {
+    var html = '';
+    var flags = (a.flags && a.flags.length) ? a.flags : [];
+    if (flags.length) {
+      html += '<div class="approval-flags">'
+        + flags.map(function(f) { return '<span class="badge badge-flag">' + esc(f) + '</span>'; }).join(' ')
+        + '</div>';
+    }
+    var ents = a.entities || {};
+    var keys = Object.keys(ents);
+    if (keys.length) {
+      var rows = keys.map(function(k) {
+        var v = ents[k];
+        var displayValue;
+        if (v === null || v === undefined) {
+          displayValue = '<span class="kv-null">null</span>';
+        } else if (typeof v === 'string') {
+          // Show strings as-is but escape HTML; preserve newlines via white-space:pre-wrap.
+          displayValue = '<div class="kv-value-string">' + esc(v) + '</div>';
+        } else {
+          // Numbers / booleans / objects → JSON format.
+          displayValue = '<code>' + esc(JSON.stringify(v)) + '</code>';
+        }
+        return '<tr><td class="kv-key">' + esc(k) + '</td><td class="kv-value">' + displayValue + '</td></tr>';
+      }).join('');
+      html += '<details class="approval-entities" open>'
+        + '<summary>Message details (' + keys.length + ' field' + (keys.length === 1 ? '' : 's') + ')</summary>'
+        + '<table class="kv-table"><tbody>' + rows + '</tbody></table>'
+        + '</details>';
+    }
+    return html;
   }
 
   // Exposed approval form handler
@@ -1643,7 +1847,7 @@ textarea.input {
   async function submitApproval(id) {
     var permission = window.P0._pendingPermission[id] || 'deny';
     var reason = ($('#af-reason-' + id) || {}).value || '';
-    var reviewer = ($('#af-reviewer-' + id) || {}).value || '';
+    var reviewer = ($('#af-reviewer-' + id) || {}).value || localStorage.getItem("permit0.reviewer") || '';
     var btn = $('#af-submit-' + id);
     if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Submitting...'; }
     try {
@@ -1654,6 +1858,10 @@ textarea.input {
         reviewer: reviewer
       });
       toast('Decision submitted: ' + permission, 'success');
+      // Close the form so the next loadApprovals() actually re-renders
+      // (the polling guard skips when any form is .open).
+      var form = $('#af-' + id);
+      if (form) form.classList.remove('open');
       loadApprovals();
     } catch (err) {
       toast('Failed to submit decision: ' + err.message, 'error');
@@ -2174,9 +2382,9 @@ textarea.input {
     }
     // Ctrl+1-6: switch tabs
     if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
-      var tabs = ['dashboard', 'audit', 'approvals', 'policies', 'config', 'live'];
+      var tabs = ['dashboard', 'audit', 'approvals', 'policies', 'config', 'live', 'calibration'];
       var num = parseInt(e.key, 10);
-      if (num >= 1 && num <= 6) {
+      if (num >= 1 && num <= 7) {
         e.preventDefault();
         switchTab(tabs[num - 1]);
       }
@@ -2184,7 +2392,143 @@ textarea.input {
   });
 
 
+  // ========== Reviewer Login (localStorage) ==========
+  function setupReviewer() {
+    var modal = $('#reviewerModal');
+    var existing = localStorage.getItem('permit0.reviewer');
+    if (existing && existing.trim()) {
+      showReviewer(existing);
+    } else {
+      modal.style.display = 'flex';
+    }
+    var input = $('#reviewerLoginInput');
+    var btn = $('#reviewerLoginBtn');
+    function doLogin() {
+      var v = (input.value || '').trim();
+      if (!v) { input.focus(); return; }
+      localStorage.setItem('permit0.reviewer', v);
+      modal.style.display = 'none';
+      showReviewer(v);
+    }
+    btn.addEventListener('click', doLogin);
+    input.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') { e.preventDefault(); doLogin(); }
+      if (e.key === 'Escape') { e.preventDefault(); /* ESC does NOT dismiss */ }
+    });
+    $('#reviewerSignOut').addEventListener('click', function(e) {
+      e.preventDefault();
+      localStorage.removeItem('permit0.reviewer');
+      window.location.reload();
+    });
+  }
+  function showReviewer(name) {
+    var status = $('#reviewerStatus');
+    $('#reviewerName').textContent = name;
+    status.style.display = '';
+  }
+
+  // ========== Calibration helpers (used by audit + calibration tab) ==========
+  function calibrationCells(r) {
+    var hasEngine = r.engine_permission != null && r.engine_permission !== '';
+    var hasReviewer = r.reviewer != null && r.reviewer !== '';
+    if (!hasEngine) {
+      return { engine: '<span style="color:var(--text-dim)">—</span>',
+               human: '<span style="color:var(--text-dim)">—</span>',
+               match: '<span style="color:var(--text-dim)">—</span>' };
+    }
+    var engineHtml = permissionBadge(r.engine_permission);
+    var humanHtml = hasReviewer ? permissionBadge(r.permission) : '<span style="color:var(--text-dim)">—</span>';
+    var matchHtml;
+    if (!hasReviewer) {
+      matchHtml = '<span style="color:var(--text-dim)">—</span>';
+    } else if (String(r.engine_permission).toLowerCase() === String(r.permission).toLowerCase()) {
+      matchHtml = '<span style="color:var(--success);font-weight:700" title="permit0 and human agreed">✓</span>';
+    } else {
+      matchHtml = '<span style="color:var(--warning);font-weight:700" title="human overrode permit0">⚠</span>';
+    }
+    return { engine: engineHtml, human: humanHtml, match: matchHtml };
+  }
+
+
+  // ========== TAB 7: Calibration ==========
+  var calibInterval = null;
+
+  function initCalibration() {
+    $('#calApplyBtn').addEventListener('click', function() {
+      loadCalibrationRecords();
+    });
+    loadCalibrationStats();
+    loadCalibrationRecords();
+    calibInterval = setInterval(function() {
+      if (currentTab !== 'calibration') return;
+      if (document.hidden) return;
+      // Skip rerender if user is editing a filter (would lose their input)
+      if (document.activeElement && document.activeElement.id &&
+          document.activeElement.id.startsWith('cal')) return;
+      loadCalibrationStats();
+      loadCalibrationRecords();
+    }, 10000);
+  }
+
+  async function loadCalibrationStats() {
+    try {
+      var s = await api('GET', '/calibration/stats');
+      $('#calStatTotal').textContent = s.total != null ? s.total.toLocaleString() : '0';
+      var rate = (s.agreement_rate != null) ? (s.agreement_rate * 100).toFixed(1) + '%' : '--';
+      var rateEl = $('#calStatAgreement');
+      rateEl.textContent = rate;
+      rateEl.className = 'stat-card-value';
+      if (s.agreement_rate != null) {
+        if (s.agreement_rate >= 0.9) rateEl.className = 'stat-card-value ok';
+        else if (s.agreement_rate < 0.7) rateEl.className = 'stat-card-value warn';
+      }
+      var topR = (s.by_reviewer && s.by_reviewer[0]) ? s.by_reviewer[0] : null;
+      $('#calStatTopReviewer').textContent = topR ? (topR.reviewer + ' (' + topR.count + ')') : '--';
+      var topA = (s.most_overridden_actions && s.most_overridden_actions[0]) ? s.most_overridden_actions[0] : null;
+      $('#calStatMostOverridden').textContent = topA ? (topA.action_type + ' (' + topA.count + ')') : '--';
+    } catch (err) {
+      // silent on polling errors
+    }
+  }
+
+  async function loadCalibrationRecords() {
+    var params = [];
+    var ag = $('#calFilterAgreement').value;
+    var rv = $('#calFilterReviewer').value.trim();
+    if (ag) params.push('agreement=' + encodeURIComponent(ag));
+    if (rv) params.push('reviewer=' + encodeURIComponent(rv));
+    params.push('limit=200');
+    try {
+      var rows = await api('GET', '/calibration/records?' + params.join('&'));
+      renderCalibration(rows || []);
+    } catch (err) {
+      $('#calBody').innerHTML = '<tr><td colspan="8" style="padding:20px;color:var(--danger)">Error: ' + esc(err.message) + '</td></tr>';
+    }
+  }
+
+  function renderCalibration(rows) {
+    if (!rows || rows.length === 0) {
+      $('#calBody').innerHTML = '<tr><td colspan="8" style="padding:30px;text-align:center;color:var(--text-dim)">No calibration records match the filter</td></tr>';
+      return;
+    }
+    $('#calBody').innerHTML = rows.map(function(r) {
+      var c = calibrationCells(r);
+      return '<tr>'
+        + '<td class="mono">' + esc(formatTimestamp(r.timestamp)) + '</td>'
+        + '<td>' + esc(r.action_type) + '</td>'
+        + '<td class="mono">' + esc(r.channel || '-') + '</td>'
+        + '<td>' + c.engine + '</td>'
+        + '<td>' + c.human + '</td>'
+        + '<td style="text-align:center">' + c.match + '</td>'
+        + '<td class="mono">' + esc(r.reviewer || '-') + '</td>'
+        + '<td>' + esc(r.reason || '-') + '</td>'
+        + '</tr>';
+    }).join('');
+  }
+
+
   // ========== Init ==========
+  setupReviewer();
   initTab('dashboard');
 })();
 </script>

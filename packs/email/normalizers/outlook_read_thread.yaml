@@ -1,0 +1,15 @@
+permit0_pack: "permit0/email"
+id: "email:outlook_read_thread"
+priority: 102
+match:
+  tool: outlook_read_thread
+normalize:
+  action_type: "email.read_thread"
+  domain: "email"
+  verb: "read_thread"
+  channel: "outlook"
+  entities:
+    thread_id:
+      from: "conversation_id"
+      type: "string"
+      required: true

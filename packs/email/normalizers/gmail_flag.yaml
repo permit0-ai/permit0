@@ -1,0 +1,19 @@
+permit0_pack: "permit0/email"
+id: "email:gmail_flag"
+priority: 122
+match:
+  tool: gmail_flag
+normalize:
+  action_type: "email.flag"
+  domain: "email"
+  verb: "flag"
+  channel: "gmail"
+  entities:
+    message_id:
+      from: "id"
+      type: "string"
+      required: true
+    flagged:
+      from: "flagged"
+      type: "boolean"
+      optional: true

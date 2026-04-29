@@ -1,8 +1,0 @@
-name: "Unknown tool: SendGrid send email"
-tool_name: "sendgrid_send"
-parameters:
-  to: "user@example.com"
-  from: "noreply@app.com"
-  subject: "Welcome!"
-  body: "Thanks for signing up."
-expected_permission: "HUMAN"

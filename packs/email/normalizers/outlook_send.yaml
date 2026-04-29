@@ -1,0 +1,52 @@
+permit0_pack: "permit0/email"
+id: "email:outlook_send"
+priority: 105
+match:
+  tool: outlook_send
+normalize:
+  action_type: "email.send"
+  domain: "email"
+  verb: "send"
+  channel: "outlook"
+  entities:
+    to:
+      from: "to"
+      type: "string"
+    cc:
+      from: "cc"
+      type: "string"
+      optional: true
+    bcc:
+      from: "bcc"
+      type: "string"
+      optional: true
+    subject:
+      from: "subject"
+      type: "string"
+      optional: true
+    body:
+      from: "body"
+      type: "string"
+      optional: true
+    in_reply_to:
+      from: "in_reply_to"
+      type: "string"
+      optional: true
+    reply_all:
+      from: "reply_all"
+      type: "boolean"
+      optional: true
+    forward_from:
+      from: "forward_from"
+      type: "string"
+      optional: true
+    from_draft_id:
+      from: "from_draft_id"
+      type: "string"
+      optional: true
+    recipient_scope:
+      compute: "recipient_scope"
+      args: ["to", "org_domain"]
+    domain:
+      compute: "extract_domain"
+      args: ["to"]

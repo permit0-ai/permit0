@@ -1,0 +1,19 @@
+permit0_pack: "permit0/email"
+id: "email:outlook_add_delegate"
+priority: 114
+match:
+  tool: outlook_add_delegate
+normalize:
+  action_type: "email.add_delegate"
+  domain: "email"
+  verb: "add_delegate"
+  channel: "outlook"
+  entities:
+    delegate:
+      from: "delegate"
+      type: "string"
+      required: true
+    permissions:
+      from: "permissions"
+      type: "string"
+      optional: true

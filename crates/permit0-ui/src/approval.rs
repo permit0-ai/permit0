@@ -42,6 +42,14 @@ pub struct PendingApprovalSummary {
     pub risk_score: u32,
     pub tier: String,
     pub created_at: String,
+    /// The normalized entities (to, subject, body, message_id, …) the agent
+    /// passed in. Lets the human reviewer audit the actual content before
+    /// approving / denying.
+    pub entities: serde_json::Map<String, serde_json::Value>,
+    /// Risk flags that fired during scoring (e.g. ["OUTBOUND", "MUTATION",
+    /// "EXPOSURE", "GOVERNANCE"]). Helps the reviewer understand WHY this
+    /// reached the current tier.
+    pub flags: Vec<String>,
 }
 
 /// Default timeout for pending approvals (5 minutes).
@@ -122,6 +130,8 @@ impl ApprovalManager {
                 risk_score: p.risk_score.score,
                 tier: p.risk_score.tier.to_string(),
                 created_at: p.created_at.clone(),
+                entities: p.norm_action.entities.clone(),
+                flags: p.risk_score.flags.clone(),
             })
             .collect()
     }

@@ -1,7 +1,0 @@
-name: "Gmail send to internal colleague"
-tool_name: "gmail_send"
-parameters:
-  to: "alice@company.com"
-  subject: "Weekly sync notes"
-  body: "Here are the notes from today's meeting."
-expected_permission: "ALLOW"

@@ -1,0 +1,22 @@
+permit0_pack: "permit0/email"
+action_type: "email.mark_spam"
+# default tier: HIGH — trains the spam classifier and damages sender
+# reputation. LLM abuse: marking a competitor / collaborator as spam.
+base:
+  flags:
+    MUTATION: primary
+    GOVERNANCE: primary
+    EXPOSURE: secondary
+  amplifiers:
+    scope: 18
+    irreversibility: 14
+    boundary: 8
+rules: []
+session_rules:
+  - when:
+      record_count:
+        gt: 10
+    then:
+      - upgrade:
+          dim: scope
+          delta: 12

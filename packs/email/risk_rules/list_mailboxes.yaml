@@ -1,0 +1,8 @@
+permit0_pack: "permit0/email"
+action_type: "email.list_mailboxes"
+# default tier: MINIMAL — pure structure listing
+base:
+  flags: {}
+  amplifiers: {}
+rules: []
+session_rules: []

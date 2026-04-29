@@ -1,0 +1,11 @@
+permit0_pack: "permit0/email"
+id: "email:gmail_list_mailboxes"
+priority: 118
+match:
+  tool: gmail_list_mailboxes
+normalize:
+  action_type: "email.list_mailboxes"
+  domain: "email"
+  verb: "list_mailboxes"
+  channel: "gmail"
+  entities: {}

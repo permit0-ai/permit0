@@ -125,7 +125,7 @@ mod tests {
         entities.insert("currency".into(), serde_json::json!("usd"));
 
         NormAction {
-            action_type: ActionType::new(Domain::Payments, Verb::Charge).unwrap(),
+            action_type: ActionType::new(Domain::Payment, Verb::Charge).unwrap(),
             channel: "stripe".into(),
             entities,
             execution: ExecutionMeta {
@@ -138,7 +138,7 @@ mod tests {
     #[test]
     fn domain_and_verb_accessors() {
         let a = test_action();
-        assert_eq!(a.domain(), Domain::Payments);
+        assert_eq!(a.domain(), Domain::Payment);
         assert_eq!(a.verb(), Verb::Charge);
     }
 

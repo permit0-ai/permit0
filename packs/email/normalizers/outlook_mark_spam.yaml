@@ -1,0 +1,15 @@
+permit0_pack: "permit0/email"
+id: "email:outlook_mark_spam"
+priority: 110
+match:
+  tool: outlook_mark_spam
+normalize:
+  action_type: "email.mark_spam"
+  domain: "email"
+  verb: "mark_spam"
+  channel: "outlook"
+  entities:
+    message_id:
+      from: "message_id"
+      type: "string"
+      required: true

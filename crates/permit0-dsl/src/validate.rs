@@ -366,7 +366,7 @@ session_rules: []
 
     #[test]
     fn valid_risk_rule_passes() {
-        let yaml = include_str!("../../../packs/stripe/risk_rules/charge.yaml");
+        let yaml = include_str!("../../../packs/email/risk_rules/send.yaml");
         let def: RiskRuleDef = serde_yaml::from_str(yaml).unwrap();
         let errors = validate_risk_rule(&def);
         assert!(errors.is_empty(), "unexpected errors: {errors:?}");

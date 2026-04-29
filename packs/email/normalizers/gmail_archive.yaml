@@ -1,0 +1,15 @@
+permit0_pack: "permit0/email"
+id: "email:gmail_archive"
+priority: 124
+match:
+  tool: gmail_archive
+normalize:
+  action_type: "email.archive"
+  domain: "email"
+  verb: "archive"
+  channel: "gmail"
+  entities:
+    message_id:
+      from: "id"
+      type: "string"
+      required: true

@@ -1,7 +1,0 @@
-name: "Unknown tool: Docker run container"
-tool_name: "docker_run"
-parameters:
-  image: "nginx:latest"
-  ports: "80:80"
-  detach: true
-expected_permission: "HUMAN"

@@ -1,0 +1,36 @@
+permit0_pack: "permit0/email"
+action_type: "email.move"
+# default tier: MEDIUM — moving organizes mailbox; moving to Trash/Spam is
+# escalated by separate rules below.
+base:
+  flags:
+    MUTATION: primary
+  amplifiers:
+    scope: 6
+    irreversibility: 4
+rules:
+  - when:
+      destination:
+        contains_any: ["trash", "deleted", "Deleted Items", "Bin"]
+    then:
+      - upgrade:
+          dim: irreversibility
+          delta: 8
+  - when:
+      destination:
+        contains_any: ["junk", "spam", "JunkEmail", "Junk Email"]
+    then:
+      - add_flag:
+          flag: GOVERNANCE
+          role: secondary
+      - upgrade:
+          dim: scope
+          delta: 4
+session_rules:
+  - when:
+      record_count:
+        gt: 50
+    then:
+      - upgrade:
+          dim: scope
+          delta: 8

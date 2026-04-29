@@ -14,6 +14,7 @@ members = [
     "crates/permit0-cli",
     "crates/permit0-py",
     "crates/permit0-node",
+    "crates/permit0-shell-dispatch",
 ]
 
 [workspace.package]
@@ -86,3 +87,7 @@ permit0-ui = { path = "crates/permit0-ui" }
 permit0-cli = { path = "crates/permit0-cli" }
 permit0-py = { path = "crates/permit0-py" }
 permit0-node = { path = "crates/permit0-node" }
+permit0-shell-dispatch = { path = "crates/permit0-shell-dispatch" }
+
+# Shell parsing
+shlex = "1"

@@ -1,5 +1,0 @@
-name: "Bash complex triple-pipe pipeline (complex_pipeline flag)"
-tool_name: "bash"
-parameters:
-  command: "ps aux | grep java | awk '{print $2}' | xargs kill"
-expected_permission: "ALLOW"

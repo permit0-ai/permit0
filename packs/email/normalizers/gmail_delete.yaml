@@ -1,0 +1,15 @@
+permit0_pack: "permit0/email"
+id: "email:gmail_delete"
+priority: 126
+match:
+  tool: gmail_delete
+normalize:
+  action_type: "email.delete"
+  domain: "email"
+  verb: "delete"
+  channel: "gmail"
+  entities:
+    message_id:
+      from: "id"
+      type: "string"
+      required: true

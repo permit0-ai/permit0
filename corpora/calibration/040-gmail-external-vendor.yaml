@@ -1,7 +1,0 @@
-name: "Gmail send to external vendor"
-tool_name: "gmail_send"
-parameters:
-  to: "support@vendor.io"
-  subject: "License renewal"
-  body: "We would like to renew our enterprise license."
-expected_permission: "ALLOW"

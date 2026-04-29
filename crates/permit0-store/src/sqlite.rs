@@ -79,6 +79,57 @@ impl SqliteStore {
         )
         .map_err(|e| StoreError::Io(e.to_string()))?;
 
+        // Additive migration: calibration columns. Each ALTER is idempotent
+        // via the "duplicate column" check below.
+        Self::add_column_if_missing(&conn, "decisions", "engine_permission", "TEXT")?;
+        Self::add_column_if_missing(&conn, "decisions", "reviewer", "TEXT")?;
+        Self::add_column_if_missing(&conn, "decisions", "reason", "TEXT")?;
+        Self::add_index_if_missing(
+            &conn,
+            "idx_decisions_reviewer",
+            "decisions(reviewer)",
+        )?;
+
+        Ok(())
+    }
+
+    /// Add a column to `table` only if it isn't already there. Used for
+    /// idempotent schema migrations.
+    fn add_column_if_missing(
+        conn: &Connection,
+        table: &str,
+        column: &str,
+        col_type: &str,
+    ) -> Result<(), StoreError> {
+        let pragma = format!("PRAGMA table_info({table})");
+        let mut stmt = conn
+            .prepare(&pragma)
+            .map_err(|e| StoreError::Io(e.to_string()))?;
+        let columns: Vec<String> = stmt
+            .query_map([], |row| row.get::<_, String>(1))
+            .map_err(|e| StoreError::Io(e.to_string()))?
+            .filter_map(Result::ok)
+            .collect();
+        if !columns.iter().any(|c| c == column) {
+            conn.execute(
+                &format!("ALTER TABLE {table} ADD COLUMN {column} {col_type}"),
+                [],
+            )
+            .map_err(|e| StoreError::Io(e.to_string()))?;
+        }
+        Ok(())
+    }
+
+    fn add_index_if_missing(
+        conn: &Connection,
+        index_name: &str,
+        body: &str,
+    ) -> Result<(), StoreError> {
+        conn.execute(
+            &format!("CREATE INDEX IF NOT EXISTS {index_name} ON {body}"),
+            [],
+        )
+        .map_err(|e| StoreError::Io(e.to_string()))?;
         Ok(())
     }
 }
@@ -283,10 +334,11 @@ impl Store for SqliteStore {
         let tier_str = record.tier.map(tier_to_str);
         let flags_json =
             serde_json::to_string(&record.flags).map_err(|e| StoreError::Io(e.to_string()))?;
+        let engine_perm_str = record.engine_permission.map(permission_to_str);
 
         conn.execute(
-            "INSERT INTO decisions (id, norm_hash, action_type, channel, permission, source, tier, risk_raw, blocked, flags, timestamp, surface_tool, surface_command)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
+            "INSERT INTO decisions (id, norm_hash, action_type, channel, permission, source, tier, risk_raw, blocked, flags, timestamp, surface_tool, surface_command, engine_permission, reviewer, reason)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16)",
             params![
                 record.id,
                 hash_to_blob(&record.norm_hash),
@@ -301,6 +353,9 @@ impl Store for SqliteStore {
                 record.timestamp,
                 record.surface_tool,
                 record.surface_command,
+                engine_perm_str,
+                record.reviewer,
+                record.reason,
             ],
         )
         .map_err(|e| StoreError::Io(e.to_string()))?;
@@ -311,7 +366,7 @@ impl Store for SqliteStore {
         let conn = self.conn.lock().map_err(|e| StoreError::Io(e.to_string()))?;
 
         let mut sql = String::from(
-            "SELECT id, norm_hash, action_type, channel, permission, source, tier, risk_raw, blocked, flags, timestamp, surface_tool, surface_command FROM decisions WHERE 1=1",
+            "SELECT id, norm_hash, action_type, channel, permission, source, tier, risk_raw, blocked, flags, timestamp, surface_tool, surface_command, engine_permission, reviewer, reason FROM decisions WHERE 1=1",
         );
         let mut param_values: Vec<Box<dyn rusqlite::types::ToSql>> = Vec::new();
         let mut idx = 1;
@@ -353,6 +408,9 @@ impl Store for SqliteStore {
                 let blocked_int: i32 = row.get(8)?;
                 let flags_json: String = row.get(9)?;
 
+                let engine_perm_str: Option<String> = row.get(13)?;
+                let reviewer: Option<String> = row.get(14)?;
+                let reason: Option<String> = row.get(15)?;
                 Ok(DecisionRecord {
                     id: row.get(0)?,
                     norm_hash: blob_to_hash(&norm_hash_blob),
@@ -367,6 +425,9 @@ impl Store for SqliteStore {
                     timestamp: row.get(10)?,
                     surface_tool: row.get(11)?,
                     surface_command: row.get(12)?,
+                    engine_permission: engine_perm_str.as_deref().map(str_to_permission),
+                    reviewer,
+                    reason,
                 })
             })
             .map_err(|e| StoreError::Io(e.to_string()))?;

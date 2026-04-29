@@ -1,0 +1,18 @@
+permit0_pack: "permit0/email"
+action_type: "email.flag"
+# default tier: LOW — star/unstar is mostly harmless, but bulk flagging
+# can be used to manipulate user attention.
+base:
+  flags:
+    MUTATION: secondary
+  amplifiers:
+    scope: 2
+rules: []
+session_rules:
+  - when:
+      record_count:
+        gt: 30
+    then:
+      - upgrade:
+          dim: scope
+          delta: 5

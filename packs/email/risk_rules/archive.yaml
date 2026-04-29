@@ -1,0 +1,22 @@
+permit0_pack: "permit0/email"
+action_type: "email.archive"
+# default tier: MEDIUM — archive removes from inbox visibility; user might
+# miss messages. Bulk archive is a known abuse vector ("hide my misdeeds").
+base:
+  flags:
+    MUTATION: primary
+  amplifiers:
+    scope: 6
+    irreversibility: 3
+rules: []
+session_rules:
+  - when:
+      record_count:
+        gt: 30
+    then:
+      - add_flag:
+          flag: GOVERNANCE
+          role: secondary
+      - upgrade:
+          dim: scope
+          delta: 10

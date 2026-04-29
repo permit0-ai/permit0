@@ -1,0 +1,3 @@
+crewai>=0.70.0
+# permit0 — install locally from the workspace:
+#   cd ../../crates/permit0-py && maturin develop

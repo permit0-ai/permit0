@@ -1,0 +1,15 @@
+permit0_pack: "permit0/email"
+id: "email:outlook_read"
+priority: 101
+match:
+  tool: outlook_read
+normalize:
+  action_type: "email.read"
+  domain: "email"
+  verb: "read"
+  channel: "outlook"
+  entities:
+    message_id:
+      from: "message_id"
+      type: "string"
+      required: true

@@ -1,0 +1,21 @@
+permit0_pack: "permit0/email"
+action_type: "email.add_delegate"
+# default tier: CRITICAL — granting another identity access to the mailbox
+# is account-takeover. Always gate.
+base:
+  flags:
+    GOVERNANCE: primary
+    EXPOSURE: primary
+    PRIVILEGE: primary
+  amplifiers:
+    scope: 25
+    irreversibility: 15
+    sensitivity: 25
+    boundary: 20
+rules:
+  - when:
+      delegate:
+        exists: true
+    then:
+      - gate: "email_delegate_grant"
+session_rules: []

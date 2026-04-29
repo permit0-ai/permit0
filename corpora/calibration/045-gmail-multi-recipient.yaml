@@ -1,7 +1,0 @@
-name: "Gmail multi-recipient email (multi_recipient flag)"
-tool_name: "gmail_send"
-parameters:
-  to: "alice@company.com, bob@company.com, carol@company.com"
-  subject: "Team lunch Friday"
-  body: "Let's do lunch at noon."
-expected_permission: "ALLOW"

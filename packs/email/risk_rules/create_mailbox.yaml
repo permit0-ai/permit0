@@ -1,0 +1,11 @@
+permit0_pack: "permit0/email"
+action_type: "email.create_mailbox"
+# default tier: LOW — creating a folder/label is harmless on its own,
+# but a frequent precursor to "hide messages here" workflows.
+base:
+  flags:
+    MUTATION: secondary
+  amplifiers:
+    scope: 3
+rules: []
+session_rules: []

@@ -1,24 +1,52 @@
 #![forbid(unsafe_code)]
 
+//! The action catalog — the authoritative `domain.verb` taxonomy that all
+//! norm actions must conform to.
+//!
+//! ## Domains
+//!
+//! Two tiers of detail in this catalog:
+//!
+//! - **`email`**: fully fleshed out (15 verbs), backed by real normalizers
+//!   and risk rules in `packs/email/`.
+//! - **All other domains**: declared as **placeholders** with a clean verb
+//!   list. They have no normalizers or risk rules yet — the catalog defines
+//!   the schema, future packs implement it.
+//!
+//! ## Verb design
+//!
+//! Generic verbs (`get`, `list`, `create`, `update`, `delete`) appear in
+//! many domains. Disambiguation between resource types (e.g. `iam.create`
+//! creating a user vs. a role) is handled via a `resource_type` entity in
+//! the normalizer, not by exploding the verb space (avoid `create_user`,
+//! `create_role`, `create_api_key`).
+//!
+//! The exception is `email`, which uses verb-level distinctions where the
+//! semantics are different enough to warrant separate risk treatment
+//! (e.g. `set_forwarding` is account takeover, very different from
+//! `create_mailbox`).
+
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
-/// Domains in the action catalog. Append-only — never rename or remove.
+/// Domains in the action catalog.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Domain {
     Email,
-    Messages,
-    Content,
+    Message,
+    Social,
+    Cms,
+    Newsletter,
     Calendar,
-    Tasks,
-    Files,
+    Task,
+    File,
     Db,
     Crm,
-    Payments,
+    Payment,
     Legal,
     Iam,
-    Secrets,
+    Secret,
     Infra,
     Process,
     Network,
@@ -33,71 +61,95 @@ impl Domain {
     /// All valid verbs for this domain.
     pub fn verbs(self) -> &'static [Verb] {
         match self {
+            // ── EMAIL: fully fleshed (the only domain with normalizers + risk rules) ──
             Self::Email => &[
-                Verb::Search, Verb::GetThread, Verb::Send, Verb::Reply,
-                Verb::Forward, Verb::Draft, Verb::Label, Verb::Archive, Verb::Delete,
+                Verb::Search,
+                Verb::Read,
+                Verb::ReadThread,
+                Verb::ListMailboxes,
+                Verb::Draft,
+                Verb::Send,
+                Verb::MarkRead,
+                Verb::Flag,
+                Verb::Move,
+                Verb::Archive,
+                Verb::MarkSpam,
+                Verb::Delete,
+                Verb::CreateMailbox,
+                Verb::SetForwarding,
+                Verb::AddDelegate,
             ],
-            Self::Messages => &[
-                Verb::Send, Verb::PostChannel, Verb::SendDm,
-                Verb::Search, Verb::React, Verb::Delete,
+
+            // ── PLACEHOLDERS (verb skeleton only, no packs yet) ──
+            Self::Message => &[
+                Verb::PostChannel, Verb::SendDm, Verb::SendSms, Verb::Search,
+                Verb::Get, Verb::React, Verb::Update, Verb::Delete,
             ],
-            Self::Content => &[Verb::PostSocial, Verb::UpdateCms, Verb::SendNewsletter],
+            Self::Social => &[
+                Verb::Post, Verb::Reply, Verb::Delete, Verb::Like, Verb::SendDm, Verb::Search,
+            ],
+            Self::Cms => &[
+                Verb::Publish, Verb::Update, Verb::Unpublish, Verb::Schedule,
+                Verb::Delete, Verb::List,
+            ],
+            Self::Newsletter => &[
+                Verb::Send, Verb::Schedule, Verb::Draft, Verb::Update, Verb::Unsubscribe,
+            ],
             Self::Calendar => &[
-                Verb::ListEvents, Verb::GetEvent, Verb::CreateEvent,
-                Verb::UpdateEvent, Verb::DeleteEvent, Verb::Rsvp,
+                Verb::List, Verb::Get, Verb::Create, Verb::Update, Verb::Delete, Verb::Rsvp,
             ],
-            Self::Tasks => &[
-                Verb::Create, Verb::Assign, Verb::Complete,
-                Verb::Update, Verb::Delete, Verb::Comment,
+            Self::Task => &[
+                Verb::Create, Verb::Get, Verb::List, Verb::Update,
+                Verb::Complete, Verb::Assign, Verb::Delete, Verb::Comment,
             ],
-            Self::Files => &[
-                Verb::List, Verb::Read, Verb::Write, Verb::Delete,
-                Verb::Move, Verb::Copy, Verb::Share, Verb::Upload,
-                Verb::Download, Verb::Export,
+            Self::File => &[
+                Verb::List, Verb::Get, Verb::Read, Verb::Create, Verb::Update,
+                Verb::Delete, Verb::DeleteRecursive, Verb::Move, Verb::Copy,
+                Verb::Share, Verb::Upload, Verb::Download, Verb::Export, Verb::Search,
             ],
             Self::Db => &[
-                Verb::Select, Verb::Insert, Verb::Update,
-                Verb::Delete, Verb::Admin, Verb::Export, Verb::Backup,
+                Verb::Select, Verb::Insert, Verb::Update, Verb::Delete,
+                Verb::Create, Verb::Alter, Verb::Drop, Verb::Truncate,
+                Verb::GrantAccess, Verb::RevokeAccess, Verb::Export, Verb::Backup, Verb::Restore,
             ],
             Self::Crm => &[
-                Verb::SearchContacts, Verb::GetContact, Verb::CreateContact,
-                Verb::UpdateContact, Verb::DeleteContact, Verb::CreateDeal,
-                Verb::UpdateDeal, Verb::LogActivity, Verb::Export,
+                Verb::List, Verb::Get, Verb::Search, Verb::Create, Verb::Update,
+                Verb::Delete, Verb::LogActivity, Verb::Export,
             ],
-            Self::Payments => &[
+            Self::Payment => &[
                 Verb::Charge, Verb::Refund, Verb::Transfer, Verb::GetBalance,
-                Verb::ListTransactions, Verb::CreateInvoice,
-                Verb::UpdatePaymentMethod, Verb::CreateSubscription,
+                Verb::List, Verb::Get, Verb::Create, Verb::Update, Verb::CancelSubscription,
             ],
             Self::Legal => &[Verb::SignDocument, Verb::SubmitFiling, Verb::AcceptTerms],
             Self::Iam => &[
-                Verb::ListUsers, Verb::CreateUser, Verb::UpdateUser,
-                Verb::DeleteUser, Verb::AssignRole, Verb::RevokeRole,
-                Verb::ResetPassword, Verb::GenerateApiKey,
+                Verb::List, Verb::Get, Verb::Create, Verb::Update, Verb::Delete,
+                Verb::AssignRole, Verb::RevokeRole, Verb::ResetPassword,
+                Verb::GenerateApiKey, Verb::RevokeApiKey,
             ],
-            Self::Secrets => &[Verb::Read, Verb::Create, Verb::Rotate],
+            Self::Secret => &[
+                Verb::Get, Verb::List, Verb::Create, Verb::Update, Verb::Rotate, Verb::Delete,
+            ],
             Self::Infra => &[
-                Verb::ListResources, Verb::CreateResource, Verb::ModifyResource,
-                Verb::TerminateResource, Verb::Scale, Verb::ModifyNetwork,
+                Verb::List, Verb::Get, Verb::Create, Verb::Update, Verb::Terminate, Verb::Scale,
             ],
-            Self::Process => &[
-                Verb::Shell, Verb::RunScript, Verb::DockerRun, Verb::LambdaInvoke,
-            ],
-            Self::Network => &[Verb::HttpGet, Verb::HttpPost, Verb::WebhookSend],
+            Self::Process => &[Verb::Run, Verb::Invoke],
+            Self::Network => &[Verb::Get, Verb::Post, Verb::Put, Verb::Delete, Verb::SendWebhook],
             Self::Dev => &[
-                Verb::GetRepo, Verb::ListIssues, Verb::CreateIssue,
-                Verb::CreatePr, Verb::MergePr, Verb::PushCode,
-                Verb::Deploy, Verb::RunPipeline, Verb::CreateRelease,
+                Verb::List, Verb::Get, Verb::Create, Verb::Update,
+                Verb::CloseIssue, Verb::MergePr, Verb::PushCode,
+                Verb::Deploy, Verb::RunPipeline,
             ],
             Self::Browser => &[
-                Verb::Navigate, Verb::Click, Verb::FillForm,
-                Verb::SubmitForm, Verb::Screenshot, Verb::Download, Verb::ExecuteJs,
+                Verb::Navigate, Verb::Click, Verb::FillForm, Verb::SubmitForm,
+                Verb::TakeScreenshot, Verb::DownloadFile, Verb::ExecuteJs, Verb::Scrape,
             ],
             Self::Device => &[
-                Verb::Unlock, Verb::Lock, Verb::CameraEnable,
-                Verb::CameraDisable, Verb::Move,
+                Verb::Lock, Verb::Unlock, Verb::Enable, Verb::Disable, Verb::Move,
             ],
-            Self::Ai => &[Verb::Prompt, Verb::Embed, Verb::FineTune],
+            Self::Ai => &[
+                Verb::Prompt, Verb::Embed, Verb::FineTune,
+                Verb::InvokeAgent, Verb::GenerateImage,
+            ],
             Self::Unknown => &[Verb::Unclassified],
         }
     }
@@ -105,17 +157,19 @@ impl Domain {
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Email => "email",
-            Self::Messages => "messages",
-            Self::Content => "content",
+            Self::Message => "message",
+            Self::Social => "social",
+            Self::Cms => "cms",
+            Self::Newsletter => "newsletter",
             Self::Calendar => "calendar",
-            Self::Tasks => "tasks",
-            Self::Files => "files",
+            Self::Task => "task",
+            Self::File => "file",
             Self::Db => "db",
             Self::Crm => "crm",
-            Self::Payments => "payments",
+            Self::Payment => "payment",
             Self::Legal => "legal",
             Self::Iam => "iam",
-            Self::Secrets => "secrets",
+            Self::Secret => "secret",
             Self::Infra => "infra",
             Self::Process => "process",
             Self::Network => "network",
@@ -139,240 +193,251 @@ impl fmt::Display for Domain {
     }
 }
 
-/// Verbs in the action catalog. Append-only — never rename or remove.
+/// Verbs in the action catalog.
+///
+/// Generic verbs (`Get`, `List`, `Create`, `Update`, `Delete`, `Search`,
+/// `Move`, `Copy`, `Export`, `Send`, `Post`, `Schedule`, `Draft`) are
+/// reused across domains. Specific verbs are added when the risk profile
+/// of the operation differs sharply from the generic one (`SetForwarding`
+/// in email is account takeover; `Charge` in payment is value transfer).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Verb {
-    // ── email ──
-    Search,
-    GetThread,
-    Send,
-    Reply,
-    Forward,
-    Draft,
-    Label,
-    Archive,
-    Delete,
-    // ── messages ──
-    PostChannel,
-    SendDm,
-    React,
-    // ── content ──
-    PostSocial,
-    UpdateCms,
-    SendNewsletter,
-    // ── calendar ──
-    ListEvents,
-    GetEvent,
-    CreateEvent,
-    UpdateEvent,
-    DeleteEvent,
-    Rsvp,
-    // ── tasks ──
-    Create,
-    Assign,
-    Complete,
-    Update,
-    Comment,
-    // ── files ──
+    // ── Generic CRUD + read (shared across many domains) ──
+    Get,
     List,
     Read,
-    Write,
+    Create,
+    Update,
+    Delete,
+    Search,
+    Export,
+
+    // ── Email-specific ──
+    ReadThread,
+    ListMailboxes,
+    Draft,
+    Send,
+    MarkRead,
+    Flag,
     Move,
+    Archive,
+    MarkSpam,
+    CreateMailbox,
+    SetForwarding,
+    AddDelegate,
+
+    // ── Message ──
+    PostChannel,
+    SendDm,
+    SendSms,
+    React,
+
+    // ── Social ──
+    Post,
+    Reply,
+    Like,
+
+    // ── CMS ──
+    Publish,
+    Unpublish,
+    Schedule,
+
+    // ── Newsletter ──
+    Unsubscribe,
+
+    // ── Calendar ──
+    Rsvp,
+
+    // ── Task ──
+    Complete,
+    Assign,
+    Comment,
+
+    // ── File ──
+    DeleteRecursive,
     Copy,
     Share,
     Upload,
     Download,
-    Export,
-    // ── db ──
+
+    // ── Db ──
     Select,
     Insert,
-    Admin,
+    Alter,
+    Drop,
+    Truncate,
+    GrantAccess,
+    RevokeAccess,
     Backup,
-    // ── crm ──
-    SearchContacts,
-    GetContact,
-    CreateContact,
-    UpdateContact,
-    DeleteContact,
-    CreateDeal,
-    UpdateDeal,
+    Restore,
+
+    // ── Crm ──
     LogActivity,
-    // ── payments ──
+
+    // ── Payment ──
     Charge,
     Refund,
     Transfer,
     GetBalance,
-    ListTransactions,
-    CreateInvoice,
-    UpdatePaymentMethod,
-    CreateSubscription,
-    // ── legal ──
+    CancelSubscription,
+
+    // ── Legal ──
     SignDocument,
     SubmitFiling,
     AcceptTerms,
-    // ── iam ──
-    ListUsers,
-    CreateUser,
-    UpdateUser,
-    DeleteUser,
+
+    // ── Iam ──
     AssignRole,
     RevokeRole,
     ResetPassword,
     GenerateApiKey,
-    // ── secrets ──
+    RevokeApiKey,
+
+    // ── Secret ──
     Rotate,
-    // ── infra ──
-    ListResources,
-    CreateResource,
-    ModifyResource,
-    TerminateResource,
+
+    // ── Infra ──
+    Terminate,
     Scale,
-    ModifyNetwork,
-    // ── process ──
-    Shell,
-    RunScript,
-    DockerRun,
-    LambdaInvoke,
-    // ── network ──
-    HttpGet,
-    HttpPost,
-    WebhookSend,
-    // ── dev ──
-    GetRepo,
-    ListIssues,
-    CreateIssue,
-    CreatePr,
+
+    // ── Process ──
+    Run,
+    Invoke,
+
+    // ── Network ──
+    Put,
+    SendWebhook,
+
+    // ── Dev ──
+    CloseIssue,
     MergePr,
     PushCode,
     Deploy,
     RunPipeline,
-    CreateRelease,
-    // ── browser ──
+
+    // ── Browser ──
     Navigate,
     Click,
     FillForm,
     SubmitForm,
-    Screenshot,
+    TakeScreenshot,
+    DownloadFile,
     ExecuteJs,
-    // ── device ──
-    Unlock,
+    Scrape,
+
+    // ── Device ──
     Lock,
-    CameraEnable,
-    CameraDisable,
-    // ── ai ──
+    Unlock,
+    Enable,
+    Disable,
+
+    // ── Ai ──
     Prompt,
     Embed,
     FineTune,
-    // ── unknown ──
+    InvokeAgent,
+    GenerateImage,
+
+    // ── Unknown ──
     Unclassified,
 }
 
 impl Verb {
     pub fn as_str(self) -> &'static str {
         match self {
-            Self::Search => "search",
-            Self::GetThread => "get_thread",
-            Self::Send => "send",
-            Self::Reply => "reply",
-            Self::Forward => "forward",
-            Self::Draft => "draft",
-            Self::Label => "label",
-            Self::Archive => "archive",
-            Self::Delete => "delete",
-            Self::PostChannel => "post_channel",
-            Self::SendDm => "send_dm",
-            Self::React => "react",
-            Self::PostSocial => "post_social",
-            Self::UpdateCms => "update_cms",
-            Self::SendNewsletter => "send_newsletter",
-            Self::ListEvents => "list_events",
-            Self::GetEvent => "get_event",
-            Self::CreateEvent => "create_event",
-            Self::UpdateEvent => "update_event",
-            Self::DeleteEvent => "delete_event",
-            Self::Rsvp => "rsvp",
-            Self::Create => "create",
-            Self::Assign => "assign",
-            Self::Complete => "complete",
-            Self::Update => "update",
-            Self::Comment => "comment",
+            Self::Get => "get",
             Self::List => "list",
             Self::Read => "read",
-            Self::Write => "write",
+            Self::Create => "create",
+            Self::Update => "update",
+            Self::Delete => "delete",
+            Self::Search => "search",
+            Self::Export => "export",
+            Self::ReadThread => "read_thread",
+            Self::ListMailboxes => "list_mailboxes",
+            Self::Draft => "draft",
+            Self::Send => "send",
+            Self::MarkRead => "mark_read",
+            Self::Flag => "flag",
             Self::Move => "move",
+            Self::Archive => "archive",
+            Self::MarkSpam => "mark_spam",
+            Self::CreateMailbox => "create_mailbox",
+            Self::SetForwarding => "set_forwarding",
+            Self::AddDelegate => "add_delegate",
+            Self::PostChannel => "post_channel",
+            Self::SendDm => "send_dm",
+            Self::SendSms => "send_sms",
+            Self::React => "react",
+            Self::Post => "post",
+            Self::Reply => "reply",
+            Self::Like => "like",
+            Self::Publish => "publish",
+            Self::Unpublish => "unpublish",
+            Self::Schedule => "schedule",
+            Self::Unsubscribe => "unsubscribe",
+            Self::Rsvp => "rsvp",
+            Self::Complete => "complete",
+            Self::Assign => "assign",
+            Self::Comment => "comment",
+            Self::DeleteRecursive => "delete_recursive",
             Self::Copy => "copy",
             Self::Share => "share",
             Self::Upload => "upload",
             Self::Download => "download",
-            Self::Export => "export",
             Self::Select => "select",
             Self::Insert => "insert",
-            Self::Admin => "admin",
+            Self::Alter => "alter",
+            Self::Drop => "drop",
+            Self::Truncate => "truncate",
+            Self::GrantAccess => "grant_access",
+            Self::RevokeAccess => "revoke_access",
             Self::Backup => "backup",
-            Self::SearchContacts => "search_contacts",
-            Self::GetContact => "get_contact",
-            Self::CreateContact => "create_contact",
-            Self::UpdateContact => "update_contact",
-            Self::DeleteContact => "delete_contact",
-            Self::CreateDeal => "create_deal",
-            Self::UpdateDeal => "update_deal",
+            Self::Restore => "restore",
             Self::LogActivity => "log_activity",
             Self::Charge => "charge",
             Self::Refund => "refund",
             Self::Transfer => "transfer",
             Self::GetBalance => "get_balance",
-            Self::ListTransactions => "list_transactions",
-            Self::CreateInvoice => "create_invoice",
-            Self::UpdatePaymentMethod => "update_payment_method",
-            Self::CreateSubscription => "create_subscription",
+            Self::CancelSubscription => "cancel_subscription",
             Self::SignDocument => "sign_document",
             Self::SubmitFiling => "submit_filing",
             Self::AcceptTerms => "accept_terms",
-            Self::ListUsers => "list_users",
-            Self::CreateUser => "create_user",
-            Self::UpdateUser => "update_user",
-            Self::DeleteUser => "delete_user",
             Self::AssignRole => "assign_role",
             Self::RevokeRole => "revoke_role",
             Self::ResetPassword => "reset_password",
             Self::GenerateApiKey => "generate_api_key",
+            Self::RevokeApiKey => "revoke_api_key",
             Self::Rotate => "rotate",
-            Self::ListResources => "list_resources",
-            Self::CreateResource => "create_resource",
-            Self::ModifyResource => "modify_resource",
-            Self::TerminateResource => "terminate_resource",
+            Self::Terminate => "terminate",
             Self::Scale => "scale",
-            Self::ModifyNetwork => "modify_network",
-            Self::Shell => "shell",
-            Self::RunScript => "run_script",
-            Self::DockerRun => "docker_run",
-            Self::LambdaInvoke => "lambda_invoke",
-            Self::HttpGet => "http_get",
-            Self::HttpPost => "http_post",
-            Self::WebhookSend => "webhook_send",
-            Self::GetRepo => "get_repo",
-            Self::ListIssues => "list_issues",
-            Self::CreateIssue => "create_issue",
-            Self::CreatePr => "create_pr",
+            Self::Run => "run",
+            Self::Invoke => "invoke",
+            Self::Put => "put",
+            Self::SendWebhook => "send_webhook",
+            Self::CloseIssue => "close_issue",
             Self::MergePr => "merge_pr",
             Self::PushCode => "push_code",
             Self::Deploy => "deploy",
             Self::RunPipeline => "run_pipeline",
-            Self::CreateRelease => "create_release",
             Self::Navigate => "navigate",
             Self::Click => "click",
             Self::FillForm => "fill_form",
             Self::SubmitForm => "submit_form",
-            Self::Screenshot => "screenshot",
+            Self::TakeScreenshot => "take_screenshot",
+            Self::DownloadFile => "download_file",
             Self::ExecuteJs => "execute_js",
-            Self::Unlock => "unlock",
+            Self::Scrape => "scrape",
             Self::Lock => "lock",
-            Self::CameraEnable => "camera_enable",
-            Self::CameraDisable => "camera_disable",
+            Self::Unlock => "unlock",
+            Self::Enable => "enable",
+            Self::Disable => "disable",
             Self::Prompt => "prompt",
             Self::Embed => "embed",
             Self::FineTune => "fine_tune",
+            Self::InvokeAgent => "invoke_agent",
+            Self::GenerateImage => "generate_image",
             Self::Unclassified => "unclassified",
         }
     }
@@ -406,12 +471,12 @@ impl ActionType {
         }
     }
 
-    /// The `domain.verb` string form (e.g. "payments.charge").
+    /// The `domain.verb` string form (e.g. "payment.charge").
     pub fn as_action_str(&self) -> String {
         format!("{}.{}", self.domain, self.verb)
     }
 
-    /// Parse from a `domain.verb` string (e.g. "payments.charge").
+    /// Parse from a `domain.verb` string (e.g. "payment.charge").
     pub fn parse(s: &str) -> Result<Self, CatalogError> {
         let (domain_str, verb_str) = s.split_once('.').ok_or_else(|| {
             CatalogError::ParseError(format!("expected 'domain.verb', got '{s}'"))
@@ -453,17 +518,19 @@ pub enum CatalogError {
 /// All domains in the catalog.
 pub const ALL_DOMAINS: &[Domain] = &[
     Domain::Email,
-    Domain::Messages,
-    Domain::Content,
+    Domain::Message,
+    Domain::Social,
+    Domain::Cms,
+    Domain::Newsletter,
     Domain::Calendar,
-    Domain::Tasks,
-    Domain::Files,
+    Domain::Task,
+    Domain::File,
     Domain::Db,
     Domain::Crm,
-    Domain::Payments,
+    Domain::Payment,
     Domain::Legal,
     Domain::Iam,
-    Domain::Secrets,
+    Domain::Secret,
     Domain::Infra,
     Domain::Process,
     Domain::Network,
@@ -474,33 +541,59 @@ pub const ALL_DOMAINS: &[Domain] = &[
     Domain::Unknown,
 ];
 
-/// All verbs in the catalog (flat list, some shared across domains).
+/// All verbs in the catalog (flat list, deduplicated).
 const ALL_VERBS: &[Verb] = &[
-    Verb::Search, Verb::GetThread, Verb::Send, Verb::Reply, Verb::Forward,
-    Verb::Draft, Verb::Label, Verb::Archive, Verb::Delete, Verb::PostChannel,
-    Verb::SendDm, Verb::React, Verb::PostSocial, Verb::UpdateCms,
-    Verb::SendNewsletter, Verb::ListEvents, Verb::GetEvent, Verb::CreateEvent,
-    Verb::UpdateEvent, Verb::DeleteEvent, Verb::Rsvp, Verb::Create, Verb::Assign,
-    Verb::Complete, Verb::Update, Verb::Comment, Verb::List, Verb::Read,
-    Verb::Write, Verb::Move, Verb::Copy, Verb::Share, Verb::Upload,
-    Verb::Download, Verb::Export, Verb::Select, Verb::Insert, Verb::Admin,
-    Verb::Backup, Verb::SearchContacts, Verb::GetContact, Verb::CreateContact,
-    Verb::UpdateContact, Verb::DeleteContact, Verb::CreateDeal, Verb::UpdateDeal,
-    Verb::LogActivity, Verb::Charge, Verb::Refund, Verb::Transfer,
-    Verb::GetBalance, Verb::ListTransactions, Verb::CreateInvoice,
-    Verb::UpdatePaymentMethod, Verb::CreateSubscription, Verb::SignDocument,
-    Verb::SubmitFiling, Verb::AcceptTerms, Verb::ListUsers, Verb::CreateUser,
-    Verb::UpdateUser, Verb::DeleteUser, Verb::AssignRole, Verb::RevokeRole,
-    Verb::ResetPassword, Verb::GenerateApiKey, Verb::Rotate,
-    Verb::ListResources, Verb::CreateResource, Verb::ModifyResource,
-    Verb::TerminateResource, Verb::Scale, Verb::ModifyNetwork, Verb::Shell,
-    Verb::RunScript, Verb::DockerRun, Verb::LambdaInvoke, Verb::HttpGet,
-    Verb::HttpPost, Verb::WebhookSend, Verb::GetRepo, Verb::ListIssues,
-    Verb::CreateIssue, Verb::CreatePr, Verb::MergePr, Verb::PushCode,
-    Verb::Deploy, Verb::RunPipeline, Verb::CreateRelease, Verb::Navigate,
-    Verb::Click, Verb::FillForm, Verb::SubmitForm, Verb::Screenshot,
-    Verb::ExecuteJs, Verb::Unlock, Verb::Lock, Verb::CameraEnable,
-    Verb::CameraDisable, Verb::Prompt, Verb::Embed, Verb::FineTune,
+    // Generic CRUD + read
+    Verb::Get, Verb::List, Verb::Read, Verb::Create, Verb::Update, Verb::Delete,
+    Verb::Search, Verb::Export,
+    // Email
+    Verb::ReadThread, Verb::ListMailboxes, Verb::Draft, Verb::Send, Verb::MarkRead,
+    Verb::Flag, Verb::Move, Verb::Archive, Verb::MarkSpam, Verb::CreateMailbox,
+    Verb::SetForwarding, Verb::AddDelegate,
+    // Message
+    Verb::PostChannel, Verb::SendDm, Verb::SendSms, Verb::React,
+    // Social
+    Verb::Post, Verb::Reply, Verb::Like,
+    // CMS
+    Verb::Publish, Verb::Unpublish, Verb::Schedule,
+    // Newsletter
+    Verb::Unsubscribe,
+    // Calendar
+    Verb::Rsvp,
+    // Task
+    Verb::Complete, Verb::Assign, Verb::Comment,
+    // File
+    Verb::DeleteRecursive, Verb::Copy, Verb::Share, Verb::Upload, Verb::Download,
+    // Db
+    Verb::Select, Verb::Insert, Verb::Alter, Verb::Drop, Verb::Truncate,
+    Verb::GrantAccess, Verb::RevokeAccess, Verb::Backup, Verb::Restore,
+    // Crm
+    Verb::LogActivity,
+    // Payment
+    Verb::Charge, Verb::Refund, Verb::Transfer, Verb::GetBalance, Verb::CancelSubscription,
+    // Legal
+    Verb::SignDocument, Verb::SubmitFiling, Verb::AcceptTerms,
+    // Iam
+    Verb::AssignRole, Verb::RevokeRole, Verb::ResetPassword,
+    Verb::GenerateApiKey, Verb::RevokeApiKey,
+    // Secret
+    Verb::Rotate,
+    // Infra
+    Verb::Terminate, Verb::Scale,
+    // Process
+    Verb::Run, Verb::Invoke,
+    // Network
+    Verb::Put, Verb::SendWebhook,
+    // Dev
+    Verb::CloseIssue, Verb::MergePr, Verb::PushCode, Verb::Deploy, Verb::RunPipeline,
+    // Browser
+    Verb::Navigate, Verb::Click, Verb::FillForm, Verb::SubmitForm,
+    Verb::TakeScreenshot, Verb::DownloadFile, Verb::ExecuteJs, Verb::Scrape,
+    // Device
+    Verb::Lock, Verb::Unlock, Verb::Enable, Verb::Disable,
+    // Ai
+    Verb::Prompt, Verb::Embed, Verb::FineTune, Verb::InvokeAgent, Verb::GenerateImage,
+    // Unknown
     Verb::Unclassified,
 ];
 
@@ -518,15 +611,23 @@ mod tests {
 
     #[test]
     fn parse_valid_action_type() {
-        let at = ActionType::parse("payments.charge").unwrap();
-        assert_eq!(at.domain, Domain::Payments);
+        let at = ActionType::parse("payment.charge").unwrap();
+        assert_eq!(at.domain, Domain::Payment);
         assert_eq!(at.verb, Verb::Charge);
-        assert_eq!(at.as_action_str(), "payments.charge");
+        assert_eq!(at.as_action_str(), "payment.charge");
+    }
+
+    #[test]
+    fn email_full_set_intact() {
+        // Detailed email taxonomy preserved (15 verbs).
+        assert_eq!(Domain::Email.verbs().len(), 15);
+        assert!(ActionType::parse("email.send").is_ok());
+        assert!(ActionType::parse("email.read_thread").is_ok());
+        assert!(ActionType::parse("email.set_forwarding").is_ok());
     }
 
     #[test]
     fn parse_invalid_combination() {
-        // "charge" is not a valid verb for "email"
         let err = ActionType::parse("email.charge");
         assert!(err.is_err());
         assert!(matches!(
@@ -578,10 +679,8 @@ mod tests {
     #[test]
     fn all_action_types_count() {
         let all = all_action_types();
-        // Count from the spec table
         let expected = ALL_DOMAINS.iter().map(|d| d.verbs().len()).sum::<usize>();
         assert_eq!(all.len(), expected);
-        // Sanity: should be >100 entries
         assert!(all.len() > 100, "catalog should have >100 entries, got {}", all.len());
     }
 
@@ -600,5 +699,16 @@ mod tests {
         let json = serde_json::to_string(&at).unwrap();
         let back: ActionType = serde_json::from_str(&json).unwrap();
         assert_eq!(at, back);
+    }
+
+    #[test]
+    fn generic_verbs_reused_across_domains() {
+        // `get` should be valid in many domains (not just one)
+        let domains_with_get: Vec<_> = ALL_DOMAINS
+            .iter()
+            .filter(|d| d.verbs().contains(&Verb::Get))
+            .collect();
+        assert!(domains_with_get.len() >= 5,
+                "expected `get` to be reused across many domains, got {}", domains_with_get.len());
     }
 }

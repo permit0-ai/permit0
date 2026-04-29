@@ -1,5 +1,0 @@
-name: "Bash simple pipe"
-tool_name: "bash"
-parameters:
-  command: "cat /etc/passwd | grep root"
-expected_permission: "ALLOW"

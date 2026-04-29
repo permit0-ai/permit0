@@ -1,0 +1,23 @@
+permit0_pack: "permit0/email"
+action_type: "email.set_forwarding"
+# default tier: CRITICAL — auto-forwarding is a textbook account-takeover
+# tactic. Always require human review (or deny outright).
+base:
+  flags:
+    OUTBOUND: primary
+    GOVERNANCE: primary
+    EXPOSURE: primary
+    PRIVILEGE: primary
+  amplifiers:
+    scope: 25
+    irreversibility: 18
+    sensitivity: 25
+    destination: 30
+    boundary: 18
+rules:
+  - when:
+      destination:
+        exists: true
+    then:
+      - gate: "email_forwarding_setup"
+session_rules: []

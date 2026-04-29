@@ -1,0 +1,20 @@
+permit0_pack: "permit0/email"
+id: "email:gmail_mark_read"
+priority: 121
+match:
+  tool: gmail_mark_read
+normalize:
+  action_type: "email.mark_read"
+  domain: "email"
+  verb: "mark_read"
+  channel: "gmail"
+  entities:
+    message_id:
+      from: "id"
+      type: "string"
+      required: true
+    read:
+      from: "read"
+      type: "boolean"
+      optional: true
+      default: true

@@ -1,6 +1,0 @@
-name: "Unknown tool: Slack post message"
-tool_name: "slack_post"
-parameters:
-  channel: "#general"
-  text: "Hello team!"
-expected_permission: "HUMAN"

@@ -1,0 +1,15 @@
+permit0_pack: "permit0/email"
+id: "email:outlook_delete"
+priority: 111
+match:
+  tool: outlook_delete
+normalize:
+  action_type: "email.delete"
+  domain: "email"
+  verb: "delete"
+  channel: "outlook"
+  entities:
+    message_id:
+      from: "message_id"
+      type: "string"
+      required: true

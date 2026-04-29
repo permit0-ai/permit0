@@ -1,0 +1,19 @@
+permit0_pack: "permit0/email"
+id: "email:gmail_move"
+priority: 123
+match:
+  tool: gmail_move
+normalize:
+  action_type: "email.move"
+  domain: "email"
+  verb: "move"
+  channel: "gmail"
+  entities:
+    message_id:
+      from: "id"
+      type: "string"
+      required: true
+    destination:
+      from: "label_id"
+      type: "string"
+      required: true

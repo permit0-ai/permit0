@@ -43,6 +43,11 @@ enum Commands {
         /// Path to packs directory (default: ./packs/ or ~/.permit0/packs/)
         #[arg(long)]
         packs_dir: Option<String>,
+        /// Shadow mode: log decisions to stderr but always return "allow".
+        /// Useful for observing what permit0 *would* do before enforcing.
+        /// Also enabled when PERMIT0_SHADOW=1.
+        #[arg(long)]
+        shadow: bool,
     },
     /// Generic stdin/stdout JSON gateway (JSONL mode)
     Gateway {
@@ -67,6 +72,11 @@ enum Commands {
         /// Mount the approval UI API
         #[arg(long)]
         ui: bool,
+        /// Calibration mode: every fresh decision goes to human-in-the-loop
+        /// (regardless of risk tier), so you can audit and override permit0's
+        /// recommendations to build a calibration corpus. Implies --ui.
+        #[arg(long)]
+        calibrate: bool,
     },
     /// Pack management: validate, test, scaffold
     #[command(subcommand)]
@@ -83,7 +93,7 @@ enum Commands {
 enum PackCmd {
     /// Validate normalizer and risk rule YAML files
     Validate {
-        /// Path to the pack directory (e.g. packs/stripe)
+        /// Path to the pack directory (e.g. packs/email)
         path: String,
     },
     /// Run pack test fixtures
@@ -167,7 +177,8 @@ fn main() -> anyhow::Result<()> {
             db,
             session_id,
             packs_dir,
-        } => cmd::hook::run(profile, &org_domain, db, session_id, packs_dir),
+            shadow,
+        } => cmd::hook::run(profile, &org_domain, db, session_id, packs_dir, shadow),
         Commands::Gateway {
             profile,
             org_domain,
@@ -177,7 +188,8 @@ fn main() -> anyhow::Result<()> {
             profile,
             org_domain,
             ui,
-        } => cmd::serve::run(port, profile, &org_domain, ui),
+            calibrate,
+        } => cmd::serve::run(port, profile, &org_domain, ui || calibrate, calibrate),
         Commands::Pack(pack_cmd) => match pack_cmd {
             PackCmd::Validate { path } => cmd::pack::validate(&path),
             PackCmd::Test { path } => cmd::pack::test(&path),

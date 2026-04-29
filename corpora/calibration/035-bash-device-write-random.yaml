@@ -1,5 +1,0 @@
-name: "Bash write to /dev/random (gate fires)"
-tool_name: "bash"
-parameters:
-  command: "cat payload > /dev/random"
-expected_permission: "DENY"

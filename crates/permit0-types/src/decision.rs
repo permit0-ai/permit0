@@ -33,6 +33,16 @@ pub struct DecisionRecord {
     pub surface_tool: String,
     /// Surface command for audit.
     pub surface_command: String,
+    /// Calibration: permit0's original recommendation, when a human reviewer
+    /// overrode the decision. None for non-calibration records.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub engine_permission: Option<Permission>,
+    /// Calibration: identity of the human who approved/denied.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reviewer: Option<String>,
+    /// Calibration: reason the human gave for their decision.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
 }
 
 /// Filter criteria for querying decision records.

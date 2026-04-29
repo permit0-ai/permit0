@@ -1,0 +1,12 @@
+{
+  "name": "openclaw-permit0-demo",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "tsx index.ts"
+  },
+  "dependencies": {
+    "tsx": "^4.19.0"
+  }
+}

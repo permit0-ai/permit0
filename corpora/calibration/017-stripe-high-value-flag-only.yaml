@@ -1,9 +1,0 @@
-name: "Stripe charge $150 USD (high_value flag but no gate)"
-tool_name: "http"
-parameters:
-  method: "POST"
-  url: "https://api.stripe.com/v1/charges"
-  body:
-    amount: 15000
-    currency: "usd"
-expected_permission: "ALLOW"

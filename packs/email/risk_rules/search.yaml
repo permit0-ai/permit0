@@ -1,0 +1,17 @@
+permit0_pack: "permit0/email"
+action_type: "email.search"
+# default tier: MINIMAL — search is metadata-only, ubiquitous
+base:
+  flags: {}
+  amplifiers:
+    scope: 1
+rules: []
+session_rules:
+  # Bulk listing in one session can be reconnaissance.
+  - when:
+      record_count:
+        gt: 100
+    then:
+      - upgrade:
+          dim: scope
+          delta: 4

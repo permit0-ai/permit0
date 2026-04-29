@@ -1307,6 +1307,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "permit0-shell-dispatch"
+version = "0.1.0"
+dependencies = [
+ "permit0-dsl",
+ "permit0-normalize",
+ "permit0-types",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "shlex",
+ "thiserror 2.0.18",
+]
+
+[[package]]
 name = "permit0-store"
 version = "0.1.0"
 dependencies = [

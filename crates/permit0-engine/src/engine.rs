@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use permit0_dsl::normalizer::DslNormalizer;
-use permit0_dsl::risk_executor::{execute_risk_rules, execute_session_rules};
+use permit0_dsl::risk_executor::{execute_risk_rules_with_sets, execute_session_rules_with_sets};
 use permit0_dsl::schema::risk_rule::RiskRuleDef;
 use permit0_dsl::validate;
 use permit0_normalize::{NormalizerRegistry, Normalizer};
@@ -96,6 +96,39 @@ impl Engine {
         let norm = self
             .registry
             .normalize(tool_call, &ctx.normalize_ctx)?;
+        self.run_pipeline(norm, tool_call, ctx)
+    }
+
+    /// Check a pre-built `NormAction` directly, skipping the normalizer step.
+    ///
+    /// Used by clients (e.g. language SDKs) that produce norm actions inline
+    /// rather than going through a YAML normalizer. A synthetic raw tool call
+    /// is constructed from the norm action's entities for risk-rule evaluation
+    /// and audit logging.
+    pub fn check_norm_action(
+        &self,
+        norm: NormAction,
+        ctx: &PermissionCtx,
+    ) -> Result<PermissionResult, EngineError> {
+        // Synthesize a raw tool call from the entities so the post-normalize
+        // pipeline (which expects raw_params for risk rules and tool_call for
+        // audit) has something to work with.
+        let synthetic = RawToolCall {
+            tool_name: format!("__action:{}", norm.action_type.as_action_str()),
+            parameters: serde_json::Value::Object(norm.entities.clone()),
+            metadata: Default::default(),
+        };
+        self.run_pipeline(norm, &synthetic, ctx)
+    }
+
+    /// Steps 2–7 of the decision pipeline, shared between `get_permission`
+    /// (which normalizes first) and `check_norm_action` (which doesn't).
+    fn run_pipeline(
+        &self,
+        norm: NormAction,
+        tool_call: &RawToolCall,
+        ctx: &PermissionCtx,
+    ) -> Result<PermissionResult, EngineError> {
         let norm_hash = norm.norm_hash();
 
         // Step 2: Denylist
@@ -216,11 +249,16 @@ impl Engine {
             .get(&action_key)
             .ok_or_else(|| EngineError::NoRiskRule(action_key.clone()))?;
 
-        // Risk rules evaluate against the raw parameters, not the extracted entities.
-        let data = raw_params;
+        // Rules evaluate against the raw parameters + a sibling `entity` object
+        // containing normalized entities (host, is_private, amount_cents, etc.).
+        // Rules written before entity exposure (and the vast majority of existing
+        // rules) keep working because raw params are preserved at the top level;
+        // newer rules can reference `entity.host: { in_set: ... }` etc.
+        let merged_data = merge_raw_with_entities(raw_params, &norm.entities);
 
         // Execute per-call risk rules
-        let mut template = execute_risk_rules(rule_def, data, None);
+        let mut template =
+            execute_risk_rules_with_sets(rule_def, &merged_data, None, Some(&self.config.named_sets));
 
         // Session-aware scoring
         if let Some(session_ctx) = session {
@@ -231,7 +269,12 @@ impl Engine {
             // 2. Evaluate YAML session_rules (DSL-based)
             // Convert session to JSON for DSL evaluation
             let session_json = session_to_json(session_ctx);
-            execute_session_rules(rule_def, &mut template, &session_json);
+            execute_session_rules_with_sets(
+                rule_def,
+                &mut template,
+                &session_json,
+                Some(&self.config.named_sets),
+            );
 
             // 3. Evaluate built-in session block rules
             let block_result = evaluate_session_block_rules(
@@ -261,6 +304,11 @@ impl Engine {
 
     /// Build and persist a decision audit record.
     fn log_decision(&self, result: &PermissionResult, tool_call: &RawToolCall, ctx: &PermissionCtx) -> Result<(), EngineError> {
+        // Caller (e.g. calibration daemon) intends to write a richer
+        // composite record itself; don't double-log.
+        if ctx.skip_audit {
+            return Ok(());
+        }
         let now = chrono::Utc::now().to_rfc3339();
         let entry_id = ulid::Ulid::new().to_string();
 
@@ -283,6 +331,9 @@ impl Engine {
             timestamp: now.clone(),
             surface_tool: result.norm_action.execution.surface_tool.clone(),
             surface_command: result.norm_action.execution.surface_command.clone(),
+            engine_permission: None,
+            reviewer: None,
+            reason: None,
         };
         if let Err(e) = self.store.save_decision(record) {
             tracing::warn!("failed to persist decision record: {e}");
@@ -380,6 +431,38 @@ fn score_to_permission(tier: Tier, blocked: bool) -> Permission {
         Tier::Medium | Tier::High => Permission::HumanInTheLoop,
         Tier::Critical => Permission::Deny,
     }
+}
+
+/// Build the JSON value passed to risk-rule evaluation: raw tool params at the
+/// top level plus an `entity` sub-object containing the normalizer-computed
+/// entities. Rules can now use either path:
+///
+/// - legacy: `when: url: { contains: "localhost" }` — matches raw param
+/// - new:    `when: entity.host: { in_set: "org.trusted_domains" }` — matches entity
+///
+/// If the raw params already have an `entity` key at the top level (vanishingly
+/// rare, and semantically weird) we preserve it untouched and skip the injection
+/// to avoid silent shadowing.
+fn merge_raw_with_entities(
+    raw_params: &serde_json::Value,
+    entities: &permit0_types::Entities,
+) -> serde_json::Value {
+    let mut out = match raw_params {
+        serde_json::Value::Object(m) => m.clone(),
+        _ => {
+            let mut m = serde_json::Map::new();
+            m.insert("_raw".into(), raw_params.clone());
+            m
+        }
+    };
+
+    if !out.contains_key("entity") {
+        let entity_obj: serde_json::Map<String, serde_json::Value> =
+            entities.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+        out.insert("entity".into(), serde_json::Value::Object(entity_obj));
+    }
+
+    serde_json::Value::Object(out)
 }
 
 /// Convert a SessionContext to a JSON value for DSL session rule evaluation.
@@ -571,41 +654,42 @@ mod tests {
     use permit0_normalize::NormalizeCtx;
     use serde_json::json;
 
-    const STRIPE_NORM_YAML: &str = include_str!("../../../packs/stripe/normalizers/charges_create.yaml");
-    const STRIPE_RISK_YAML: &str = include_str!("../../../packs/stripe/risk_rules/charge.yaml");
-    const BASH_NORM_YAML: &str = include_str!("../../../packs/bash/normalizers/shell.yaml");
-    const BASH_RISK_YAML: &str = include_str!("../../../packs/bash/risk_rules/shell.yaml");
+    const GMAIL_NORM_YAML: &str = include_str!("../../../packs/email/normalizers/gmail_send.yaml");
+    const OUTLOOK_NORM_YAML: &str = include_str!("../../../packs/email/normalizers/outlook_send.yaml");
+    const EMAIL_RISK_YAML: &str = include_str!("../../../packs/email/risk_rules/send.yaml");
 
     fn build_test_engine() -> Engine {
         EngineBuilder::new()
-            .install_normalizer_yaml(STRIPE_NORM_YAML)
+            .install_normalizer_yaml(GMAIL_NORM_YAML)
             .unwrap()
-            .install_normalizer_yaml(BASH_NORM_YAML)
+            .install_normalizer_yaml(OUTLOOK_NORM_YAML)
             .unwrap()
-            .install_risk_rule_yaml(STRIPE_RISK_YAML)
-            .unwrap()
-            .install_risk_rule_yaml(BASH_RISK_YAML)
+            .install_risk_rule_yaml(EMAIL_RISK_YAML)
             .unwrap()
             .build()
             .unwrap()
     }
 
-    fn stripe_charge(amount: u64) -> RawToolCall {
+    fn gmail_send(subject: &str, body: &str) -> RawToolCall {
         RawToolCall {
-            tool_name: "http".into(),
+            tool_name: "gmail_send".into(),
             parameters: json!({
-                "method": "POST",
-                "url": "https://api.stripe.com/v1/charges",
-                "body": {"amount": amount, "currency": "usd"}
+                "to": "bob@external.com",
+                "subject": subject,
+                "body": body,
             }),
             metadata: Default::default(),
         }
     }
 
-    fn bash_command(cmd: &str) -> RawToolCall {
+    fn outlook_send(subject: &str, body: &str) -> RawToolCall {
         RawToolCall {
-            tool_name: "bash".into(),
-            parameters: json!({"command": cmd}),
+            tool_name: "outlook_send".into(),
+            parameters: json!({
+                "to": "alice@external.com",
+                "subject": subject,
+                "body": body,
+            }),
             metadata: Default::default(),
         }
     }
@@ -636,10 +720,24 @@ mod tests {
         let engine = build_test_engine();
         let ctx = default_ctx();
 
-        // Low-value charge → should score low, allow
-        let result = engine.get_permission(&stripe_charge(50), &ctx).unwrap();
+        // Plain email → should score, allow
+        let result = engine
+            .get_permission(&gmail_send("Hello", "ok"), &ctx)
+            .unwrap();
         assert_eq!(result.source, DecisionSource::Scorer);
         assert!(result.risk_score.is_some());
+    }
+
+    #[test]
+    fn outlook_normalizer_works() {
+        let engine = build_test_engine();
+        let ctx = default_ctx();
+
+        let result = engine
+            .get_permission(&outlook_send("Hi", "body"), &ctx)
+            .unwrap();
+        assert_eq!(result.norm_action.action_type.as_action_str(), "email.send");
+        assert_eq!(result.norm_action.channel, "outlook");
     }
 
     #[test]
@@ -649,7 +747,7 @@ mod tests {
 
         // First, get the norm_hash
         let result = engine
-            .get_permission(&stripe_charge(5000), &ctx)
+            .get_permission(&gmail_send("Hello", "body"), &ctx)
             .unwrap();
         let hash = result.norm_action.norm_hash();
 
@@ -659,7 +757,7 @@ mod tests {
 
         // Now should deny
         let result = engine
-            .get_permission(&stripe_charge(5000), &ctx)
+            .get_permission(&gmail_send("Hello", "body"), &ctx)
             .unwrap();
         assert_eq!(result.permission, Permission::Deny);
         assert_eq!(result.source, DecisionSource::Denylist);
@@ -671,7 +769,7 @@ mod tests {
         let ctx = default_ctx();
 
         let result = engine
-            .get_permission(&stripe_charge(5000), &ctx)
+            .get_permission(&gmail_send("Hello", "body"), &ctx)
             .unwrap();
         let hash = result.norm_action.norm_hash();
 
@@ -679,7 +777,7 @@ mod tests {
         engine.store().allowlist_add(hash, "approved".into()).unwrap();
 
         let result = engine
-            .get_permission(&stripe_charge(5000), &ctx)
+            .get_permission(&gmail_send("Hello", "body"), &ctx)
             .unwrap();
         assert_eq!(result.permission, Permission::Allow);
         assert_eq!(result.source, DecisionSource::Allowlist);
@@ -691,7 +789,7 @@ mod tests {
         let ctx = default_ctx();
 
         let result = engine
-            .get_permission(&stripe_charge(5000), &ctx)
+            .get_permission(&gmail_send("Hello", "body"), &ctx)
             .unwrap();
         let hash = result.norm_action.norm_hash();
 
@@ -700,7 +798,7 @@ mod tests {
         engine.store().denylist_add(hash, "blocked".into()).unwrap();
 
         let result = engine
-            .get_permission(&stripe_charge(5000), &ctx)
+            .get_permission(&gmail_send("Hello", "body"), &ctx)
             .unwrap();
         assert_eq!(result.permission, Permission::Deny);
         assert_eq!(result.source, DecisionSource::Denylist);
@@ -713,48 +811,17 @@ mod tests {
 
         // First call → scorer
         let result = engine
-            .get_permission(&stripe_charge(5000), &ctx)
+            .get_permission(&gmail_send("Hello", "body"), &ctx)
             .unwrap();
         assert_eq!(result.source, DecisionSource::Scorer);
         let first_permission = result.permission;
 
         // Second call → cache
         let result = engine
-            .get_permission(&stripe_charge(5000), &ctx)
+            .get_permission(&gmail_send("Hello", "body"), &ctx)
             .unwrap();
         assert_eq!(result.source, DecisionSource::PolicyCache);
         assert_eq!(result.permission, first_permission);
-    }
-
-    #[test]
-    fn gate_produces_deny() {
-        let engine = build_test_engine();
-        let ctx = default_ctx();
-
-        // Crypto currency triggers gate
-        let raw = RawToolCall {
-            tool_name: "http".into(),
-            parameters: json!({
-                "method": "POST",
-                "url": "https://api.stripe.com/v1/charges",
-                "body": {"amount": 1000, "currency": "btc"}
-            }),
-            metadata: Default::default(),
-        };
-        let result = engine.get_permission(&raw, &ctx).unwrap();
-        assert_eq!(result.permission, Permission::Deny);
-        assert!(result.risk_score.as_ref().is_some_and(|s| s.blocked));
-    }
-
-    #[test]
-    fn bash_dangerous_gate() {
-        let engine = build_test_engine();
-        let ctx = default_ctx();
-
-        let result = engine
-            .get_permission(&bash_command("echo data > /dev/sda"), &ctx)
-            .unwrap();
-        assert_eq!(result.permission, Permission::Deny);
     }
 
     #[test]
@@ -783,9 +850,9 @@ mod tests {
         // Add some high-tier records to elevate session amplifier
         for i in 0..3 {
             session.push(permit0_session::ActionRecord {
-                action_type: "payments.charge".into(),
+                action_type: "email.send".into(),
                 tier: Tier::High,
-                flags: vec!["FINANCIAL".into()],
+                flags: vec!["OUTBOUND".into()],
                 timestamp: 1_700_000_000.0 + i as f64,
                 entities: serde_json::Map::new(),
             });
@@ -795,88 +862,10 @@ mod tests {
             .with_session(session);
 
         // Score with session context — session amplifier should be injected
-        let result = engine.get_permission(&stripe_charge(50), &ctx).unwrap();
+        let result = engine
+            .get_permission(&gmail_send("Hello", "body"), &ctx)
+            .unwrap();
         assert!(result.risk_score.is_some());
-        // The session amplifier should make the score higher than without session
-    }
-
-    #[test]
-    fn session_dsl_rules_evaluated() {
-        let engine = build_test_engine();
-        let mut session = SessionContext::new("test-session");
-
-        // The stripe risk YAML has a session_rule that fires when daily_total > 50000
-        // session_to_json sums all "amount" entities as daily_total
-        session.push(permit0_session::ActionRecord {
-            action_type: "payments.charge".into(),
-            tier: Tier::Low,
-            timestamp: 1_700_000_000.0,
-            flags: vec![],
-            entities: {
-                let mut m = serde_json::Map::new();
-                m.insert("amount".into(), json!(60000));
-                m
-            },
-        });
-
-        let ctx = PermissionCtx::new(NormalizeCtx::new().with_org_domain("acme.com"))
-            .with_session(session);
-
-        let result = engine.get_permission(&stripe_charge(50), &ctx).unwrap();
-        // The session_rule adds velocity_alert flag + upgrades scope
-        // Just verify scoring completed with session context
-        assert!(result.risk_score.is_some());
-    }
-
-    #[test]
-    fn session_block_rule_card_testing_fires() {
-        let engine = build_test_engine();
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs_f64();
-
-        let mut session = SessionContext::new("checkout-agent");
-        // Four prior micro-charges to distinct customers
-        for (i, (cust, amt)) in [
-            ("cus_aaa", 50),
-            ("cus_bbb", 100),
-            ("cus_ccc", 75),
-            ("cus_ddd", 60),
-        ]
-        .iter()
-        .enumerate()
-        {
-            session.push(permit0_session::ActionRecord {
-                action_type: "payments.charge".into(),
-                tier: Tier::Low,
-                timestamp: now - (40.0 - i as f64 * 10.0),
-                flags: vec![],
-                entities: {
-                    let mut m = serde_json::Map::new();
-                    m.insert("amount".into(), json!(amt));
-                    m.insert("customer".into(), json!(cust));
-                    m
-                },
-            });
-        }
-
-        let ctx = PermissionCtx::new(NormalizeCtx::new().with_org_domain("acme.com"))
-            .with_session(session);
-
-        // Fifth micro-charge to a fifth customer → card_testing block should fire
-        let raw = RawToolCall {
-            tool_name: "http".into(),
-            parameters: json!({
-                "method": "POST",
-                "url": "https://api.stripe.com/v1/charges",
-                "body": {"amount": 80, "currency": "usd", "customer": "cus_eee"}
-            }),
-            metadata: Default::default(),
-        };
-        let result = engine.get_permission(&raw, &ctx).unwrap();
-        assert_eq!(result.permission, Permission::Deny);
-        assert!(result.risk_score.as_ref().is_some_and(|s| s.blocked));
     }
 
     #[test]
@@ -884,7 +873,9 @@ mod tests {
         // Verify that passing no session context doesn't break anything
         let engine = build_test_engine();
         let ctx = default_ctx();
-        let result = engine.get_permission(&stripe_charge(50), &ctx).unwrap();
+        let result = engine
+            .get_permission(&gmail_send("Hello", "body"), &ctx)
+            .unwrap();
         assert_eq!(result.source, DecisionSource::Scorer);
         assert!(result.risk_score.is_some());
     }
