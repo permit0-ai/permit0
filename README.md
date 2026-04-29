@@ -40,23 +40,156 @@ cargo build --release
 cargo run -- serve --ui --port 9090
 # Open http://localhost:9090/ui/
 
-# 3. Evaluate tool calls via REST API
-curl -X POST http://localhost:9090/api/v1/check \
+# 3. Evaluate a norm action via REST API (no normalizer step)
+curl -X POST http://localhost:9090/api/v1/check_action \
   -H 'Content-Type: application/json' \
-  -d '{"tool_name":"Bash","parameters":{"command":"ls -la"}}'
-# ✓ {"permission":"Allow","tier":"MINIMAL","score":9,...}
+  -d '{"action_type":"email.send","entities":{"to":"alice@example.com","subject":"hi","body":"ok"}}'
+# {"permission":"allow","tier":"LOW","score":17,"channel":"app",...}
 
+# Or evaluate a raw tool call (goes through YAML normalizer first)
 curl -X POST http://localhost:9090/api/v1/check \
   -H 'Content-Type: application/json' \
-  -d '{"tool_name":"Bash","parameters":{"command":"sudo rm -rf /"}}'
-# ✗ {"permission":"Deny","tier":"CRITICAL","score":100,...}
+  -d '{"tool_name":"outlook_send","parameters":{"to":"alice@external.com","subject":"hi","body":"my password is hunter2"}}'
+# {"permission":"deny","tier":"CRITICAL","blocked":true,"block_reason":"Highly sensitive data sent to untrusted external destination",...}
 ```
 
-### Docker Deployment
+---
+
+## Email Quick Onboard — Claude Code + Outlook / Gmail
+
+The fastest path to a real, useful permit0 deployment: gate every email
+operation Claude Code performs on your **personal Outlook or Gmail account**
+through a local permit0 daemon. ~10 minutes, fully gated, fully audited.
+
+```
+Claude Code  ──MCP──▶  permit0-outlook-mcp  ──▶  permit0 daemon  ──▶  decision
+             ──MCP──▶  permit0-gmail-mcp    ──▶  (calibrate or enforce)
+                                │
+                                └──▶  Microsoft Graph / Gmail API (only on allow)
+```
+
+### 1. Start the daemon (calibration mode for first-time use)
 
 ```bash
-docker compose up -d
-# Visit http://localhost:9090/ui/
+cargo run -p permit0-cli -- serve --calibrate --port 9090
+# Open http://localhost:9090/ui/  → Approvals tab will receive every action
+```
+
+`--calibrate` makes every fresh decision block on a human approval, so you
+can audit each call and build a calibration corpus before flipping to
+enforce mode.
+
+### 2. Install the SDK + MCP servers
+
+```bash
+pip install -e clients/python              # @permit0.guard decorator
+pip install -e clients/outlook-mcp         # 13 outlook_* tools
+pip install -e clients/gmail-mcp           # 13 gmail_* tools  (skip if Gmail not needed)
+```
+
+### 3. Authenticate to your provider
+
+**Outlook (zero-config)** — uses Microsoft's public Graph PowerShell client_id;
+no Azure App registration needed:
+
+```bash
+python demos/outlook/outlook_test.py list   # one-time device-code login
+```
+
+**Gmail** — Google requires a per-user OAuth app:
+
+1. https://console.cloud.google.com/ → create project → enable Gmail API
+2. Credentials → OAuth Client ID (Desktop app) → download JSON
+3. Save as `~/.permit0/gmail_credentials.json`
+4. Run `python -c "from permit0_gmail_mcp.auth import get_token; get_token()"` once
+
+Both flows cache tokens in `~/.permit0/`.
+
+### 4. Wire into Claude Code
+
+Add to top-level `mcpServers` in `~/.claude.json`:
+
+```json
+{
+  "mcpServers": {
+    "permit0-outlook": {
+      "command": "permit0-outlook-mcp",
+      "env": { "PERMIT0_URL": "http://localhost:9090" }
+    },
+    "permit0-gmail": {
+      "command": "permit0-gmail-mcp",
+      "env": { "PERMIT0_URL": "http://localhost:9090" }
+    }
+  }
+}
+```
+
+Restart Claude Code. 26 new tools (`outlook_*` + `gmail_*`) appear, each
+gated by permit0.
+
+### 5. Talk to Claude Code
+
+> 列出我收件箱里最近 5 封邮件,把所有 newsletter 类的归档
+
+> Send an email to alice@example.com with subject "review" and body
+> "please take a look at the attached deck"
+
+Every action shows up in the dashboard's **Approvals** tab in calibration
+mode — you see permit0's tier recommendation alongside the full message
+content (to / subject / body) and the risk flags that fired (`OUTBOUND`,
+`EXPOSURE`, `GOVERNANCE`, …). Approve or deny; your decision is recorded
+with engine-vs-human comparison in the **Calibration** tab for offline
+analysis.
+
+### 6. From calibration → enforce
+
+After ~10–30 calibrated actions you'll see the agreement rate stabilize.
+Switch the daemon to enforce mode:
+
+```bash
+cargo run -p permit0-cli -- serve --ui --port 9090   # no --calibrate
+```
+
+The policy_cache holds your earlier human decisions, so identical
+`norm_hash`-equivalent calls auto-replay your verdict without re-asking.
+Adjust `packs/email/risk_rules/*.yaml` to encode any patterns you noticed.
+
+### Email norm actions (15)
+
+The email pack lowers all 26 raw tools (Outlook + Gmail) to the **same**
+unified norm action set:
+
+| Action | Behavior |
+|--------|----------|
+| `email.search` | List/search inbox |
+| `email.read` | Read one message |
+| `email.read_thread` | Read whole conversation |
+| `email.list_mailboxes` | List folders / labels |
+| `email.draft` | Create / modify draft (4 sub-modes) |
+| `email.send` | Send (4 sub-modes: new / reply / forward / from-draft) |
+| `email.mark_read` | Toggle read/unread |
+| `email.flag` | Toggle star |
+| `email.move` | Move to folder/label |
+| `email.archive` | Archive |
+| `email.mark_spam` | Mark as spam |
+| `email.delete` | Soft delete (Trash / Deleted Items) |
+| `email.create_mailbox` | Create folder/label |
+| `email.set_forwarding` | **CRITICAL gate** — never auto-allowed |
+| `email.add_delegate` | **CRITICAL gate** — never auto-allowed |
+
+The MCP servers do NOT expose `set_forwarding` / `add_delegate` to the
+LLM — they're account-takeover vectors. The risk rules still exist so any
+other code path that tries them is caught.
+
+### Shadow mode (observe-only)
+
+Want to wire permit0 into Claude Code's PreToolUse hook **before**
+enforcing? Use shadow mode — every decision is logged to stderr +
+audit log, but the hook always returns `allow`:
+
+```bash
+permit0 hook --shadow                              # CLI flag
+PERMIT0_SHADOW=1 permit0 hook                      # or env var
 ```
 
 ---
@@ -188,53 +321,67 @@ Every tool call in Claude Code will be automatically evaluated by permit0.
 # Start the service
 permit0 serve --ui --port 9090
 
-# Evaluate a tool call
+# Evaluate a raw tool call (goes through YAML normalizer)
 curl -X POST http://localhost:9090/api/v1/check \
   -H 'Content-Type: application/json' \
-  -d '{"tool":"Bash","input":{"command":"ls"}}'
+  -d '{"tool_name":"outlook_send","parameters":{"to":"alice@example.com","subject":"hi","body":"ok"}}'
+
+# Or evaluate a pre-normalized action directly
+curl -X POST http://localhost:9090/api/v1/check_action \
+  -H 'Content-Type: application/json' \
+  -d '{"action_type":"email.send","channel":"app","entities":{"to":"alice@example.com","subject":"hi","body":"ok"}}'
 ```
 
 **Response**:
 ```json
 {
   "permission": "allow",
-  "action_type": "process.shell",
-  "score": 9,
-  "tier": "MINIMAL",
+  "action_type": "email.send",
+  "channel": "outlook",
+  "score": 17,
+  "tier": "LOW",
   "blocked": false,
   "source": "Scorer"
 }
 ```
 
-**Python client**:
+### Option 3: Python SDK with `@guard` decorator
+
+The cleanest pattern for application code — declare what your function
+does, the decorator gates every call:
+
 ```python
-import requests
+import permit0
 
-def check_permission(tool_name: str, params: dict) -> dict:
-    return requests.post("http://localhost:9090/api/v1/check",
-        json={"tool_name": tool_name, "parameters": params}).json()
+@permit0.guard("email.send")
+def send_via_smtp(to, subject, body):
+    smtp.send_message(to=to, subject=subject, body=body)
 
-result = check_permission("Bash", {"command": "rm -rf /"})
-if result["permission"] == "deny":
-    print(f"Blocked: {result.get('block_reason')}")
+try:
+    send_via_smtp(to="alice@example.com", subject="hi", body="ok")
+except permit0.Denied as e:
+    print(f"blocked by permit0: {e.decision.block_reason}")
 ```
 
-### Option 3: Native SDK
+The function's keyword arguments become entities; permit0's daemon scores
+them against the email risk rules; on `allow` your function runs, on
+`deny` / `human` the decorator raises `permit0.Denied`.
 
-**Python**:
+### Option 4: Native bindings (Rust / Python PyO3 / TypeScript napi-rs)
+
 ```python
 from permit0 import Engine
-
-engine = Engine.from_packs("packs", profile="fintech")
-result = engine.get_permission("Bash", {"command": "ls"})
-print(result.permission)  # Allow | Human | Deny
+engine = Engine.from_packs("packs")
+result = engine.get_permission("outlook_send",
+    {"to": "alice@example.com", "subject": "hi", "body": "ok"})
+print(result.permission)
 ```
 
-**TypeScript**:
 ```typescript
 import { Engine } from '@permit0/core';
-const engine = Engine.fromPacks('packs', 'profiles/fintech.profile.yaml');
-const result = engine.getPermission('Bash', { command: 'ls' });
+const engine = Engine.fromPacks('packs');
+const result = engine.getPermission('outlook_send',
+    { to: 'alice@example.com', subject: 'hi', body: 'ok' });
 ```
 
 ---
@@ -245,13 +392,16 @@ const result = engine.getPermission('Bash', { command: 'ls' });
 
 | Method | Path | Description |
 |--------|------|-------------|
-| `POST` | `/api/v1/check` | Evaluate a tool call |
+| `POST` | `/api/v1/check` | Evaluate a raw tool call (goes through YAML normalizer) |
+| `POST` | `/api/v1/check_action` | Evaluate a pre-normalized norm action (skips normalizer) |
 | `GET` | `/api/v1/health` | Health check |
 | `GET` | `/api/v1/stats` | Decision statistics |
 | `GET` | `/api/v1/audit` | Query audit log |
 | `GET` | `/api/v1/audit/export?format=jsonl\|csv` | Export audit data |
-| `GET` | `/api/v1/approvals` | List pending approvals |
+| `GET` | `/api/v1/approvals` | List pending approvals (incl. entities + flags) |
 | `POST` | `/api/v1/approvals/decide` | Submit approval decision |
+| `GET` | `/api/v1/calibration/stats` | Calibration analytics (agreement rate, top reviewer, …) |
+| `GET` | `/api/v1/calibration/records` | Filtered calibration records (`?agreement=matched\|overridden`) |
 | `GET` | `/api/v1/packs` | List packs |
 | `GET/PUT` | `/api/v1/packs/:name/normalizers/:file` | View/edit normalizer |
 | `GET/PUT` | `/api/v1/packs/:name/risk_rules/:file` | View/edit risk rule |
@@ -267,12 +417,18 @@ Start `permit0 serve --ui --port 9090` and visit `http://localhost:9090/ui/`.
 
 | Tab | Functionality |
 |-----|---------------|
-| **Dashboard** | Decision stats cards, recent decision feed, system status |
-| **Audit Log** | Filterable audit table, detail expansion, JSONL/CSV export |
-| **Approvals** | Pending approval queue, approve/deny, 2s auto-refresh |
+| **Dashboard** | Decision stats cards, recent decision feed (10s auto-refresh) |
+| **Audit Log** | Filterable table with `permit0 said` / `human said` / match? columns; JSONL/CSV export (5s auto-refresh) |
+| **Approvals** | Pending approvals showing **full message details** (to/subject/body) + risk flags; approve/deny with reason (2s auto-refresh) |
+| **Calibration** | Stats cards (Total / Agreement Rate / Top Reviewer / Most Overridden Action) + filterable records table (matched / overridden) |
 | **Policies** | Pack editor — edit normalizers and risk rules online |
 | **Config** | Profile viewer, Denylist/Allowlist management |
 | **Live Monitor** | Real-time decision feed, Tier color-coded, rate stats |
+
+A login modal on first load asks for a reviewer name (stored in
+localStorage) so every approval is attributed. All auto-refresh polls
+pause when the browser tab is in the background or you're editing a
+filter / approval form.
 
 Data persisted to `~/.permit0/permit0.db` (SQLite), survives service restarts.
 
@@ -284,78 +440,113 @@ Packs are permit0's core extension unit. Each Pack = **normalizer** (standardiza
 
 ### Built-in Packs
 
-| Pack | Tools Covered | Normalizers | Risk Rules |
-|------|---------------|-------------|------------|
-| `claude_code` | Bash, Write, Edit, Read, Glob, Grep, Agent, Web | 9 | 4 |
-| `stripe` | charges, refund | 2 | 1 |
-| `gmail` | send | 1 | 1 |
-| `bank_transfer` | wire, ACH | 1 | 1 |
-| `bash` | shell commands | 1 | 1 |
-| `filesystem` | read, write | 1 | 1 |
+| Pack | Coverage | Normalizers | Risk Rules |
+|------|----------|-------------|------------|
+| `email` | All 15 email norm actions × Outlook + Gmail backends | 30 | 15 |
+
+The catalog declares **22 domains** total (`email`, `message`, `social`,
+`cms`, `newsletter`, `calendar`, `task`, `file`, `db`, `crm`, `payment`,
+`legal`, `iam`, `secret`, `infra`, `process`, `network`, `dev`, `browser`,
+`device`, `ai`, `unknown`). Only `email` ships with full normalizers and
+risk rules today; the rest are placeholders ready for new packs.
 
 ### Normalizer Example
 
 ```yaml
-# packs/claude_code/normalizers/bash.yaml
-permit0_pack: "permit0/claude_code"
-id: "claude_code:bash"
-priority: 200
+# packs/email/normalizers/outlook_send.yaml
+permit0_pack: "permit0/email"
+id: "email:outlook_send"
+priority: 105
 
 match:
-  tool: Bash                       # Match tool name
+  tool: outlook_send                       # Raw tool name from MCP server / agent
 
 normalize:
-  action_type: "process.shell"     # Standardize to domain.verb
-  domain: "process"
-  verb: "shell"
-  channel: "claude_code"
+  action_type: "email.send"                # Lower to canonical IR
+  domain: "email"
+  verb: "send"
+  channel: "outlook"                       # Distinguishes backend in audit log
   entities:
-    command:
-      from: "command"
-      type: "string"
-      required: true
+    to:       { from: "to",       type: "string" }
+    subject:  { from: "subject",  type: "string", optional: true }
+    body:     { from: "body",     type: "string", optional: true }
+    cc:       { from: "cc",       type: "string", optional: true }
+    bcc:      { from: "bcc",      type: "string", optional: true }
+    recipient_scope:
+      compute: "recipient_scope"           # → "internal" | "external"
+      args: ["to", "org_domain"]
 ```
+
+The Gmail and Outlook backends both have `*_send` normalizers that lower
+to the **same** `email.send` norm action — risk rules don't care which
+backend the call came from.
 
 ### Risk Rule Example
 
 ```yaml
-# packs/claude_code/risk_rules/file_write.yaml
-action_type: "files.write"
+# packs/email/risk_rules/send.yaml (excerpt)
+action_type: "email.send"
 
 base:
-  flags: { MUTATION: primary }
-  amplifiers: { scope: 4, irreversibility: 5, sensitivity: 3 }
+  flags:
+    OUTBOUND: primary
+    MUTATION: primary
+    EXPOSURE: secondary
+  amplifiers:
+    scope: 18
+    irreversibility: 18
+    sensitivity: 14
+    destination: 28
+    boundary: 14
 
 rules:
+  # Credentials in body → escalate to HIGH (HITL), not auto-deny
   - when:
-      file_path: { contains_any: [".env", "credentials", "secret"] }
+      body:
+        contains_any: ["password", "api_key", "credential", "token"]
     then:
-      - add_flag: { flag: EXPOSURE, role: primary }
-      - upgrade: { dim: sensitivity, delta: 20 }
+      - add_flag: { flag: EXPOSURE,   role: primary }
+      - add_flag: { flag: GOVERNANCE, role: primary }
+      - add_flag: { flag: PRIVILEGE,  role: primary }
+      - upgrade:  { dim: sensitivity, delta: 14 }
+      - upgrade:  { dim: scope,       delta: 14 }
 
+  # External recipient → escalate to MEDIUM (HITL)
   - when:
-      file_path: { contains: ".ssh/" }
+      recipient_scope:
+        contains: "external"
     then:
-      - gate: "ssh_directory_write"  # Hard block
+      - add_flag: { flag: GOVERNANCE, role: primary }
+      - upgrade:  { dim: scope,       delta: 12 }
+      - upgrade:  { dim: destination, delta: 8 }
 
 session_rules:
-  - when: { record_count: { gt: 8 } }
+  - when: { emails_sent_today: { gt: 50 } }
     then:
-      - upgrade: { dim: scope, delta: 6 }
+      - upgrade: { dim: scope,  delta: 8 }
+      - upgrade: { dim: amount, delta: 6 }
 ```
 
-### Built-in Action Types
+### Action Type Catalog (Selection)
 
-| Domain | Verb | Example |
-|--------|------|---------|
-| `process` | shell, exec | Execute commands |
-| `files` | read, write, list, delete | File operations |
-| `email` | send, forward | Email |
-| `payments` | charge, refund, transfer | Payments |
-| `network` | http_get, http_post | Network |
-| `iam` | assign_role, generate_api_key | Identity |
-| `db` | query, export, drop | Database |
-| `secrets` | read, rotate | Secrets |
+| Domain | Verbs | Notes |
+|--------|-------|-------|
+| `email` | search, read, read_thread, list_mailboxes, draft, send, mark_read, flag, move, archive, mark_spam, delete, create_mailbox, set_forwarding, add_delegate | Fully detailed (15 verbs) |
+| `payment` | charge, refund, transfer, get_balance, list, get, create, update, cancel_subscription | Placeholder — disambiguate via `resource_type` entity (invoice/subscription/payment_method) |
+| `iam` | list, get, create, update, delete, assign_role, revoke_role, reset_password, generate_api_key, revoke_api_key | Placeholder — `resource_type=user|role|api_key` |
+| `file` | list, get, read, create, update, delete, delete_recursive, move, copy, share, upload, download, export, search | Placeholder |
+| `db` | select, insert, update, delete, create, alter, drop, truncate, grant_access, revoke_access, export, backup, restore | Placeholder — `resource_type=table|index|database` for create/alter/drop |
+| `process` | run, invoke | Placeholder — `resource_type=shell|script|container|function` |
+| `network` | get, post, put, delete, send_webhook | Placeholder |
+| `dev` | list, get, create, update, close_issue, merge_pr, push_code, deploy, run_pipeline | Placeholder |
+| `browser` | navigate, click, fill_form, submit_form, take_screenshot, download_file, execute_js, scrape | Placeholder |
+| `ai` | prompt, embed, fine_tune, invoke_agent, generate_image | Placeholder |
+
+Generic verbs (`get`, `list`, `create`, `update`, `delete`, `search`,
+`export`) are reused across many domains. When a single verb covers
+multiple resource types within a domain, the normalizer extracts a
+`resource_type` entity rather than introducing per-type verbs — keeps
+the verb space small and makes risk rules reusable.
 
 ### Create Custom Packs
 
@@ -407,7 +598,18 @@ Template Gate → Block Rules → Category Weighting → Multiplicative Compound
 
 ## Calibration
 
-permit0 includes a golden test corpus (60 test cases) covering Bash commands, Stripe payments, Gmail emails, unknown tools, and more. Use it to verify that the scoring engine classifies tool calls into the expected tiers.
+permit0 has two layers of calibration:
+
+1. **Golden test corpus** (`corpora/calibration/`) — YAML fixtures asserting
+   `(tool_call, expected_tier, expected_permission)`. Run via
+   `permit0 calibrate test`. Currently ships with 2 starter email cases;
+   add your own as you expand packs.
+2. **Live human-in-the-loop calibration** (`serve --calibrate`) — every
+   fresh decision blocks on a human approval; the human's choice is
+   recorded alongside permit0's recommendation so you can compute
+   agreement rate, find disagreements, and tune risk rules from real
+   workload. Dashboard's **Calibration** tab shows stats and lets you
+   filter by `matched` vs `overridden`.
 
 ### Calibration Commands
 
@@ -420,24 +622,15 @@ permit0 includes a golden test corpus (60 test cases) covering Bash commands, St
 ### Golden Test Case Format
 
 ```yaml
-# corpora/calibration/bash_ls.yaml
-name: "safe directory listing"
-tool_name: "Bash"
+# corpora/calibration/001-gmail-simple-email.yaml
+name: gmail_simple_email
+tool_name: gmail_send
 parameters:
-  command: "ls -la"
-expected_tier: "MINIMAL"
-expected_permission: "ALLOW"
-```
-
-```yaml
-# corpora/calibration/stripe_large_charge.yaml
-name: "large USD charge over threshold"
-tool_name: "stripe_charge"
-parameters:
-  amount: 50000
-  currency: "usd"
-expected_tier: "HIGH"
-expected_permission: "DENY"
+  to: "bob@external.com"
+  subject: "Hello"
+  body: "Quick note"
+expected_tier: "Minimal"
+expected_permission: "Allow"
 ```
 
 ### Running Calibration Tests
@@ -503,22 +696,29 @@ The **Audit Log** tab in the Web GUI also supports online viewing and export.
 ```
 permit0-core/
 ├── crates/
-│   ├── permit0-engine      # Core decision pipeline
-│   ├── permit0-scoring     # 6-step hybrid scoring algorithm
-│   ├── permit0-dsl         # YAML DSL parser
-│   ├── permit0-normalize   # Normalizer registry & matching
-│   ├── permit0-session     # Session context & pattern detection
-│   ├── permit0-store       # Storage layer (InMemory / SQLite)
-│   ├── permit0-types       # Shared types
-│   ├── permit0-token       # Biscuit capability tokens
-│   ├── permit0-agent       # LLM Agent reviewer
-│   ├── permit0-ui          # Web admin dashboard (axum)
-│   ├── permit0-cli         # CLI entry point
-│   ├── permit0-py          # Python bindings (PyO3)
-│   └── permit0-node        # TypeScript bindings (napi-rs)
-├── packs/                  # Built-in YAML rule packs
-├── profiles/               # Domain calibration profiles
-└── corpora/calibration/    # 60 golden test cases
+│   ├── permit0-engine          # Core decision pipeline
+│   ├── permit0-scoring         # 6-step hybrid scoring algorithm
+│   ├── permit0-dsl             # YAML DSL parser
+│   ├── permit0-normalize       # Normalizer registry & matching
+│   ├── permit0-session         # Session context & pattern detection
+│   ├── permit0-store           # Storage layer (InMemory / SQLite)
+│   ├── permit0-types           # Shared types + action catalog
+│   ├── permit0-token           # Biscuit capability tokens
+│   ├── permit0-agent           # LLM Agent reviewer
+│   ├── permit0-ui              # Web admin dashboard (axum)
+│   ├── permit0-cli             # CLI entry point
+│   ├── permit0-shell-dispatch  # Bash → tool-call dispatcher
+│   ├── permit0-py              # Python bindings (PyO3)
+│   └── permit0-node            # TypeScript bindings (napi-rs)
+├── clients/
+│   ├── python/                 # @permit0.guard decorator (HTTP SDK)
+│   ├── outlook-mcp/            # Outlook MCP server (Microsoft Graph)
+│   └── gmail-mcp/              # Gmail MCP server (Gmail API)
+├── packs/
+│   └── email/                  # 30 normalizers + 15 risk rules
+├── profiles/                   # Domain calibration profiles
+├── corpora/calibration/        # Golden test cases (YAML fixtures)
+└── demos/outlook/              # Standalone CLI demo (no MCP)
 ```
 
 ---
@@ -534,13 +734,15 @@ permit0 calibrate test                # Calibration tests
 ### CLI Quick Reference
 
 ```bash
-permit0 check                         # Single evaluation
-permit0 hook --profile fintech        # Claude Code hook
-permit0 gateway                       # JSONL streaming gateway
-permit0 serve --ui --port 9090        # HTTP service + Web GUI
-permit0 pack new / validate / test    # Pack management
-permit0 calibrate test / diff / validate  # Calibration
-permit0 audit verify / inspect        # Audit
+permit0 check                            # Single evaluation
+permit0 hook                             # Claude Code PreToolUse hook
+permit0 hook --shadow                    #   observe-only (always allow, log to stderr)
+permit0 gateway                          # JSONL streaming gateway
+permit0 serve --ui --port 9090           # HTTP daemon + Web admin dashboard
+permit0 serve --calibrate                #   every fresh decision blocks on human approval
+permit0 pack new / validate / test       # Pack management
+permit0 calibrate test / diff / validate # Run golden test corpus
+permit0 audit verify / inspect           # Audit chain verification
 ```
 
 **Requirements**: Rust 1.85+, SQLite3
