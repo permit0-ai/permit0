@@ -116,9 +116,13 @@ pub fn run(
     let hook_input: HookInput =
         serde_json::from_str(&buf).context("parsing hook input JSON")?;
 
-    // Convert to RawToolCall
+    // Convert to RawToolCall. Claude Code prefixes MCP tool names as
+    // "mcp__<server>__<tool>" — strip that so normalizers match bare tool
+    // names (e.g. "outlook_send"), without polluting every YAML with the
+    // synthetic prefix.
+    let tool_name = strip_mcp_prefix(&hook_input.tool_name);
     let tool_call = RawToolCall {
-        tool_name: hook_input.tool_name,
+        tool_name,
         parameters: hook_input.tool_input,
         metadata: Default::default(),
     };
@@ -259,6 +263,22 @@ pub fn run(
     Ok(())
 }
 
+/// Claude Code prefixes MCP tool names as `mcp__<server>__<tool>`.
+/// Strip that so YAML normalizers can match the bare tool name
+/// (e.g. `outlook_send` instead of `mcp__permit0-outlook__outlook_send`).
+/// Non-MCP tool names pass through unchanged.
+fn strip_mcp_prefix(tool_name: &str) -> String {
+    if let Some(rest) = tool_name.strip_prefix("mcp__") {
+        // rest = "<server>__<tool>"; the *first* "__" separates server from
+        // tool. The tool name itself may contain underscores (single ones)
+        // but not the double-underscore delimiter Claude Code uses.
+        if let Some((_server, tool)) = rest.split_once("__") {
+            return tool.to_string();
+        }
+    }
+    tool_name.to_string()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -306,6 +326,33 @@ mod tests {
         let json = serde_json::to_string(&output).unwrap();
         assert!(json.contains(r#""decision":"ask_user""#));
         assert!(json.contains(r#""message":"Allow this?""#));
+    }
+
+    #[test]
+    fn strip_mcp_prefix_unwraps_claude_code_naming() {
+        // Standard case: Claude Code prefixes mcp__<server>__<tool>
+        assert_eq!(
+            strip_mcp_prefix("mcp__permit0-outlook__outlook_send"),
+            "outlook_send"
+        );
+        assert_eq!(
+            strip_mcp_prefix("mcp__permit0-gmail__gmail_archive"),
+            "gmail_archive"
+        );
+        // Tool name with underscores survives (only the double-underscore
+        // delimiter is consumed).
+        assert_eq!(
+            strip_mcp_prefix("mcp__permit0-outlook__outlook_create_mailbox"),
+            "outlook_create_mailbox"
+        );
+    }
+
+    #[test]
+    fn strip_mcp_prefix_passes_through_non_mcp() {
+        assert_eq!(strip_mcp_prefix("Bash"), "Bash");
+        assert_eq!(strip_mcp_prefix("outlook_send"), "outlook_send");
+        // Edge: starts with mcp__ but no second separator → no rewrite.
+        assert_eq!(strip_mcp_prefix("mcp__weird"), "mcp__weird");
     }
 
     #[test]

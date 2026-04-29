@@ -41,8 +41,8 @@ additional_block_rules:
 
 action_type_floors:
   email.send:    MEDIUM
-  email.forward: HIGH
-  files.export:  HIGH
-  files.share:   HIGH
+  email.send: HIGH
+  file.export:  HIGH
+  file.share:   HIGH
   db.export:     HIGH
   db.select:     LOW

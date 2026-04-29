@@ -59,14 +59,32 @@ curl -X POST http://localhost:9090/api/v1/check \
 
 The fastest path to a real, useful permit0 deployment: gate every email
 operation Claude Code performs on your **personal Outlook or Gmail account**
-through a local permit0 daemon. ~10 minutes, fully gated, fully audited.
+through a single PreToolUse hook. ~10 minutes, fully gated, fully audited.
+
+### Architecture (single-layer)
 
 ```
-Claude Code  ──MCP──▶  permit0-outlook-mcp  ──▶  permit0 daemon  ──▶  decision
-             ──MCP──▶  permit0-gmail-mcp    ──▶  (calibrate or enforce)
-                                │
-                                └──▶  Microsoft Graph / Gmail API (only on allow)
+Claude Code
+    │
+    ▼  every tool call (built-in + MCP) goes through PreToolUse first
+[permit0 hook]  ──▶  strip mcp__<server>__ prefix
+                     normalize via packs/email/normalizers/*.yaml
+                     score via packs/email/risk_rules/*.yaml
+                     ↓
+              allow / block / ask_user
+                     ↓
+         (Claude Code runs the tool only on allow)
+                     ↓
+        ┌────────────┴─────────────┐
+        ▼                          ▼
+permit0-outlook-mcp        permit0-gmail-mcp
+  (plain MCP wrapper)        (plain MCP wrapper)
+        ▼                          ▼
+Microsoft Graph              Gmail API
 ```
+
+The MCP servers are **plain** — they do not import permit0 or call any
+policy API. All gating happens at the hook layer in front of Claude Code.
 
 ### 1. Start the daemon (calibration mode for first-time use)
 
@@ -79,13 +97,16 @@ cargo run -p permit0-cli -- serve --calibrate --port 9090
 can audit each call and build a calibration corpus before flipping to
 enforce mode.
 
-### 2. Install the SDK + MCP servers
+### 2. Install the MCP servers
 
 ```bash
-pip install -e clients/python              # @permit0.guard decorator
 pip install -e clients/outlook-mcp         # 13 outlook_* tools
 pip install -e clients/gmail-mcp           # 13 gmail_* tools  (skip if Gmail not needed)
 ```
+
+(The `clients/python/` SDK is **optional** — only needed if you want to
+write Python code that calls permit0 directly via `@permit0.guard(...)`.
+The hook + plain MCP path doesn't need it.)
 
 ### 3. Authenticate to your provider
 
@@ -107,25 +128,32 @@ Both flows cache tokens in `~/.permit0/`.
 
 ### 4. Wire into Claude Code
 
-Add to top-level `mcpServers` in `~/.claude.json`:
+Add **both** the PreToolUse hook (the gate) and the MCP servers (the
+actuators) to `~/.claude.json`:
 
 ```json
 {
+  "hooks": {
+    "PreToolUse": [{
+      "command": "permit0 hook --db ~/.permit0/sessions.db",
+      "description": "permit0 — gate every tool call (built-in + MCP)"
+    }]
+  },
   "mcpServers": {
     "permit0-outlook": {
-      "command": "permit0-outlook-mcp",
-      "env": { "PERMIT0_URL": "http://localhost:9090" }
+      "command": "permit0-outlook-mcp"
     },
     "permit0-gmail": {
-      "command": "permit0-gmail-mcp",
-      "env": { "PERMIT0_URL": "http://localhost:9090" }
+      "command": "permit0-gmail-mcp"
     }
   }
 }
 ```
 
-Restart Claude Code. 26 new tools (`outlook_*` + `gmail_*`) appear, each
-gated by permit0.
+Restart Claude Code. 26 new tools (`outlook_*` + `gmail_*`) appear; the
+hook automatically strips the `mcp__<server>__` prefix Claude Code adds
+so the bare tool name (`outlook_send`, `gmail_archive`, …) matches the
+normalizer YAML.
 
 ### 5. Talk to Claude Code
 

@@ -10,7 +10,6 @@ readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}
 dependencies = [
-    "permit0",
     "mcp>=1.2",
     "google-auth>=2.30",
     "google-auth-oauthlib>=1.2",

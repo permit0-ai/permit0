@@ -32,8 +32,8 @@ additional_block_rules:
     reason: "Large financial transfer to external destination"
 
 action_type_floors:
-  payments.charge:      LOW
-  payments.transfer:    MEDIUM
+  payment.charge:      LOW
+  payment.transfer:    MEDIUM
   iam.assign_role:      HIGH
   iam.generate_api_key: HIGH
-  secrets.read:         MEDIUM
+  secret.get:         MEDIUM
