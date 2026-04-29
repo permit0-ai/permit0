@@ -155,6 +155,22 @@ hook automatically strips the `mcp__<server>__` prefix Claude Code adds
 so the bare tool name (`outlook_send`, `gmail_archive`, …) matches the
 normalizer YAML.
 
+#### Other agents / MCP hosts
+
+The hook accepts a `--client` flag (or `PERMIT0_CLIENT` env var) to
+match how each host namespaces MCP tool names:
+
+| Client | Flag | Tool-name shape | Stripping |
+|--------|------|-----------------|-----------|
+| Claude Code (terminal) | `--client claude-code` (default) | `mcp__<server>__<tool>` | strips `mcp__X__` |
+| Claude Desktop (GUI) | `--client claude-desktop` | `<tool>` (no prefix) | passthrough |
+| Direct/test calls | `--client raw` | `<tool>` (no prefix) | passthrough |
+
+When you adopt a new MCP host whose naming differs, run a test call
+through the hook, see what the `tool_name` field contains, and either
+add a new variant (open a PR) or use `--client raw` if the host already
+hands you bare names.
+
 ### 5. Talk to Claude Code
 
 > 列出我收件箱里最近 5 封邮件,把所有 newsletter 类的归档
@@ -763,7 +779,9 @@ permit0 calibrate test                # Calibration tests
 
 ```bash
 permit0 check                            # Single evaluation
-permit0 hook                             # Claude Code PreToolUse hook
+permit0 hook                             # PreToolUse hook (default --client claude-code)
+permit0 hook --client claude-desktop     #   for Claude Desktop GUI
+permit0 hook --client raw                #   no MCP prefix stripping
 permit0 hook --shadow                    #   observe-only (always allow, log to stderr)
 permit0 gateway                          # JSONL streaming gateway
 permit0 serve --ui --port 9090           # HTTP daemon + Web admin dashboard

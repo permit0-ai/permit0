@@ -48,6 +48,12 @@ enum Commands {
         /// Also enabled when PERMIT0_SHADOW=1.
         #[arg(long)]
         shadow: bool,
+        /// Which MCP host (agent) is calling the hook. Controls how
+        /// MCP tool-name prefixes are stripped before normalization.
+        /// Supported: claude-code (default), claude-desktop, raw.
+        /// Override via PERMIT0_CLIENT env var.
+        #[arg(long, value_name = "CLIENT")]
+        client: Option<String>,
     },
     /// Generic stdin/stdout JSON gateway (JSONL mode)
     Gateway {
@@ -178,7 +184,17 @@ fn main() -> anyhow::Result<()> {
             session_id,
             packs_dir,
             shadow,
-        } => cmd::hook::run(profile, &org_domain, db, session_id, packs_dir, shadow),
+            client,
+        } => {
+            // Precedence: --client flag > PERMIT0_CLIENT env var > default.
+            let client_str = client.or_else(|| std::env::var("PERMIT0_CLIENT").ok());
+            let client_kind = match client_str {
+                Some(s) => s.parse::<cmd::hook::ClientKind>()
+                    .map_err(anyhow::Error::msg)?,
+                None => cmd::hook::ClientKind::default(),
+            };
+            cmd::hook::run(profile, &org_domain, db, session_id, packs_dir, shadow, client_kind)
+        }
         Commands::Gateway {
             profile,
             org_domain,

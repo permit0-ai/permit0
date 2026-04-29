@@ -26,6 +26,7 @@
 //! ```
 
 use std::io::Read;
+use std::str::FromStr;
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
@@ -35,6 +36,68 @@ use permit0_normalize::NormalizeCtx;
 use permit0_types::{Permission, RawToolCall};
 
 use crate::engine_factory;
+
+/// Which MCP host (agent) is calling this hook. Different hosts namespace
+/// MCP tool names differently; the hook strips the host-specific prefix
+/// before normalizing so YAML normalizers can match the bare tool name
+/// (e.g. `outlook_send`).
+///
+/// **Adding a new client**: confirm the exact prefix shape an actual
+/// install passes to the PreToolUse hook (echo a tool call, look at the
+/// `tool_name` field), then add a variant + handler. Don't guess —
+/// false-positive stripping silently breaks normalization.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ClientKind {
+    /// Claude Code (CLI, terminal). Prefixes MCP tools as
+    /// `mcp__<server>__<tool>` (double underscore separator). This is the
+    /// default since it's the most common deployment.
+    ClaudeCode,
+    /// Claude Desktop (macOS/Windows GUI app). Passes MCP tool names
+    /// as-is, no prefix.
+    ClaudeDesktop,
+    /// No prefix stripping at all. Use this when you're calling the hook
+    /// directly (e.g. from tests or a custom integration that already
+    /// hands you the bare tool name).
+    Raw,
+}
+
+impl ClientKind {
+    /// Strip the host-specific prefix from a tool name, leaving the bare
+    /// name normalizers expect.
+    pub fn strip_prefix<'a>(self, tool_name: &'a str) -> &'a str {
+        match self {
+            // Claude Code: "mcp__<server>__<tool>" — first "__" after
+            // "mcp__" separates server from tool.
+            Self::ClaudeCode => tool_name
+                .strip_prefix("mcp__")
+                .and_then(|rest| rest.split_once("__").map(|(_, tool)| tool))
+                .unwrap_or(tool_name),
+            // Claude Desktop and Raw: passthrough.
+            Self::ClaudeDesktop | Self::Raw => tool_name,
+        }
+    }
+
+}
+
+impl FromStr for ClientKind {
+    type Err = String;
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        match s {
+            "claude-code" | "claude_code" => Ok(Self::ClaudeCode),
+            "claude-desktop" | "claude_desktop" => Ok(Self::ClaudeDesktop),
+            "raw" | "none" => Ok(Self::Raw),
+            other => Err(format!(
+                "unknown client '{other}' (supported: claude-code, claude-desktop, raw)"
+            )),
+        }
+    }
+}
+
+impl Default for ClientKind {
+    fn default() -> Self {
+        Self::ClaudeCode
+    }
+}
 
 /// Claude Code hook input format.
 ///
@@ -97,7 +160,10 @@ fn fxhash(s: &str) -> u64 {
     h
 }
 
-/// Run the Claude Code hook adapter.
+/// Run the PreToolUse hook adapter.
+///
+/// `client` selects which MCP host calls us, controlling how tool-name
+/// prefixes are stripped before normalization. See [`ClientKind`].
 pub fn run(
     profile: Option<String>,
     org_domain: &str,
@@ -105,6 +171,7 @@ pub fn run(
     session_id: Option<String>,
     packs_dir: Option<String>,
     shadow: bool,
+    client: ClientKind,
 ) -> Result<()> {
     let shadow = shadow || std::env::var("PERMIT0_SHADOW").is_ok_and(|v| !v.is_empty() && v != "0");
     // Read hook input from stdin
@@ -116,13 +183,10 @@ pub fn run(
     let hook_input: HookInput =
         serde_json::from_str(&buf).context("parsing hook input JSON")?;
 
-    // Convert to RawToolCall. Claude Code prefixes MCP tool names as
-    // "mcp__<server>__<tool>" — strip that so normalizers match bare tool
-    // names (e.g. "outlook_send"), without polluting every YAML with the
-    // synthetic prefix.
-    let tool_name = strip_mcp_prefix(&hook_input.tool_name);
+    // Strip the host-specific MCP prefix (if any) so YAML normalizers can
+    // match the bare tool name. See `ClientKind::strip_prefix`.
     let tool_call = RawToolCall {
-        tool_name,
+        tool_name: client.strip_prefix(&hook_input.tool_name).to_string(),
         parameters: hook_input.tool_input,
         metadata: Default::default(),
     };
@@ -263,22 +327,6 @@ pub fn run(
     Ok(())
 }
 
-/// Claude Code prefixes MCP tool names as `mcp__<server>__<tool>`.
-/// Strip that so YAML normalizers can match the bare tool name
-/// (e.g. `outlook_send` instead of `mcp__permit0-outlook__outlook_send`).
-/// Non-MCP tool names pass through unchanged.
-fn strip_mcp_prefix(tool_name: &str) -> String {
-    if let Some(rest) = tool_name.strip_prefix("mcp__") {
-        // rest = "<server>__<tool>"; the *first* "__" separates server from
-        // tool. The tool name itself may contain underscores (single ones)
-        // but not the double-underscore delimiter Claude Code uses.
-        if let Some((_server, tool)) = rest.split_once("__") {
-            return tool.to_string();
-        }
-    }
-    tool_name.to_string()
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -329,30 +377,55 @@ mod tests {
     }
 
     #[test]
-    fn strip_mcp_prefix_unwraps_claude_code_naming() {
-        // Standard case: Claude Code prefixes mcp__<server>__<tool>
+    fn claude_code_strips_mcp_double_underscore_prefix() {
+        let c = ClientKind::ClaudeCode;
+        assert_eq!(c.strip_prefix("mcp__permit0-outlook__outlook_send"), "outlook_send");
+        assert_eq!(c.strip_prefix("mcp__permit0-gmail__gmail_archive"), "gmail_archive");
+        // Tool names with single underscores survive (only the "__"
+        // delimiter is consumed once).
         assert_eq!(
-            strip_mcp_prefix("mcp__permit0-outlook__outlook_send"),
-            "outlook_send"
-        );
-        assert_eq!(
-            strip_mcp_prefix("mcp__permit0-gmail__gmail_archive"),
-            "gmail_archive"
-        );
-        // Tool name with underscores survives (only the double-underscore
-        // delimiter is consumed).
-        assert_eq!(
-            strip_mcp_prefix("mcp__permit0-outlook__outlook_create_mailbox"),
+            c.strip_prefix("mcp__permit0-outlook__outlook_create_mailbox"),
             "outlook_create_mailbox"
         );
     }
 
     #[test]
-    fn strip_mcp_prefix_passes_through_non_mcp() {
-        assert_eq!(strip_mcp_prefix("Bash"), "Bash");
-        assert_eq!(strip_mcp_prefix("outlook_send"), "outlook_send");
+    fn claude_code_passes_through_non_mcp_names() {
+        let c = ClientKind::ClaudeCode;
+        assert_eq!(c.strip_prefix("Bash"), "Bash");
+        assert_eq!(c.strip_prefix("outlook_send"), "outlook_send");
         // Edge: starts with mcp__ but no second separator → no rewrite.
-        assert_eq!(strip_mcp_prefix("mcp__weird"), "mcp__weird");
+        assert_eq!(c.strip_prefix("mcp__weird"), "mcp__weird");
+    }
+
+    #[test]
+    fn claude_desktop_passes_through_unchanged() {
+        let c = ClientKind::ClaudeDesktop;
+        assert_eq!(c.strip_prefix("outlook_send"), "outlook_send");
+        // Even if a Claude-Code-style prefix accidentally arrives at a
+        // claude-desktop hook, we DO NOT strip — the user said this client
+        // doesn't prefix, so respect that.
+        assert_eq!(
+            c.strip_prefix("mcp__permit0-outlook__outlook_send"),
+            "mcp__permit0-outlook__outlook_send"
+        );
+    }
+
+    #[test]
+    fn raw_passes_through_everything() {
+        let c = ClientKind::Raw;
+        assert_eq!(c.strip_prefix("anything_at_all"), "anything_at_all");
+        assert_eq!(c.strip_prefix("mcp__a__b"), "mcp__a__b");
+    }
+
+    #[test]
+    fn client_kind_parses_from_string() {
+        assert_eq!("claude-code".parse::<ClientKind>().unwrap(), ClientKind::ClaudeCode);
+        assert_eq!("claude_code".parse::<ClientKind>().unwrap(), ClientKind::ClaudeCode);
+        assert_eq!("claude-desktop".parse::<ClientKind>().unwrap(), ClientKind::ClaudeDesktop);
+        assert_eq!("raw".parse::<ClientKind>().unwrap(), ClientKind::Raw);
+        assert_eq!("none".parse::<ClientKind>().unwrap(), ClientKind::Raw);
+        assert!("cursor".parse::<ClientKind>().is_err());
     }
 
     #[test]
