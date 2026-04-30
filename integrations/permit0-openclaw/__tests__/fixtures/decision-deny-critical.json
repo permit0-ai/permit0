@@ -1,0 +1,11 @@
+{
+  "permission": "deny",
+  "action_type": "process.shell",
+  "channel": "shell",
+  "norm_hash": "ff00ff00ff00ff00",
+  "score": 100,
+  "tier": "CRITICAL",
+  "blocked": true,
+  "block_reason": "destructive-root-removal",
+  "source": "engine"
+}

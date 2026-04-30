@@ -1,0 +1,54 @@
+{
+  "name": "@permit0/openclaw",
+  "version": "0.1.0",
+  "description": "permit0 policy gate for OpenClaw skills (HOF + gateway middleware, HTTP transport)",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/AnissL93/permit0-core.git",
+    "directory": "integrations/permit0-openclaw"
+  },
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18.17"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "ulid": "^2.3.0",
+    "undici": "^6.19.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "typescript": "^5.5.0",
+    "vitest": "^3.0.0"
+  },
+  "keywords": [
+    "permit0",
+    "openclaw",
+    "agent",
+    "safety",
+    "policy",
+    "permissions",
+    "llm"
+  ]
+}
