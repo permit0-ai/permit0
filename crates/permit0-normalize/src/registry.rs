@@ -43,7 +43,11 @@ impl NormalizerRegistry {
         let new_priority = normalizer.priority();
 
         // Check for priority conflicts
-        if let Some(existing) = self.by_priority.iter().find(|n| n.priority() == new_priority) {
+        if let Some(existing) = self
+            .by_priority
+            .iter()
+            .find(|n| n.priority() == new_priority)
+        {
             return Err(RegistryError::PriorityConflict {
                 a: existing.id().to_string(),
                 b: normalizer.id().to_string(),

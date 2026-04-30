@@ -8,11 +8,9 @@ mod permission;
 mod risk;
 mod tool_call;
 
-pub use catalog::{
-    ActionType, CatalogError, Domain, Verb, ALL_DOMAINS, all_action_types,
-};
+pub use catalog::{ALL_DOMAINS, ActionType, CatalogError, Domain, Verb, all_action_types};
 pub use decision::{DecisionFilter, DecisionRecord};
 pub use norm_action::{Entities, ExecutionMeta, NormAction, NormHash};
 pub use permission::Permission;
-pub use risk::{FlagRole, RiskScore, Tier, TIER_THRESHOLDS, to_risk_score};
+pub use risk::{FlagRole, RiskScore, TIER_THRESHOLDS, Tier, to_risk_score};
 pub use tool_call::RawToolCall;

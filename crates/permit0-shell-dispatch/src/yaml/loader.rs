@@ -79,9 +79,7 @@ pub fn load_pack_dispatchers<P: AsRef<Path>>(
     load_files_merging_by_program(&all_files)
 }
 
-fn load_files_merging_by_program(
-    files: &[PathBuf],
-) -> Result<Vec<YamlCommandParser>, LoadError> {
+fn load_files_merging_by_program(files: &[PathBuf]) -> Result<Vec<YamlCommandParser>, LoadError> {
     let mut by_program: HashMap<String, YamlCommandParser> = HashMap::new();
 
     for path in files {
@@ -92,12 +90,10 @@ fn load_files_merging_by_program(
         let key = parser.program().to_ascii_lowercase();
         if let Some(existing) = by_program.remove(&key) {
             let mut combined = existing;
-            combined
-                .merge(parser)
-                .map_err(|e| LoadError::Parse {
-                    path: path.display().to_string(),
-                    source: e,
-                })?;
+            combined.merge(parser).map_err(|e| LoadError::Parse {
+                path: path.display().to_string(),
+                source: e,
+            })?;
             by_program.insert(key, combined);
         } else {
             by_program.insert(key, parser);
@@ -123,10 +119,7 @@ fn read_dir_sorted(dir: &Path) -> Result<Vec<PathBuf>, LoadError> {
         path: dir.display().to_string(),
         source: e,
     })?;
-    let mut entries: Vec<_> = rd
-        .filter_map(Result::ok)
-        .map(|e| e.path())
-        .collect();
+    let mut entries: Vec<_> = rd.filter_map(Result::ok).map(|e| e.path()).collect();
     entries.sort();
     Ok(entries)
 }

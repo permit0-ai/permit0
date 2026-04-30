@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 
 use axum::extract::{Path as AxumPath, Query, State};
-use axum::http::{header, StatusCode};
+use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Json, Response};
 use serde::{Deserialize, Serialize};
 
@@ -135,9 +135,7 @@ pub async fn stats(
             Permission::HumanInTheLoop => human_count += 1,
         }
         if let Some(ref tier) = record.tier {
-            *tier_distribution
-                .entry(tier.to_string())
-                .or_insert(0) += 1;
+            *tier_distribution.entry(tier.to_string()).or_insert(0) += 1;
         }
     }
 
@@ -285,10 +283,7 @@ pub async fn audit_export(
                     .as_ref()
                     .map(|t| t.to_string())
                     .unwrap_or_default();
-                let risk_str = record
-                    .risk_raw
-                    .map(|r| r.to_string())
-                    .unwrap_or_default();
+                let risk_str = record.risk_raw.map(|r| r.to_string()).unwrap_or_default();
                 let flags_str = record.flags.join(";");
                 body.push_str(&format!(
                     "{},{},{},{},{},{},{},{},{},{},{},{},{}\n",
@@ -374,9 +369,8 @@ pub async fn get_profile(
     State(state): State<AppState>,
     AxumPath(name): AxumPath<String>,
 ) -> Result<Json<ApiResponse<String>>, (StatusCode, Json<ApiResponse<String>>)> {
-    let name = sanitize_profile_name(&name).map_err(|e| {
-        err_response::<String>(StatusCode::BAD_REQUEST, &e)
-    })?;
+    let name = sanitize_profile_name(&name)
+        .map_err(|e| err_response::<String>(StatusCode::BAD_REQUEST, &e))?;
 
     let profiles_dir = state.profiles_dir.as_ref().ok_or_else(|| {
         err_response::<String>(
@@ -388,10 +382,7 @@ pub async fn get_profile(
     let file_path = profiles_dir.join(format!("{name}.profile.yaml"));
 
     let content = std::fs::read_to_string(&file_path).map_err(|e| {
-        err_response::<String>(
-            StatusCode::NOT_FOUND,
-            &format!("profile not found: {e}"),
-        )
+        err_response::<String>(StatusCode::NOT_FOUND, &format!("profile not found: {e}"))
     })?;
 
     Ok(ok_response(content))
@@ -430,14 +421,20 @@ pub struct ActionOverrideCount {
 /// GET /api/v1/calibration/stats — aggregate stats over calibration records.
 pub async fn calibration_stats(
     State(state): State<AppState>,
-) -> Result<Json<ApiResponse<CalibrationStats>>, (StatusCode, Json<ApiResponse<CalibrationStats>>)> {
+) -> Result<Json<ApiResponse<CalibrationStats>>, (StatusCode, Json<ApiResponse<CalibrationStats>>)>
+{
     let records = state
         .store
         .query_decisions(&DecisionFilter {
             limit: Some(10000),
             ..Default::default()
         })
-        .map_err(|e| err_response(StatusCode::INTERNAL_SERVER_ERROR, &format!("query failed: {e}")))?;
+        .map_err(|e| {
+            err_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("query failed: {e}"),
+            )
+        })?;
 
     // Calibration records = those with a reviewer set.
     let calib: Vec<_> = records.iter().filter(|r| r.reviewer.is_some()).collect();
@@ -465,14 +462,16 @@ pub async fn calibration_stats(
         .into_iter()
         .map(|(reviewer, count)| ReviewerCount { reviewer, count })
         .collect();
-    by_reviewer.sort_by(|a, b| b.count.cmp(&a.count));
+    by_reviewer.sort_by_key(|x| std::cmp::Reverse(x.count));
     by_reviewer.truncate(10);
 
     let mut overridden_action_map: HashMap<String, usize> = HashMap::new();
     for r in &calib {
         if let Some(eng) = r.engine_permission {
             if eng != r.permission {
-                *overridden_action_map.entry(r.action_type.clone()).or_insert(0) += 1;
+                *overridden_action_map
+                    .entry(r.action_type.clone())
+                    .or_insert(0) += 1;
             }
         }
     }
@@ -480,7 +479,7 @@ pub async fn calibration_stats(
         .into_iter()
         .map(|(action_type, count)| ActionOverrideCount { action_type, count })
         .collect();
-    most_overridden_actions.sort_by(|a, b| b.count.cmp(&a.count));
+    most_overridden_actions.sort_by_key(|x| std::cmp::Reverse(x.count));
     most_overridden_actions.truncate(10);
 
     let agreement_rate = if total > 0 {
@@ -523,7 +522,12 @@ pub async fn calibration_records(
             limit: Some(q.limit.unwrap_or(500)),
             ..Default::default()
         })
-        .map_err(|e| err_response(StatusCode::INTERNAL_SERVER_ERROR, &format!("query failed: {e}")))?;
+        .map_err(|e| {
+            err_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("query failed: {e}"),
+            )
+        })?;
 
     let filtered: Vec<serde_json::Value> = records
         .into_iter()
@@ -804,10 +808,30 @@ mod tests {
     #[test]
     fn aggregate_groups_by_window_and_reason() {
         let entries = vec![
-            make_failed_open_entry("2026-04-30T10:00:00Z", "2026-04-30T10:05:00Z", "refused", Some(Permission::Allow)),
-            make_failed_open_entry("2026-04-30T10:00:00Z", "2026-04-30T10:05:00Z", "refused", Some(Permission::Deny)),
-            make_failed_open_entry("2026-04-30T10:00:00Z", "2026-04-30T10:05:00Z", "refused", Some(Permission::HumanInTheLoop)),
-            make_failed_open_entry("2026-04-30T11:00:00Z", "2026-04-30T11:02:00Z", "timeout", Some(Permission::Allow)),
+            make_failed_open_entry(
+                "2026-04-30T10:00:00Z",
+                "2026-04-30T10:05:00Z",
+                "refused",
+                Some(Permission::Allow),
+            ),
+            make_failed_open_entry(
+                "2026-04-30T10:00:00Z",
+                "2026-04-30T10:05:00Z",
+                "refused",
+                Some(Permission::Deny),
+            ),
+            make_failed_open_entry(
+                "2026-04-30T10:00:00Z",
+                "2026-04-30T10:05:00Z",
+                "refused",
+                Some(Permission::HumanInTheLoop),
+            ),
+            make_failed_open_entry(
+                "2026-04-30T11:00:00Z",
+                "2026-04-30T11:02:00Z",
+                "timeout",
+                Some(Permission::Allow),
+            ),
         ];
         let rows = aggregate_failed_open_windows(&entries);
         assert_eq!(rows.len(), 2);

@@ -12,18 +12,18 @@
 use std::sync::Arc;
 
 use anyhow::{Context, Result};
+use axum::Router;
 use axum::extract::State;
 use axum::http::StatusCode;
 use axum::response::Json;
 use axum::routing::{get, post};
-use axum::Router;
 use serde::{Deserialize, Serialize};
 
 use permit0_engine::{DecisionSource, Engine, PermissionCtx, PermissionResult};
 use permit0_normalize::NormalizeCtx;
 use permit0_session::SessionContext;
 use permit0_store::audit::{
-    AuditSink, AuditSigner, Ed25519Signer, FailedOpenContext, InMemoryAuditSink,
+    AuditSigner, AuditSink, Ed25519Signer, FailedOpenContext, InMemoryAuditSink,
 };
 use permit0_store::{InMemoryStore, SqliteStore, Store};
 use permit0_types::{
@@ -110,10 +110,12 @@ async fn check_handler(
         ctx = ctx.with_task_goal(goal);
     }
 
-    let result = state
-        .engine
-        .get_permission(&tool_call, &ctx)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("engine error: {e}")))?;
+    let result = state.engine.get_permission(&tool_call, &ctx).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("engine error: {e}"),
+        )
+    })?;
 
     let (result, meta) = apply_calibration(&state, result).await?;
 
@@ -125,7 +127,13 @@ async fn check_handler(
         .chars()
         .take(200)
         .collect();
-    record_and_respond(&state, &result, tool_call.tool_name.clone(), surface_command, meta)
+    record_and_respond(
+        &state,
+        &result,
+        tool_call.tool_name.clone(),
+        surface_command,
+        meta,
+    )
 }
 
 /// Pull a string field out of the metadata map, ignoring non-string types.
@@ -331,10 +339,12 @@ async fn check_action_handler(
     let ctx = PermissionCtx::new(NormalizeCtx::new().with_org_domain(&state.org_domain))
         .with_skip_audit(state.calibrate);
 
-    let result = state
-        .engine
-        .check_norm_action(norm, &ctx)
-        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, format!("engine error: {e}")))?;
+    let result = state.engine.check_norm_action(norm, &ctx).map_err(|e| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("engine error: {e}"),
+        )
+    })?;
 
     let (result, meta) = apply_calibration(&state, result).await?;
 
@@ -386,8 +396,7 @@ async fn apply_calibration(
     let original_permission = result.permission;
     let norm_hash = result.norm_action.norm_hash();
 
-    let (approval_id, rx) =
-        manager.create_pending(result.norm_action.clone(), risk_score);
+    let (approval_id, rx) = manager.create_pending(result.norm_action.clone(), risk_score);
     let timeout = manager.timeout();
 
     eprintln!(
@@ -410,7 +419,10 @@ async fn apply_calibration(
         Err(_) => {
             return Err((
                 StatusCode::REQUEST_TIMEOUT,
-                format!("calibration timeout after {}s; no human decision", timeout.as_secs()),
+                format!(
+                    "calibration timeout after {}s; no human decision",
+                    timeout.as_secs()
+                ),
             ));
         }
     };
@@ -468,7 +480,7 @@ fn record_and_respond(
             source: format!("{:?}", result.source),
             tier: result.risk_score.as_ref().map(|s| s.tier),
             risk_raw: result.risk_score.as_ref().map(|s| s.raw),
-            blocked: result.risk_score.as_ref().map_or(false, |s| s.blocked),
+            blocked: result.risk_score.as_ref().is_some_and(|s| s.blocked),
             flags: result
                 .risk_score
                 .as_ref()
@@ -527,12 +539,9 @@ pub fn run(
             let audit_sink: Arc<dyn AuditSink> = Arc::new(InMemoryAuditSink::new());
             let audit_signer: Arc<dyn AuditSigner> = Arc::new(Ed25519Signer::generate());
 
-            let engine = engine_factory::build_engine_builder_from_packs(
-                profile.as_deref(),
-                None,
-            )?
-            .with_audit(audit_sink.clone(), audit_signer)
-            .build()?;
+            let engine = engine_factory::build_engine_builder_from_packs(profile.as_deref(), None)?
+                .with_audit(audit_sink.clone(), audit_signer)
+                .build()?;
 
             let packs_dir = engine_factory::resolve_packs_dir(None);
             let db_dir = engine_factory::dirs_home()
@@ -544,7 +553,9 @@ pub fn run(
             let shared_store: Arc<dyn Store> = match SqliteStore::open(&db_path) {
                 Ok(s) => Arc::new(s),
                 Err(e) => {
-                    eprintln!("  warning: failed to open SQLite store ({e}), falling back to in-memory");
+                    eprintln!(
+                        "  warning: failed to open SQLite store ({e}), falling back to in-memory"
+                    );
                     Arc::new(InMemoryStore::new())
                 }
             };
@@ -577,9 +588,7 @@ pub fn run(
             };
             let ui_router = permit0_ui::build_router(ui_state);
 
-            let mut app = Router::new()
-                .nest("/api/v1", check_api)
-                .merge(ui_router);
+            let mut app = Router::new().nest("/api/v1", check_api).merge(ui_router);
 
             let cwd_static = std::path::Path::new("crates/permit0-ui/static");
             if cwd_static.exists() {
@@ -620,9 +629,7 @@ pub fn run(
         let listener = tokio::net::TcpListener::bind(&addr)
             .await
             .context("binding listener")?;
-        axum::serve(listener, app)
-            .await
-            .context("running server")?;
+        axum::serve(listener, app).await.context("running server")?;
 
         Ok(())
     })
@@ -683,7 +690,10 @@ mod tests {
         m.insert("session_id".into(), serde_json::json!("s-1"));
         m.insert("task_goal".into(), serde_json::json!("do thing"));
         assert_eq!(extract_string_field(&m, "session_id"), Some("s-1".into()));
-        assert_eq!(extract_string_field(&m, "task_goal"), Some("do thing".into()));
+        assert_eq!(
+            extract_string_field(&m, "task_goal"),
+            Some("do thing".into())
+        );
     }
 
     #[test]

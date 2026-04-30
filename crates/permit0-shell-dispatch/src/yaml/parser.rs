@@ -11,11 +11,11 @@ use std::path::Path;
 use thiserror::Error;
 
 use crate::dispatcher::{CommandParser, Confidence, DispatchedAction};
-use crate::parsed::{extract_structure, FlagValue, ParsedCommand};
+use crate::parsed::{FlagValue, ParsedCommand, extract_structure};
 use crate::tokenize::Tokens;
 
 use super::eval::{eval_parameters, normalize_subcommand, render_tool_name_template};
-use super::schema::{DispatcherYaml, DispatchRule, FallbackRule};
+use super::schema::{DispatchRule, DispatcherYaml, FallbackRule};
 
 /// Errors from loading a dispatcher YAML file.
 #[derive(Debug, Error)]
@@ -30,7 +30,9 @@ pub enum YamlParserError {
         source: std::io::Error,
     },
 
-    #[error("dispatcher for program '{program}' declares subcommand_depth={depth} but rule requires {needed}")]
+    #[error(
+        "dispatcher for program '{program}' declares subcommand_depth={depth} but rule requires {needed}"
+    )]
     SubcommandDepthTooShallow {
         program: String,
         depth: usize,
@@ -281,8 +283,7 @@ dispatches:
     #[test]
     fn repeated_flag_joined_via_spec() {
         let parser = YamlCommandParser::from_yaml(GOG_GMAIL_YAML).unwrap();
-        let tokens =
-            Tokens::parse("gog gmail send --to alice@x.com --to bob@y.com").unwrap();
+        let tokens = Tokens::parse("gog gmail send --to alice@x.com --to bob@y.com").unwrap();
         let action = parser.dispatch(&tokens).unwrap();
         assert_eq!(action.parameters["to"], "alice@x.com,bob@y.com");
     }

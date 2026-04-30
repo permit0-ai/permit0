@@ -3,7 +3,7 @@
 use permit0_scoring::template::RiskTemplate;
 use permit0_types::FlagRole;
 
-use crate::eval::matcher::{eval_condition, MatchContext, NamedSets};
+use crate::eval::matcher::{MatchContext, NamedSets, eval_condition};
 use crate::schema::risk_rule::{MutationDef, RiskRuleDef};
 
 /// Build a RiskTemplate from a risk rule definition and action data.
@@ -218,10 +218,7 @@ session_rules:
 
         // amount should be upgraded by 3: 5 + 3 = 8
         assert_eq!(template.amplifiers.get("amount"), Some(&8));
-        assert_eq!(
-            template.flags.get("high_value"),
-            Some(&FlagRole::Primary)
-        );
+        assert_eq!(template.flags.get("high_value"), Some(&FlagRole::Primary));
     }
 
     #[test]

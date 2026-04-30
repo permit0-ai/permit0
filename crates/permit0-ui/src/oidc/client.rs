@@ -98,8 +98,7 @@ impl OidcClient {
         config: OidcConfig,
         http_client: Box<dyn OidcHttpClient>,
     ) -> Result<Self, OidcError> {
-        let client_secret =
-            std::env::var(&config.client_secret_env).unwrap_or_default();
+        let client_secret = std::env::var(&config.client_secret_env).unwrap_or_default();
         Ok(Self {
             config,
             http_client,
@@ -186,10 +185,7 @@ impl OidcClient {
     }
 
     /// Refresh an access token.
-    pub fn refresh_token(
-        &self,
-        refresh_token: &str,
-    ) -> Result<TokenResponse, OidcError> {
+    pub fn refresh_token(&self, refresh_token: &str) -> Result<TokenResponse, OidcError> {
         let disc = self.ensure_discovery()?;
         self.http_client.refresh_token(
             &disc.token_endpoint,

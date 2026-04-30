@@ -3,15 +3,15 @@
 use std::collections::HashMap;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use biscuit_auth::builder::{fact, string, Term};
+use biscuit_auth::builder::{Term, fact, string};
 use biscuit_auth::{Authorizer, Biscuit, KeyPair};
 
 use permit0_types::{Entities, Tier};
 
 use crate::error::TokenError;
 use crate::types::{
-    IssuedBy, Safeguard, TokenClaims, TokenScope, VerificationResult, HUMAN_TTL_SECS,
-    SCORER_TTL_SECS, safeguards_for_tier,
+    HUMAN_TTL_SECS, IssuedBy, SCORER_TTL_SECS, Safeguard, TokenClaims, TokenScope,
+    VerificationResult, safeguards_for_tier,
 };
 
 /// Biscuit-based capability token provider.
@@ -63,10 +63,7 @@ impl BiscuitTokenProvider {
 
         // Core facts
         builder
-            .add_fact(fact(
-                "action_type",
-                &[string(&claims.action_type)],
-            ))
+            .add_fact(fact("action_type", &[string(&claims.action_type)]))
             .map_err(|e| TokenError::Serialization(e.to_string()))?;
 
         builder
@@ -80,17 +77,11 @@ impl BiscuitTokenProvider {
             .map_err(|e| TokenError::Serialization(e.to_string()))?;
 
         builder
-            .add_fact(fact(
-                "risk_tier",
-                &[string(&claims.risk_tier.to_string())],
-            ))
+            .add_fact(fact("risk_tier", &[string(&claims.risk_tier.to_string())]))
             .map_err(|e| TokenError::Serialization(e.to_string()))?;
 
         builder
-            .add_fact(fact(
-                "session_id",
-                &[string(&claims.session_id)],
-            ))
+            .add_fact(fact("session_id", &[string(&claims.session_id)]))
             .map_err(|e| TokenError::Serialization(e.to_string()))?;
 
         // Risk score as integer
@@ -212,21 +203,19 @@ impl BiscuitTokenProvider {
             .add_token(&biscuit)
             .map_err(|e| TokenError::VerificationFailed(e.to_string()))?;
 
-        authorizer
-            .authorize()
-            .map_err(|e| {
-                let msg = e.to_string();
-                if msg.contains("time") || msg.contains("expir") {
-                    TokenError::Expired
-                } else if msg.contains("action_type") {
-                    TokenError::ActionTypeMismatch {
-                        expected: expected_action_type.to_string(),
-                        actual: "unknown".to_string(),
-                    }
-                } else {
-                    TokenError::VerificationFailed(msg)
+        authorizer.authorize().map_err(|e| {
+            let msg = e.to_string();
+            if msg.contains("time") || msg.contains("expir") {
+                TokenError::Expired
+            } else if msg.contains("action_type") {
+                TokenError::ActionTypeMismatch {
+                    expected: expected_action_type.to_string(),
+                    actual: "unknown".to_string(),
                 }
-            })?;
+            } else {
+                TokenError::VerificationFailed(msg)
+            }
+        })?;
 
         // Extract claims from authority facts
         let claims = self.extract_claims(&biscuit)?;
@@ -258,11 +247,7 @@ impl BiscuitTokenProvider {
                 let mut params = HashMap::new();
                 params.insert("r".to_string(), Term::Str(recipient.clone()));
                 block
-                    .add_code_with_params(
-                        "check if scope_recipient({r})",
-                        params,
-                        HashMap::new(),
-                    )
+                    .add_code_with_params("check if scope_recipient({r})", params, HashMap::new())
                     .map_err(|e| TokenError::AttenuationFailed(e.to_string()))?;
             }
             if let Some(ref prefix) = scope.path_prefix {
@@ -339,22 +324,21 @@ impl BiscuitTokenProvider {
             .map_err(|e| TokenError::VerificationFailed(e.to_string()))?;
 
         // Query facts
-        let action_type = query_string_fact(&mut authorizer, "data($x) <- action_type($x)")
-            .unwrap_or_default();
-        let issued_by_str = query_string_fact(&mut authorizer, "data($x) <- issued_by($x)")
-            .unwrap_or_default();
-        let risk_tier_str = query_string_fact(&mut authorizer, "data($x) <- risk_tier($x)")
-            .unwrap_or_default();
-        let session_id = query_string_fact(&mut authorizer, "data($x) <- session_id($x)")
-            .unwrap_or_default();
+        let action_type =
+            query_string_fact(&mut authorizer, "data($x) <- action_type($x)").unwrap_or_default();
+        let issued_by_str =
+            query_string_fact(&mut authorizer, "data($x) <- issued_by($x)").unwrap_or_default();
+        let risk_tier_str =
+            query_string_fact(&mut authorizer, "data($x) <- risk_tier($x)").unwrap_or_default();
+        let session_id =
+            query_string_fact(&mut authorizer, "data($x) <- session_id($x)").unwrap_or_default();
 
-        let risk_score = query_int_fact(&mut authorizer, "data($x) <- risk_score($x)")
-            .unwrap_or(0) as u32;
+        let risk_score =
+            query_int_fact(&mut authorizer, "data($x) <- risk_score($x)").unwrap_or(0) as u32;
 
-        let issued_at = query_date_fact(&mut authorizer, "data($x) <- issued_at($x)")
-            .unwrap_or(0);
-        let expires_at = query_date_fact(&mut authorizer, "data($x) <- expires_at($x)")
-            .unwrap_or(0);
+        let issued_at = query_date_fact(&mut authorizer, "data($x) <- issued_at($x)").unwrap_or(0);
+        let expires_at =
+            query_date_fact(&mut authorizer, "data($x) <- expires_at($x)").unwrap_or(0);
 
         // Safeguards
         let safeguards = query_all_string_facts(&mut authorizer, "data($x) <- safeguard($x)")
@@ -370,8 +354,9 @@ impl BiscuitTokenProvider {
         // Scope
         let recipient = query_string_fact(&mut authorizer, "data($x) <- scope_recipient($x)");
         let path_prefix = query_string_fact(&mut authorizer, "data($x) <- scope_path_prefix($x)");
-        let amount_ceiling = query_int_fact(&mut authorizer, "data($x) <- scope_amount_ceiling($x)")
-            .map(|cents| cents as f64 / 100.0);
+        let amount_ceiling =
+            query_int_fact(&mut authorizer, "data($x) <- scope_amount_ceiling($x)")
+                .map(|cents| cents as f64 / 100.0);
         let environment = query_string_fact(&mut authorizer, "data($x) <- scope_environment($x)");
 
         let issued_by = match issued_by_str.as_str() {
@@ -505,11 +490,10 @@ fn query_date_fact(authorizer: &mut Authorizer, rule: &str) -> Option<i64> {
     // biscuit-auth stores dates as u64 unix timestamps internally
     // but queries return SystemTime
     let facts: Vec<(SystemTime,)> = authorizer.query(rule).ok()?;
-    facts.into_iter().next().map(|(t,)| {
-        t.duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_secs() as i64
-    })
+    facts
+        .into_iter()
+        .next()
+        .map(|(t,)| t.duration_since(UNIX_EPOCH).unwrap_or_default().as_secs() as i64)
 }
 
 fn query_all_string_facts(authorizer: &mut Authorizer, rule: &str) -> Vec<String> {

@@ -91,11 +91,7 @@ fn compute_entity(
 
     let resolved: Vec<Value> = arg_paths
         .iter()
-        .map(|path| {
-            resolve_path(params, path)
-                .cloned()
-                .unwrap_or(Value::Null)
-        })
+        .map(|path| resolve_path(params, path).cloned().unwrap_or(Value::Null))
         .collect();
 
     let result = func(&resolved);

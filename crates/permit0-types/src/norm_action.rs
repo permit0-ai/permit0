@@ -92,7 +92,10 @@ fn canonical_json(action: &NormAction) -> String {
             }
         }
     }
-    map.insert("entities".into(), serde_json::Value::Object(sorted_entities));
+    map.insert(
+        "entities".into(),
+        serde_json::Value::Object(sorted_entities),
+    );
 
     map.insert(
         "verb".into(),
@@ -165,8 +168,7 @@ mod tests {
         let h1 = a.norm_hash();
 
         let mut b = test_action();
-        b.entities
-            .insert("amount".into(), serde_json::json!(9999));
+        b.entities.insert("amount".into(), serde_json::json!(9999));
         let h2 = b.norm_hash();
 
         assert_ne!(h1, h2);

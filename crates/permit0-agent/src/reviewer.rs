@@ -5,8 +5,8 @@ use permit0_types::Tier;
 
 use crate::client::LlmClient;
 use crate::types::{
-    AgentReviewResponse, ReviewInput, ReviewVerdict, ALWAYS_HUMAN_TYPES,
-    DENY_CONFIDENCE_THRESHOLD, MEDIUM_SCORE_SKIP_THRESHOLD,
+    ALWAYS_HUMAN_TYPES, AgentReviewResponse, DENY_CONFIDENCE_THRESHOLD,
+    MEDIUM_SCORE_SKIP_THRESHOLD, ReviewInput, ReviewVerdict,
 };
 
 /// The agent-in-the-loop reviewer for MEDIUM-tier calls.
@@ -70,9 +70,7 @@ impl AgentReviewer {
         };
 
         // Confidence gate: deny requires >= 0.90
-        if parsed.verdict == ReviewVerdict::Deny
-            && parsed.confidence < DENY_CONFIDENCE_THRESHOLD
-        {
+        if parsed.verdict == ReviewVerdict::Deny && parsed.confidence < DENY_CONFIDENCE_THRESHOLD {
             return AgentReviewResponse {
                 verdict: ReviewVerdict::HumanInTheLoop,
                 reason: parsed.reason,
@@ -88,18 +86,12 @@ impl AgentReviewer {
     }
 
     /// Check if the reviewer should be skipped. Returns Some(reason) if yes.
-    fn should_skip(
-        &self,
-        input: &ReviewInput,
-        session: Option<&SessionContext>,
-    ) -> Option<String> {
+    fn should_skip(&self, input: &ReviewInput, session: Option<&SessionContext>) -> Option<String> {
         let action_str = input.norm_action.action_type.as_action_str();
 
         // Always-human action types
         if ALWAYS_HUMAN_TYPES.contains(&action_str.as_str()) {
-            return Some(format!(
-                "Action type '{action_str}' requires human review"
-            ));
+            return Some(format!("Action type '{action_str}' requires human review"));
         }
 
         // Score >= 52 (top of MEDIUM band)
@@ -112,14 +104,9 @@ impl AgentReviewer {
 
         // Session contains a blocked action
         if let Some(session_ctx) = session {
-            let has_blocked = session_ctx
-                .records
-                .iter()
-                .any(|r| r.tier >= Tier::Critical);
+            let has_blocked = session_ctx.records.iter().any(|r| r.tier >= Tier::Critical);
             if has_blocked {
-                return Some(
-                    "Session contains a previously blocked action".into(),
-                );
+                return Some("Session contains a previously blocked action".into());
             }
         }
 
@@ -138,13 +125,9 @@ fn build_prompt(input: &ReviewInput) -> String {
 
     let entities_json =
         serde_json::to_string_pretty(&input.norm_action.entities).unwrap_or_default();
-    let raw_json =
-        serde_json::to_string_pretty(&input.raw_tool_call).unwrap_or_default();
+    let raw_json = serde_json::to_string_pretty(&input.raw_tool_call).unwrap_or_default();
 
-    let task_goal = input
-        .task_goal
-        .as_deref()
-        .unwrap_or("(not provided)");
+    let task_goal = input.task_goal.as_deref().unwrap_or("(not provided)");
     let session_summary = input
         .session_summary
         .as_deref()
@@ -363,9 +346,8 @@ mod tests {
         for v in &verdicts {
             match v {
                 ReviewVerdict::HumanInTheLoop => {}
-                ReviewVerdict::Deny => {}
-                // No Allow variant exists — compilation would fail if one were added
-                // without updating this test.
+                ReviewVerdict::Deny => {} // No Allow variant exists — compilation would fail if one were added
+                                          // without updating this test.
             }
         }
     }

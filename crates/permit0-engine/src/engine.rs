@@ -3,18 +3,17 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use permit0_agent::{AgentReviewer, ReviewInput, ReviewVerdict};
 use permit0_dsl::normalizer::DslNormalizer;
 use permit0_dsl::risk_executor::{execute_risk_rules_with_sets, execute_session_rules_with_sets};
 use permit0_dsl::schema::risk_rule::RiskRuleDef;
 use permit0_dsl::validate;
-use permit0_normalize::{NormalizerRegistry, Normalizer};
+use permit0_normalize::{Normalizer, NormalizerRegistry};
 use permit0_scoring::{ScoringConfig, compute_hybrid};
-use permit0_agent::{AgentReviewer, ReviewInput, ReviewVerdict};
 use permit0_session::{SessionContext, evaluate_session_block_rules, session_amplifier_score};
 use permit0_store::audit::{
-    AuditEntry, AuditPolicy, AuditSigner, AuditSink, FailedOpenContext,
+    AuditEntry, AuditPolicy, AuditSigner, AuditSink, FailedOpenContext, Redactor,
     chain::{GENESIS_HASH, compute_entry_hash},
-    Redactor,
 };
 use permit0_store::{InMemoryStore, Store};
 use permit0_types::{DecisionRecord, NormAction, Permission, RawToolCall, RiskScore, Tier};
@@ -101,9 +100,7 @@ impl Engine {
         ctx: &PermissionCtx,
     ) -> Result<PermissionResult, EngineError> {
         // Step 1: Normalize
-        let norm = self
-            .registry
-            .normalize(tool_call, &ctx.normalize_ctx)?;
+        let norm = self.registry.normalize(tool_call, &ctx.normalize_ctx)?;
         self.run_pipeline(norm, tool_call, ctx)
     }
 
@@ -180,8 +177,7 @@ impl Engine {
         if !self.risk_rules.contains_key(&action_key) {
             // No risk rule for this action type → Human-in-the-loop (conservative default)
             let permission = Permission::HumanInTheLoop;
-            self.store
-                .policy_cache_set(norm_hash, permission)?;
+            self.store.policy_cache_set(norm_hash, permission)?;
             let result = PermissionResult {
                 permission,
                 norm_action: norm,
@@ -199,32 +195,28 @@ impl Engine {
         let base_permission = score_to_permission(risk_score.tier, risk_score.blocked);
 
         // Step 7b: Agent reviewer for MEDIUM tier
-        let (permission, source) =
-            if base_permission == Permission::HumanInTheLoop {
-                if let Some(ref reviewer) = self.reviewer {
-                    let review_input = ReviewInput {
-                        norm_action: norm.clone(),
-                        risk_score: risk_score.clone(),
-                        raw_tool_call: tool_call.clone(),
-                        task_goal: ctx.task_goal.clone(),
-                        session_summary: None,
-                        org_policy: None,
-                    };
-                    let review = reviewer.handle_medium(
-                        &review_input,
-                        ctx.session.as_ref(),
-                    );
-                    let perm = match review.verdict {
-                        ReviewVerdict::HumanInTheLoop => Permission::HumanInTheLoop,
-                        ReviewVerdict::Deny => Permission::Deny,
-                    };
-                    (perm, DecisionSource::AgentReviewer)
-                } else {
-                    (base_permission, DecisionSource::Scorer)
-                }
+        let (permission, source) = if base_permission == Permission::HumanInTheLoop {
+            if let Some(ref reviewer) = self.reviewer {
+                let review_input = ReviewInput {
+                    norm_action: norm.clone(),
+                    risk_score: risk_score.clone(),
+                    raw_tool_call: tool_call.clone(),
+                    task_goal: ctx.task_goal.clone(),
+                    session_summary: None,
+                    org_policy: None,
+                };
+                let review = reviewer.handle_medium(&review_input, ctx.session.as_ref());
+                let perm = match review.verdict {
+                    ReviewVerdict::HumanInTheLoop => Permission::HumanInTheLoop,
+                    ReviewVerdict::Deny => Permission::Deny,
+                };
+                (perm, DecisionSource::AgentReviewer)
             } else {
                 (base_permission, DecisionSource::Scorer)
-            };
+            }
+        } else {
+            (base_permission, DecisionSource::Scorer)
+        };
 
         // Cache the result
         self.store.policy_cache_set(norm_hash, permission)?;
@@ -265,8 +257,12 @@ impl Engine {
         let merged_data = merge_raw_with_entities(raw_params, &norm.entities);
 
         // Execute per-call risk rules
-        let mut template =
-            execute_risk_rules_with_sets(rule_def, &merged_data, None, Some(&self.config.named_sets));
+        let mut template = execute_risk_rules_with_sets(
+            rule_def,
+            &merged_data,
+            None,
+            Some(&self.config.named_sets),
+        );
 
         // Session-aware scoring
         if let Some(session_ctx) = session {
@@ -285,11 +281,8 @@ impl Engine {
             );
 
             // 3. Evaluate built-in session block rules
-            let block_result = evaluate_session_block_rules(
-                session_ctx,
-                &action_key,
-                &norm.entities,
-            );
+            let block_result =
+                evaluate_session_block_rules(session_ctx, &action_key, &norm.entities);
             if block_result.blocked {
                 template.gate(
                     block_result
@@ -311,7 +304,12 @@ impl Engine {
     }
 
     /// Build and persist a decision audit record.
-    fn log_decision(&self, result: &PermissionResult, tool_call: &RawToolCall, ctx: &PermissionCtx) -> Result<(), EngineError> {
+    fn log_decision(
+        &self,
+        result: &PermissionResult,
+        tool_call: &RawToolCall,
+        ctx: &PermissionCtx,
+    ) -> Result<(), EngineError> {
         // Caller (e.g. calibration daemon) intends to write a richer
         // composite record itself; don't double-log.
         if ctx.skip_audit {
@@ -568,8 +566,10 @@ fn merge_raw_with_entities(
     };
 
     if !out.contains_key("entity") {
-        let entity_obj: serde_json::Map<String, serde_json::Value> =
-            entities.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+        let entity_obj: serde_json::Map<String, serde_json::Value> = entities
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
         out.insert("entity".into(), serde_json::Value::Object(entity_obj));
     }
 
@@ -585,11 +585,26 @@ fn session_to_json(session: &SessionContext) -> serde_json::Value {
     let filter_all = SessionFilter::new();
 
     let mut map = serde_json::Map::new();
-    map.insert("session_id".into(), serde_json::Value::String(session.session_id.clone()));
-    map.insert("record_count".into(), serde_json::json!(session.records.len()));
-    map.insert("max_tier".into(), serde_json::Value::String(session.max_tier().to_string()));
-    map.insert("duration_minutes".into(), serde_json::json!(session.duration_minutes()));
-    map.insert("distinct_flags".into(), serde_json::json!(session.distinct_flags(None)));
+    map.insert(
+        "session_id".into(),
+        serde_json::Value::String(session.session_id.clone()),
+    );
+    map.insert(
+        "record_count".into(),
+        serde_json::json!(session.records.len()),
+    );
+    map.insert(
+        "max_tier".into(),
+        serde_json::Value::String(session.max_tier().to_string()),
+    );
+    map.insert(
+        "duration_minutes".into(),
+        serde_json::json!(session.duration_minutes()),
+    );
+    map.insert(
+        "distinct_flags".into(),
+        serde_json::json!(session.distinct_flags(None)),
+    );
 
     // Aggregate common fields for convenience
     // Sum of "amount" across all records (commonly used)
@@ -658,11 +673,7 @@ impl EngineBuilder {
     }
 
     /// Configure the audit subsystem.
-    pub fn with_audit(
-        mut self,
-        sink: Arc<dyn AuditSink>,
-        signer: Arc<dyn AuditSigner>,
-    ) -> Self {
+    pub fn with_audit(mut self, sink: Arc<dyn AuditSink>, signer: Arc<dyn AuditSigner>) -> Self {
         self.audit_sink = Some(sink);
         self.audit_signer = Some(signer);
         self
@@ -681,10 +692,7 @@ impl EngineBuilder {
     }
 
     /// Install a YAML normalizer from a parsed definition.
-    pub fn install_normalizer(
-        mut self,
-        normalizer: DslNormalizer,
-    ) -> Result<Self, EngineError> {
+    pub fn install_normalizer(mut self, normalizer: DslNormalizer) -> Result<Self, EngineError> {
         self.registry
             .register(Arc::new(normalizer))
             .map_err(|e| EngineError::Build(e.to_string()))?;
@@ -699,10 +707,7 @@ impl EngineBuilder {
     }
 
     /// Install a native (Rust-coded) normalizer.
-    pub fn install_native(
-        mut self,
-        normalizer: Arc<dyn Normalizer>,
-    ) -> Result<Self, EngineError> {
+    pub fn install_native(mut self, normalizer: Arc<dyn Normalizer>) -> Result<Self, EngineError> {
         self.registry
             .register(normalizer)
             .map_err(|e| EngineError::Build(e.to_string()))?;
@@ -733,9 +738,7 @@ impl EngineBuilder {
 
     /// Build the engine. Uses `InMemoryStore` if no store was provided.
     pub fn build(self) -> Result<Engine, EngineError> {
-        let store = self
-            .store
-            .unwrap_or_else(|| Arc::new(InMemoryStore::new()));
+        let store = self.store.unwrap_or_else(|| Arc::new(InMemoryStore::new()));
 
         Ok(Engine {
             registry: self.registry,
@@ -766,7 +769,8 @@ mod tests {
     use serde_json::json;
 
     const GMAIL_NORM_YAML: &str = include_str!("../../../packs/email/normalizers/gmail_send.yaml");
-    const OUTLOOK_NORM_YAML: &str = include_str!("../../../packs/email/normalizers/outlook_send.yaml");
+    const OUTLOOK_NORM_YAML: &str =
+        include_str!("../../../packs/email/normalizers/outlook_send.yaml");
     const EMAIL_RISK_YAML: &str = include_str!("../../../packs/email/risk_rules/send.yaml");
 
     fn build_test_engine() -> Engine {
@@ -885,7 +889,10 @@ mod tests {
         let hash = result.norm_action.norm_hash();
 
         engine.store().policy_cache_invalidate(&hash).unwrap();
-        engine.store().allowlist_add(hash, "approved".into()).unwrap();
+        engine
+            .store()
+            .allowlist_add(hash, "approved".into())
+            .unwrap();
 
         let result = engine
             .get_permission(&gmail_send("Hello", "body"), &ctx)
@@ -905,7 +912,10 @@ mod tests {
         let hash = result.norm_action.norm_hash();
 
         engine.store().policy_cache_invalidate(&hash).unwrap();
-        engine.store().allowlist_add(hash, "approved".into()).unwrap();
+        engine
+            .store()
+            .allowlist_add(hash, "approved".into())
+            .unwrap();
         engine.store().denylist_add(hash, "blocked".into()).unwrap();
 
         let result = engine

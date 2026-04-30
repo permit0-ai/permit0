@@ -46,11 +46,12 @@ use crate::engine_factory;
 /// install passes to the PreToolUse hook (echo a tool call, look at the
 /// `tool_name` field), then add a variant + handler. Don't guess —
 /// false-positive stripping silently breaks normalization.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ClientKind {
     /// Claude Code (CLI, terminal). Prefixes MCP tools as
     /// `mcp__<server>__<tool>` (double underscore separator). This is the
     /// default since it's the most common deployment.
+    #[default]
     ClaudeCode,
     /// Claude Desktop (macOS/Windows GUI app). Passes MCP tool names
     /// as-is, no prefix.
@@ -64,7 +65,7 @@ pub enum ClientKind {
 impl ClientKind {
     /// Strip the host-specific prefix from a tool name, leaving the bare
     /// name normalizers expect.
-    pub fn strip_prefix<'a>(self, tool_name: &'a str) -> &'a str {
+    pub fn strip_prefix(self, tool_name: &str) -> &str {
         match self {
             // Claude Code: "mcp__<server>__<tool>" — first "__" after
             // "mcp__" separates server from tool.
@@ -76,7 +77,6 @@ impl ClientKind {
             Self::ClaudeDesktop | Self::Raw => tool_name,
         }
     }
-
 }
 
 impl FromStr for ClientKind {
@@ -90,12 +90,6 @@ impl FromStr for ClientKind {
                 "unknown client '{other}' (supported: claude-code, claude-desktop, raw)"
             )),
         }
-    }
-}
-
-impl Default for ClientKind {
-    fn default() -> Self {
-        Self::ClaudeCode
     }
 }
 
@@ -189,7 +183,7 @@ fn derive_session_id(explicit: Option<String>) -> String {
     #[cfg(unix)]
     {
         let ppid = std::os::unix::process::parent_id();
-        return format!("ppid-{ppid}");
+        format!("ppid-{ppid}")
     }
     #[cfg(not(unix))]
     {
@@ -230,8 +224,7 @@ pub fn run(
         .read_to_string(&mut buf)
         .context("reading hook input from stdin")?;
 
-    let hook_input: HookInput =
-        serde_json::from_str(&buf).context("parsing hook input JSON")?;
+    let hook_input: HookInput = serde_json::from_str(&buf).context("parsing hook input JSON")?;
 
     // Strip the host-specific MCP prefix (if any) so YAML normalizers can
     // match the bare tool name. See `ClientKind::strip_prefix`.
@@ -242,10 +235,7 @@ pub fn run(
     };
 
     // Build engine
-    let engine = engine_factory::build_engine_from_packs(
-        profile.as_deref(),
-        packs_dir.as_deref(),
-    )?;
+    let engine = engine_factory::build_engine_from_packs(profile.as_deref(), packs_dir.as_deref())?;
 
     // Session-aware context
     let session_store = db_path.as_ref().map(|path| {
@@ -266,9 +256,13 @@ pub fn run(
         None => None,
     };
 
-    let session_id_str = session_store.as_ref().map(|_| derive_session_id(session_id));
+    let session_id_str = session_store
+        .as_ref()
+        .map(|_| derive_session_id(session_id));
     let session_ctx = session_id_str.as_ref().and_then(|sid| {
-        session_store.as_ref().and_then(|store| store.get_session(sid))
+        session_store
+            .as_ref()
+            .and_then(|store| store.get_session(sid))
     });
 
     // Build context with optional session
@@ -328,10 +322,10 @@ pub fn run(
                 result.norm_action.action_type.as_action_str(),
                 result.norm_action.channel,
                 result.risk_score.as_ref().map_or(0, |s| s.score),
-                result.risk_score.as_ref().map_or(
-                    permit0_types::Tier::Medium,
-                    |s| s.tier
-                ),
+                result
+                    .risk_score
+                    .as_ref()
+                    .map_or(permit0_types::Tier::Medium, |s| s.tier),
             ),
         ),
     };
@@ -384,8 +378,14 @@ mod tests {
     fn hook_output_allow_serialization() {
         let json = serde_json::to_string(&HookOutput::allow()).unwrap();
         assert!(json.contains(r#""hookSpecificOutput""#), "got: {json}");
-        assert!(json.contains(r#""hookEventName":"PreToolUse""#), "got: {json}");
-        assert!(json.contains(r#""permissionDecision":"allow""#), "got: {json}");
+        assert!(
+            json.contains(r#""hookEventName":"PreToolUse""#),
+            "got: {json}"
+        );
+        assert!(
+            json.contains(r#""permissionDecision":"allow""#),
+            "got: {json}"
+        );
         // No reason on plain allow.
         assert!(!json.contains("permissionDecisionReason"));
     }
@@ -393,22 +393,40 @@ mod tests {
     #[test]
     fn hook_output_deny_serialization() {
         let json = serde_json::to_string(&HookOutput::deny("dangerous command")).unwrap();
-        assert!(json.contains(r#""permissionDecision":"deny""#), "got: {json}");
-        assert!(json.contains(r#""permissionDecisionReason":"dangerous command""#), "got: {json}");
+        assert!(
+            json.contains(r#""permissionDecision":"deny""#),
+            "got: {json}"
+        );
+        assert!(
+            json.contains(r#""permissionDecisionReason":"dangerous command""#),
+            "got: {json}"
+        );
     }
 
     #[test]
     fn hook_output_ask_serialization() {
         let json = serde_json::to_string(&HookOutput::ask("Allow this?")).unwrap();
-        assert!(json.contains(r#""permissionDecision":"ask""#), "got: {json}");
-        assert!(json.contains(r#""permissionDecisionReason":"Allow this?""#), "got: {json}");
+        assert!(
+            json.contains(r#""permissionDecision":"ask""#),
+            "got: {json}"
+        );
+        assert!(
+            json.contains(r#""permissionDecisionReason":"Allow this?""#),
+            "got: {json}"
+        );
     }
 
     #[test]
     fn claude_code_strips_mcp_double_underscore_prefix() {
         let c = ClientKind::ClaudeCode;
-        assert_eq!(c.strip_prefix("mcp__permit0-outlook__outlook_send"), "outlook_send");
-        assert_eq!(c.strip_prefix("mcp__permit0-gmail__gmail_archive"), "gmail_archive");
+        assert_eq!(
+            c.strip_prefix("mcp__permit0-outlook__outlook_send"),
+            "outlook_send"
+        );
+        assert_eq!(
+            c.strip_prefix("mcp__permit0-gmail__gmail_archive"),
+            "gmail_archive"
+        );
         // Tool names with single underscores survive (only the "__"
         // delimiter is consumed once).
         assert_eq!(
@@ -448,9 +466,18 @@ mod tests {
 
     #[test]
     fn client_kind_parses_from_string() {
-        assert_eq!("claude-code".parse::<ClientKind>().unwrap(), ClientKind::ClaudeCode);
-        assert_eq!("claude_code".parse::<ClientKind>().unwrap(), ClientKind::ClaudeCode);
-        assert_eq!("claude-desktop".parse::<ClientKind>().unwrap(), ClientKind::ClaudeDesktop);
+        assert_eq!(
+            "claude-code".parse::<ClientKind>().unwrap(),
+            ClientKind::ClaudeCode
+        );
+        assert_eq!(
+            "claude_code".parse::<ClientKind>().unwrap(),
+            ClientKind::ClaudeCode
+        );
+        assert_eq!(
+            "claude-desktop".parse::<ClientKind>().unwrap(),
+            ClientKind::ClaudeDesktop
+        );
         assert_eq!("raw".parse::<ClientKind>().unwrap(), ClientKind::Raw);
         assert_eq!("none".parse::<ClientKind>().unwrap(), ClientKind::Raw);
         assert!("cursor".parse::<ClientKind>().is_err());

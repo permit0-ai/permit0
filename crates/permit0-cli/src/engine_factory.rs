@@ -4,7 +4,7 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 use permit0_engine::EngineBuilder;
-use permit0_scoring::{ProfileOverrides, ScoringConfig, Guardrails};
+use permit0_scoring::{Guardrails, ProfileOverrides, ScoringConfig};
 
 /// Load all packs into an `EngineBuilder` without finalizing it. Lets
 /// callers stack additional configuration (e.g. audit sink + signer)
@@ -93,10 +93,7 @@ pub fn load_scoring_config(profile: Option<&str>) -> Result<ScoringConfig> {
 }
 
 /// Install all normalizers and risk rules from a single pack directory.
-fn install_pack(
-    mut builder: EngineBuilder,
-    pack_dir: &Path,
-) -> Result<EngineBuilder> {
+fn install_pack(mut builder: EngineBuilder, pack_dir: &Path) -> Result<EngineBuilder> {
     let normalizers_dir = pack_dir.join("normalizers");
     if normalizers_dir.exists() {
         for entry in std::fs::read_dir(&normalizers_dir)? {
@@ -170,11 +167,11 @@ impl ProfileYaml {
             floors.insert(at, tier);
         }
 
-        let named_sets: std::collections::HashMap<String, std::collections::HashSet<String>> =
-            self.named_sets
-                .into_iter()
-                .map(|(k, v)| (k, v.into_iter().collect()))
-                .collect();
+        let named_sets: std::collections::HashMap<String, std::collections::HashSet<String>> = self
+            .named_sets
+            .into_iter()
+            .map(|(k, v)| (k, v.into_iter().collect()))
+            .collect();
 
         Ok(ProfileOverrides {
             risk_weight_adjustments: self.risk_weight_adjustments,

@@ -15,10 +15,7 @@ pub struct BootstrapPipeline {
 }
 
 impl BootstrapPipeline {
-    pub fn new(
-        llm_client: Box<dyn LlmClient>,
-        proposal_store: Arc<dyn ProposalStore>,
-    ) -> Self {
+    pub fn new(llm_client: Box<dyn LlmClient>, proposal_store: Arc<dyn ProposalStore>) -> Self {
         Self {
             llm_client,
             proposal_store,
@@ -29,11 +26,7 @@ impl BootstrapPipeline {
     ///
     /// Returns `AlreadyPending` if a proposal already exists for this action type.
     /// The proposal is NEVER auto-applied — it must be reviewed by a human.
-    pub fn propose_rules(
-        &self,
-        action_type: &str,
-        tool_call: &RawToolCall,
-    ) -> BootstrapResult {
+    pub fn propose_rules(&self, action_type: &str, tool_call: &RawToolCall) -> BootstrapResult {
         // Check for existing pending proposal
         match self.proposal_store.get_pending_for_action(action_type) {
             Ok(Some(existing)) => {
@@ -127,8 +120,7 @@ impl BootstrapPipeline {
 
 /// Build the LLM prompt for bootstrapping rules.
 fn build_bootstrap_prompt(action_type: &str, tool_call: &RawToolCall) -> String {
-    let params_json =
-        serde_json::to_string_pretty(&tool_call.parameters).unwrap_or_default();
+    let params_json = serde_json::to_string_pretty(&tool_call.parameters).unwrap_or_default();
 
     format!(
         r#"You are a security rule author for an AI agent permission system.
@@ -218,9 +210,9 @@ fn extract_fenced_block(s: &str, tag: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
+    use super::super::proposal_store::InMemoryProposalStore;
     use super::*;
     use permit0_agent::MockLlmClient;
-    use super::super::proposal_store::InMemoryProposalStore;
     use serde_json::json;
 
     const MOCK_LLM_RESPONSE: &str = r#"Here are the proposed rules:
@@ -290,9 +282,7 @@ This is a custom API call. Moderate risk due to external communication.
         }
 
         // Verify stored
-        let pending = store
-            .get_pending_for_action("custom.invoke")
-            .unwrap();
+        let pending = store.get_pending_for_action("custom.invoke").unwrap();
         assert!(pending.is_some());
     }
 

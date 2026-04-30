@@ -96,7 +96,10 @@ mod tests {
         for tier in [Tier::Medium, Tier::High, Tier::Critical] {
             ctx.push(make_record(tier, &["flag_b"]));
             let score = session_amplifier_score(&ctx);
-            assert!(score >= prev_score, "score decreased: {prev_score} -> {score}");
+            assert!(
+                score >= prev_score,
+                "score decreased: {prev_score} -> {score}"
+            );
             prev_score = score;
         }
     }

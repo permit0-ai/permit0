@@ -144,8 +144,8 @@ fn classify_file_type(args: &[serde_json::Value]) -> serde_json::Value {
     let filename = str_arg(args, 0);
     let ext = filename.rsplit('.').next().unwrap_or("").to_lowercase();
     let classification = match ext.as_str() {
-        "rs" | "py" | "js" | "ts" | "go" | "java" | "c" | "cpp" | "rb" | "swift" | "kt"
-        | "sh" | "bash" | "zsh" | "ps1" => "code",
+        "rs" | "py" | "js" | "ts" | "go" | "java" | "c" | "cpp" | "rb" | "swift" | "kt" | "sh"
+        | "bash" | "zsh" | "ps1" => "code",
         "json" | "csv" | "xml" | "parquet" | "avro" | "sql" | "db" | "sqlite" => "data",
         "yaml" | "yml" | "toml" | "ini" | "conf" | "cfg" | "env" | "properties" => "config",
         "exe" | "dll" | "so" | "dylib" | "bin" | "wasm" | "zip" | "tar" | "gz" => "binary",
@@ -185,11 +185,10 @@ fn extract_amount_cents(args: &[serde_json::Value]) -> serde_json::Value {
 fn detect_pii_patterns(args: &[serde_json::Value]) -> serde_json::Value {
     let text = str_arg(args, 0);
     // Simple patterns — SSN, email, phone
-    let has_ssn = regex::Regex::new(r"\b\d{3}-\d{2}-\d{4}\b")
-        .is_ok_and(|re| re.is_match(&text));
+    let has_ssn = regex::Regex::new(r"\b\d{3}-\d{2}-\d{4}\b").is_ok_and(|re| re.is_match(&text));
     let has_email = text.contains('@') && text.contains('.');
-    let has_phone = regex::Regex::new(r"\b\d{3}[-.]?\d{3}[-.]?\d{4}\b")
-        .is_ok_and(|re| re.is_match(&text));
+    let has_phone =
+        regex::Regex::new(r"\b\d{3}[-.]?\d{3}[-.]?\d{4}\b").is_ok_and(|re| re.is_match(&text));
     serde_json::Value::Bool(has_ssn || has_email || has_phone)
 }
 
@@ -277,7 +276,10 @@ mod tests {
     fn test_is_private_ip() {
         assert_eq!(is_private_ip(&[json!("192.168.1.1")]), json!(true));
         assert_eq!(is_private_ip(&[json!("8.8.8.8")]), json!(false));
-        assert_eq!(is_private_ip(&[json!("http://localhost:3000")]), json!(true));
+        assert_eq!(
+            is_private_ip(&[json!("http://localhost:3000")]),
+            json!(true)
+        );
     }
 
     #[test]
@@ -334,10 +336,7 @@ mod tests {
             detect_pii_patterns(&[json!("SSN: 123-45-6789")]),
             json!(true)
         );
-        assert_eq!(
-            detect_pii_patterns(&[json!("hello world")]),
-            json!(false)
-        );
+        assert_eq!(detect_pii_patterns(&[json!("hello world")]), json!(false));
     }
 
     #[test]

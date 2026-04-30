@@ -37,7 +37,9 @@ pub enum ValidationError {
     DuplicateNormalizerId(String),
 }
 
-const VALID_ENTITY_TYPES: &[&str] = &["string", "int", "integer", "bool", "boolean", "float", "number", "list"];
+const VALID_ENTITY_TYPES: &[&str] = &[
+    "string", "int", "integer", "bool", "boolean", "float", "number", "list",
+];
 
 /// Validate a normalizer definition.
 pub fn validate_normalizer(def: &NormalizerDef) -> Vec<ValidationError> {
@@ -139,15 +141,13 @@ fn validate_mutations(
     use crate::schema::risk_rule::MutationDef;
     for m in mutations {
         match m {
-            MutationDef::Gate { gate } => {
-                if gate.is_empty() {
-                    errors.push(ValidationError::EmptyGateReason);
-                }
+            MutationDef::Gate { gate } if gate.is_empty() => {
+                errors.push(ValidationError::EmptyGateReason);
             }
-            MutationDef::AddFlag { add_flag } => {
-                if add_flag.role != "primary" && add_flag.role != "secondary" {
-                    errors.push(ValidationError::InvalidFlagRole(add_flag.role.clone()));
-                }
+            MutationDef::AddFlag { add_flag }
+                if add_flag.role != "primary" && add_flag.role != "secondary" =>
+            {
+                errors.push(ValidationError::InvalidFlagRole(add_flag.role.clone()));
             }
             MutationDef::Split { split } => {
                 for (dim, value) in &split.amplifiers {
@@ -211,7 +211,11 @@ mod tests {
     fn invalid_action_type() {
         let def = minimal_normalizer("invalid_action");
         let errors = validate_normalizer(&def);
-        assert!(errors.iter().any(|e| matches!(e, ValidationError::InvalidActionType(_))));
+        assert!(
+            errors
+                .iter()
+                .any(|e| matches!(e, ValidationError::InvalidActionType(_)))
+        );
     }
 
     #[test]
@@ -233,7 +237,11 @@ mod tests {
             },
         );
         let errors = validate_normalizer(&def);
-        assert!(errors.iter().any(|e| matches!(e, ValidationError::UnknownHelper(_))));
+        assert!(
+            errors
+                .iter()
+                .any(|e| matches!(e, ValidationError::UnknownHelper(_)))
+        );
     }
 
     #[test]
@@ -255,7 +263,11 @@ mod tests {
             },
         );
         let errors = validate_normalizer(&def);
-        assert!(errors.iter().any(|e| matches!(e, ValidationError::WrongArgCount { .. })));
+        assert!(
+            errors
+                .iter()
+                .any(|e| matches!(e, ValidationError::WrongArgCount { .. }))
+        );
     }
 
     #[test]
@@ -277,7 +289,11 @@ mod tests {
             },
         );
         let errors = validate_normalizer(&def);
-        assert!(errors.iter().any(|e| matches!(e, ValidationError::UnknownEntityType(_))));
+        assert!(
+            errors
+                .iter()
+                .any(|e| matches!(e, ValidationError::UnknownEntityType(_)))
+        );
     }
 
     #[test]
@@ -299,7 +315,11 @@ mod tests {
             },
         );
         let errors = validate_normalizer(&def);
-        assert!(errors.iter().any(|e| matches!(e, ValidationError::ConflictingRequirements(_))));
+        assert!(
+            errors
+                .iter()
+                .any(|e| matches!(e, ValidationError::ConflictingRequirements(_)))
+        );
     }
 
     #[test]
@@ -321,7 +341,11 @@ mod tests {
             },
         );
         let errors = validate_normalizer(&def);
-        assert!(errors.iter().any(|e| matches!(e, ValidationError::RequiredWithDefault(_))));
+        assert!(
+            errors
+                .iter()
+                .any(|e| matches!(e, ValidationError::RequiredWithDefault(_)))
+        );
     }
 
     #[test]
@@ -341,7 +365,11 @@ session_rules: []
         )
         .unwrap();
         let errors = validate_risk_rule(&def);
-        assert!(errors.iter().any(|e| matches!(e, ValidationError::AmplifierOutOfRange { .. })));
+        assert!(
+            errors
+                .iter()
+                .any(|e| matches!(e, ValidationError::AmplifierOutOfRange { .. }))
+        );
     }
 
     #[test]
@@ -361,7 +389,11 @@ session_rules: []
         )
         .unwrap();
         let errors = validate_risk_rule(&def);
-        assert!(errors.iter().any(|e| matches!(e, ValidationError::InvalidFlagRole(_))));
+        assert!(
+            errors
+                .iter()
+                .any(|e| matches!(e, ValidationError::InvalidFlagRole(_)))
+        );
     }
 
     #[test]
@@ -378,6 +410,8 @@ session_rules: []
         let n2 = minimal_normalizer("payment.charge");
         let errors = check_duplicate_ids(&[n1, n2]);
         assert_eq!(errors.len(), 1);
-        assert!(matches!(&errors[0], ValidationError::DuplicateNormalizerId(id) if id == "test:norm"));
+        assert!(
+            matches!(&errors[0], ValidationError::DuplicateNormalizerId(id) if id == "test:norm")
+        );
     }
 }

@@ -42,7 +42,11 @@ pub fn evaluate_session_block_rules(
     current_action_type: &str,
     current_entities: &serde_json::Map<String, serde_json::Value>,
 ) -> SessionBlockResult {
-    type BlockCheckFn = fn(&SessionContext, &str, &serde_json::Map<String, serde_json::Value>) -> SessionBlockResult;
+    type BlockCheckFn = fn(
+        &SessionContext,
+        &str,
+        &serde_json::Map<String, serde_json::Value>,
+    ) -> SessionBlockResult;
     let checks: Vec<BlockCheckFn> = vec![
         privilege_escalation_then_exec,
         read_then_exfiltrate,
@@ -308,12 +312,21 @@ mod tests {
         let ts = base_ts();
         let mut session = SessionContext::new("test");
         session.push(make_record("iam.assign_role", Tier::High, ts, &[], vec![]));
-        session.push(make_record("secrets.read", Tier::Medium, ts + 1.0, &[], vec![]));
+        session.push(make_record(
+            "secrets.read",
+            Tier::Medium,
+            ts + 1.0,
+            &[],
+            vec![],
+        ));
 
         let entities = serde_json::Map::new();
         let result = evaluate_session_block_rules(&session, "shell.execute", &entities);
         assert!(result.blocked);
-        assert_eq!(result.rule_name.as_deref(), Some("privilege_escalation_then_exec"));
+        assert_eq!(
+            result.rule_name.as_deref(),
+            Some("privilege_escalation_then_exec")
+        );
     }
 
     #[test]
@@ -359,7 +372,10 @@ mod tests {
         entities.insert("amount".into(), json!(150000));
         let result = evaluate_session_block_rules(&session, "payments.transfer", &entities);
         assert!(result.blocked);
-        assert_eq!(result.rule_name.as_deref(), Some("cumulative_transfer_limit"));
+        assert_eq!(
+            result.rule_name.as_deref(),
+            Some("cumulative_transfer_limit")
+        );
     }
 
     #[test]
@@ -486,7 +502,10 @@ mod tests {
         entities.insert("recipient".into(), json!("bank_c"));
         let result = evaluate_session_block_rules(&session, "payments.transfer", &entities);
         assert!(result.blocked);
-        assert_eq!(result.rule_name.as_deref(), Some("cumulative_transfer_limit"));
+        assert_eq!(
+            result.rule_name.as_deref(),
+            Some("cumulative_transfer_limit")
+        );
     }
 
     #[test]

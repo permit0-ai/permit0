@@ -7,8 +7,7 @@ use crate::audit::types::AuditEntry;
 /// Export entries as JSONL (one JSON object per line).
 pub fn export_jsonl(entries: &[AuditEntry], writer: &mut dyn Write) -> Result<(), std::io::Error> {
     for entry in entries {
-        let line = serde_json::to_string(entry)
-            .map_err(std::io::Error::other)?;
+        let line = serde_json::to_string(entry).map_err(std::io::Error::other)?;
         writeln!(writer, "{line}")?;
     }
     Ok(())
@@ -71,7 +70,7 @@ fn csv_escape(s: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::audit::chain::{compute_entry_hash, GENESIS_HASH};
+    use crate::audit::chain::{GENESIS_HASH, compute_entry_hash};
     use crate::audit::types::AuditEntry;
     use permit0_types::{ActionType, ExecutionMeta, NormAction, Permission};
     use serde_json::json;

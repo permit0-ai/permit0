@@ -83,8 +83,7 @@ impl RiskTemplate {
     /// Set exact value, clamped to [0, max].
     pub fn override_amp(&mut self, dim: &str, value: i32) {
         let max = amp_max(dim);
-        self.amplifiers
-            .insert(dim.to_string(), value.clamp(0, max));
+        self.amplifiers.insert(dim.to_string(), value.clamp(0, max));
     }
 
     /// Hard block — sets blocked and records reason.

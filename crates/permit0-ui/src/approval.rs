@@ -104,11 +104,7 @@ impl ApprovalManager {
     /// Submit a human decision for a pending approval.
     ///
     /// Returns true if the decision was delivered, false if expired/not found.
-    pub fn submit_decision(
-        &self,
-        approval_id: &str,
-        decision: HumanDecision,
-    ) -> bool {
+    pub fn submit_decision(&self, approval_id: &str, decision: HumanDecision) -> bool {
         let mut guard = self.pending.lock().unwrap();
         if let Some(mut pending) = guard.remove(approval_id) {
             if let Some(sender) = pending.sender.take() {
@@ -235,10 +231,8 @@ mod tests {
 
     #[tokio::test]
     async fn timeout_drops_sender() {
-        let manager = ApprovalManager::with_timeout(
-            ApprovalManager::new(),
-            Duration::from_millis(1),
-        );
+        let manager =
+            ApprovalManager::with_timeout(ApprovalManager::new(), Duration::from_millis(1));
         let (_id, rx) = manager.create_pending(make_norm_action(), make_risk_score());
 
         // Wait for timeout

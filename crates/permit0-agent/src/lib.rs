@@ -10,6 +10,6 @@ pub use client::{CallbackLlmClient, LlmClient, MockLlmClient};
 pub use error::LlmError;
 pub use reviewer::AgentReviewer;
 pub use types::{
-    AgentReviewResponse, ReviewInput, ReviewVerdict, ALWAYS_HUMAN_TYPES,
-    DENY_CONFIDENCE_THRESHOLD, MEDIUM_SCORE_SKIP_THRESHOLD,
+    ALWAYS_HUMAN_TYPES, AgentReviewResponse, DENY_CONFIDENCE_THRESHOLD,
+    MEDIUM_SCORE_SKIP_THRESHOLD, ReviewInput, ReviewVerdict,
 };

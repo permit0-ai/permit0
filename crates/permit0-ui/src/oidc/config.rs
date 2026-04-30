@@ -126,7 +126,10 @@ role_mapping:
             "userinfo_endpoint": "https://login.acme.com/userinfo"
         }"#;
         let disc: OidcDiscovery = serde_json::from_str(json).unwrap();
-        assert_eq!(disc.authorization_endpoint, "https://login.acme.com/authorize");
+        assert_eq!(
+            disc.authorization_endpoint,
+            "https://login.acme.com/authorize"
+        );
         assert!(disc.end_session_endpoint.is_none());
     }
 

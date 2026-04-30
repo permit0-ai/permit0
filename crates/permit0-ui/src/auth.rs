@@ -50,7 +50,10 @@ impl TokenStore {
             role,
             created_at: chrono::Utc::now().to_rfc3339(),
         };
-        self.tokens.write().unwrap().insert(token_str.clone(), token);
+        self.tokens
+            .write()
+            .unwrap()
+            .insert(token_str.clone(), token);
         token_str
     }
 

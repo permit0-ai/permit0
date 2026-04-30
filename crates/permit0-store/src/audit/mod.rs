@@ -9,7 +9,7 @@ pub mod sink;
 pub mod stdout_sink;
 pub mod types;
 
-pub use chain::{compute_entry_hash, verify_chain_link, verify_entry_hash, GENESIS_HASH};
+pub use chain::{GENESIS_HASH, compute_entry_hash, verify_chain_link, verify_entry_hash};
 pub use export::{export_csv, export_jsonl};
 pub use memory_sink::InMemoryAuditSink;
 pub use redactor::{BuiltinRedactor, Redactor};

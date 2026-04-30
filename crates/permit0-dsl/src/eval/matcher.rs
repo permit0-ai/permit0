@@ -60,11 +60,9 @@ pub fn eval_condition(expr: &ConditionExpr, ctx: &MatchContext<'_>) -> bool {
                 // `tool` shorthand matches tool_name
                 if field == "tool" {
                     return match pred {
-                        Predicate::Exact(v) => {
-                            ctx.tool_name.is_some_and(|tn| {
-                                v.as_str().is_some_and(|s| s == tn)
-                            })
-                        }
+                        Predicate::Exact(v) => ctx
+                            .tool_name
+                            .is_some_and(|tn| v.as_str().is_some_and(|s| s == tn)),
                         _ => false,
                     };
                 }
@@ -83,16 +81,22 @@ fn resolve_field<'a>(field: &str, ctx: &MatchContext<'a>) -> Option<&'a serde_js
     resolve_path(ctx.data, path)
 }
 
-fn eval_predicate(pred: &Predicate, value: Option<&serde_json::Value>, ctx: &MatchContext<'_>) -> bool {
+fn eval_predicate(
+    pred: &Predicate,
+    value: Option<&serde_json::Value>,
+    ctx: &MatchContext<'_>,
+) -> bool {
     match pred {
-        Predicate::Exact(expected) => {
-            value.is_some_and(|v| values_equal(v, expected))
-        }
+        Predicate::Exact(expected) => value.is_some_and(|v| values_equal(v, expected)),
         Predicate::Compound(ops) => eval_compound(ops.as_ref(), value, ctx),
     }
 }
 
-fn eval_compound(ops: &PredicateOps, value: Option<&serde_json::Value>, ctx: &MatchContext<'_>) -> bool {
+fn eval_compound(
+    ops: &PredicateOps,
+    value: Option<&serde_json::Value>,
+    ctx: &MatchContext<'_>,
+) -> bool {
     // exists check is special — it works on presence/absence
     if let Some(should_exist) = ops.exists {
         let exists = value.is_some_and(|v| !v.is_null());
@@ -192,7 +196,12 @@ fn eval_compound(ops: &PredicateOps, value: Option<&serde_json::Value>, ctx: &Ma
 
     if let Some(ref url_match) = ops.matches_url {
         if let Some(url_str) = val.as_str() {
-            if !eval_url_match(url_str, &url_match.host, &url_match.path, url_match.path_exact) {
+            if !eval_url_match(
+                url_str,
+                &url_match.host,
+                &url_match.path,
+                url_match.path_exact,
+            ) {
                 return false;
             }
         } else {
@@ -205,9 +214,8 @@ fn eval_compound(ops: &PredicateOps, value: Option<&serde_json::Value>, ctx: &Ma
         // Useful for matching session.distinct_flags, session.flag_sequence, etc.
         if let serde_json::Value::Array(arr) = val {
             let matched = contains_any.iter().any(|needle| {
-                arr.iter().any(|item| {
-                    item.as_str().is_some_and(|s| s == needle.as_str())
-                })
+                arr.iter()
+                    .any(|item| item.as_str().is_some_and(|s| s == needle.as_str()))
             });
             if !matched {
                 return false;
@@ -261,10 +269,9 @@ fn is_in_named_set(val: &serde_json::Value, set_name: &str, ctx: &MatchContext<'
     // Resolve to a string for comparison. For arrays, check if any element
     // is a member (useful for multi-value fields like email recipient lists).
     match val {
-        serde_json::Value::Array(arr) => arr.iter().any(|item| {
-            item.as_str()
-                .is_some_and(|s| set_contains(set, s))
-        }),
+        serde_json::Value::Array(arr) => arr
+            .iter()
+            .any(|item| item.as_str().is_some_and(|s| set_contains(set, s))),
         _ => match as_string(val) {
             Some(s) => set_contains(set, &s),
             None => false,
@@ -343,8 +350,10 @@ fn values_equal(a: &serde_json::Value, b: &serde_json::Value) -> bool {
         (serde_json::Value::Null, serde_json::Value::Null) => true,
         // String ↔ number coercion
         (serde_json::Value::String(s), serde_json::Value::Number(n)) => {
-            n.as_f64()
-                .is_some_and(|nf| s.parse::<f64>().is_ok_and(|sf| (sf - nf).abs() < f64::EPSILON))
+            n.as_f64().is_some_and(|nf| {
+                s.parse::<f64>()
+                    .is_ok_and(|sf| (sf - nf).abs() < f64::EPSILON)
+            })
         }
         (serde_json::Value::Number(_), serde_json::Value::String(_)) => values_equal(b, a),
         _ => a == b,
@@ -601,7 +610,10 @@ host:
         );
 
         let subdomain = json!({"host": "api.github.com"});
-        assert!(eval_condition(&cond, &ctx_with_sets(&subdomain, None, &sets)));
+        assert!(eval_condition(
+            &cond,
+            &ctx_with_sets(&subdomain, None, &sets)
+        ));
 
         // Guard against string-suffix tricking: `eviltgithub.com` must not match `github.com`.
         let trick = json!({"host": "eviltgithub.com"});
@@ -643,10 +655,16 @@ host:
         );
 
         let untrusted = json!({"host": "attacker.example.com"});
-        assert!(eval_condition(&cond, &ctx_with_sets(&untrusted, None, &sets)));
+        assert!(eval_condition(
+            &cond,
+            &ctx_with_sets(&untrusted, None, &sets)
+        ));
 
         let trusted = json!({"host": "github.com"});
-        assert!(!eval_condition(&cond, &ctx_with_sets(&trusted, None, &sets)));
+        assert!(!eval_condition(
+            &cond,
+            &ctx_with_sets(&trusted, None, &sets)
+        ));
     }
 
     #[test]
@@ -712,7 +730,8 @@ distinct_flags:
   contains_any: [DESTRUCTION, PHYSICAL]
 "#,
         );
-        let matches_destruction = json!({"distinct_flags": ["EXPOSURE", "DESTRUCTION", "MUTATION"]});
+        let matches_destruction =
+            json!({"distinct_flags": ["EXPOSURE", "DESTRUCTION", "MUTATION"]});
         assert!(eval_condition(&cond, &ctx_from(&matches_destruction, None)));
 
         let no_match = json!({"distinct_flags": ["EXPOSURE", "MUTATION"]});

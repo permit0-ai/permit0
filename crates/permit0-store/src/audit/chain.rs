@@ -5,8 +5,7 @@ use sha2::{Digest, Sha256};
 use crate::audit::types::AuditEntry;
 
 /// The genesis hash for the first entry in the chain.
-pub const GENESIS_HASH: &str =
-    "0000000000000000000000000000000000000000000000000000000000000000";
+pub const GENESIS_HASH: &str = "0000000000000000000000000000000000000000000000000000000000000000";
 
 /// Compute the content hash for an audit entry.
 /// Hashes all fields except `entry_hash` and `signature`.
@@ -105,7 +104,7 @@ pub fn verify_chain_link(prev: &AuditEntry, current: &AuditEntry) -> bool {
 mod tests {
     use super::*;
     use crate::audit::types::AuditEntry;
-    use permit0_types::{NormAction, ActionType, ExecutionMeta, Permission};
+    use permit0_types::{ActionType, ExecutionMeta, NormAction, Permission};
     use serde_json::json;
 
     fn make_entry(seq: u64, prev_hash: &str) -> AuditEntry {

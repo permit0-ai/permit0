@@ -254,10 +254,8 @@ mod tests {
 
     #[test]
     fn long_flag_with_value() {
-        let (sub, pos, flags) = extract_structure(
-            &words(&["gmail", "send", "--to", "alice@acme.com"]),
-            2,
-        );
+        let (sub, pos, flags) =
+            extract_structure(&words(&["gmail", "send", "--to", "alice@acme.com"]), 2);
         assert_eq!(sub, vec!["gmail", "send"]);
         assert!(pos.is_empty());
         assert_eq!(
@@ -268,8 +266,7 @@ mod tests {
 
     #[test]
     fn long_flag_equals_form() {
-        let (_, _, flags) =
-            extract_structure(&words(&["gmail", "send", "--to=bob@acme.com"]), 2);
+        let (_, _, flags) = extract_structure(&words(&["gmail", "send", "--to=bob@acme.com"]), 2);
         assert_eq!(
             flags.get("to"),
             Some(&FlagValue::String("bob@acme.com".into()))
@@ -295,9 +292,7 @@ mod tests {
     #[test]
     fn repeated_flag_becomes_list() {
         let (_, _, flags) = extract_structure(
-            &words(&[
-                "gmail", "send", "--to", "alice@x.com", "--to", "bob@y.com",
-            ]),
+            &words(&["gmail", "send", "--to", "alice@x.com", "--to", "bob@y.com"]),
             2,
         );
         assert_eq!(
@@ -345,8 +340,7 @@ mod tests {
 
     #[test]
     fn subcommand_depth_zero_takes_no_subcommands() {
-        let (sub, pos, _) =
-            extract_structure(&words(&["cp", "src.txt", "dst.txt"]), 0);
+        let (sub, pos, _) = extract_structure(&words(&["cp", "src.txt", "dst.txt"]), 0);
         assert!(sub.is_empty());
         assert_eq!(pos, vec!["cp", "src.txt", "dst.txt"]);
     }
