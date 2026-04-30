@@ -17,6 +17,24 @@ members = [
     "crates/permit0-shell-dispatch",
     "crates/permit0-test-utils",
 ]
+# `cargo build` (no flags) skips permit0-py — its canonical build path is `maturin
+# develop` from crates/permit0-py. `cargo build --workspace` still builds it via
+# the macOS linker flags in .cargo/config.toml.
+default-members = [
+    "crates/permit0-types",
+    "crates/permit0-scoring",
+    "crates/permit0-normalize",
+    "crates/permit0-dsl",
+    "crates/permit0-engine",
+    "crates/permit0-token",
+    "crates/permit0-session",
+    "crates/permit0-store",
+    "crates/permit0-agent",
+    "crates/permit0-ui",
+    "crates/permit0-cli",
+    "crates/permit0-node",
+    "crates/permit0-shell-dispatch",
+]
 
 [workspace.package]
 version = "0.1.0"
