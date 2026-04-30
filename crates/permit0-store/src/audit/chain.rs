@@ -75,6 +75,15 @@ pub fn compute_entry_hash(entry: &AuditEntry) -> String {
         hasher.update(cid.as_bytes());
     }
 
+    // Failed-open replay context (Lane A step 1b)
+    if let Some(ref foc) = entry.failed_open_context {
+        let foc_json = serde_json::to_string(foc).unwrap_or_default();
+        hasher.update(foc_json.as_bytes());
+    }
+    if let Some(ref rd) = entry.retroactive_decision {
+        hasher.update(format!("{rd:?}").as_bytes());
+    }
+
     hex::encode(hasher.finalize())
 }
 
@@ -134,6 +143,8 @@ mod tests {
             entry_hash: String::new(),
             signature: String::new(),
             correction_of: None,
+            failed_open_context: None,
+            retroactive_decision: None,
         };
         entry.entry_hash = compute_entry_hash(&entry);
         entry

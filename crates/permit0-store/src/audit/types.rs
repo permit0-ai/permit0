@@ -78,6 +78,40 @@ pub struct AuditEntry {
     // ── Corrections ──────────────────────────────────────
     /// If this entry overrides a prior decision, the original entry_id.
     pub correction_of: Option<String>,
+
+    // ── Failed-open replay (Lane A step 1b) ──────────────
+    /// Set when this entry was reconstructed from a client-side
+    /// `FailOpenBuffer` after the daemon was unreachable. Carries the
+    /// reason the client failed open and the window the action falls in.
+    /// `None` for normal entries.
+    pub failed_open_context: Option<FailedOpenContext>,
+    /// What the *current* pack would have decided, computed at replay
+    /// time. Distinct from `decision`, which records what actually ran
+    /// (always `Allow` for failed-open entries because the action did
+    /// execute). Auditors compare the two to find "should not have run"
+    /// cases. `None` for normal entries.
+    pub retroactive_decision: Option<Permission>,
+}
+
+/// Forensic context attached to an audit entry that was replayed from a
+/// client-side fail-open buffer. Lets auditors see why the client could
+/// not reach the daemon and the wall-clock window of the outage.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FailedOpenContext {
+    /// Coarse error class: "timeout" | "refused" | "http_error" | "other".
+    pub fail_reason_code: String,
+    /// Verbose error string from the client. Redact before storage if it
+    /// might contain sensitive data — for the official @permit0/openclaw
+    /// client this is just an undici code or AbortError.
+    pub fail_reason: String,
+    /// ISO 8601, the start of the failed-open window the client observed.
+    pub client_window_start: String,
+    /// ISO 8601, the end of the failed-open window the client observed.
+    pub client_window_end: String,
+    /// Version of the client library that buffered the event.
+    pub client_version: String,
+    /// How the client's fail-open switch got flipped: "env_var" | "config_flag".
+    pub fail_open_source: String,
 }
 
 /// Full scoring breakdown, making every decision independently reproducible.

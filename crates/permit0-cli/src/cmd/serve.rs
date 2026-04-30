@@ -21,10 +21,13 @@ use serde::{Deserialize, Serialize};
 
 use permit0_engine::{DecisionSource, Engine, PermissionCtx, PermissionResult};
 use permit0_normalize::NormalizeCtx;
+use permit0_session::SessionContext;
+use permit0_store::audit::{
+    AuditSink, AuditSigner, Ed25519Signer, FailedOpenContext, InMemoryAuditSink,
+};
 use permit0_store::{InMemoryStore, SqliteStore, Store};
 use permit0_types::{
-    ActionType, DecisionRecord, Entities, ExecutionMeta, NormAction, RawToolCall, RiskScore,
-    Tier,
+    ActionType, DecisionRecord, Entities, ExecutionMeta, NormAction, RawToolCall, RiskScore, Tier,
 };
 use permit0_ui::{AppState, ApprovalManager, TokenStore};
 use tower_http::services::ServeDir;
@@ -46,12 +49,21 @@ struct ServerState {
 }
 
 /// Request body for POST /api/v1/check.
-#[derive(Debug, Deserialize)]
+///
+/// `metadata` is a free-form map carrying caller-supplied context that
+/// lands on the audit entry. The handler extracts the well-known keys
+/// `session_id` and `task_goal` to populate `AuditEntry.session_id` and
+/// `AuditEntry.task_goal`. Unknown keys round-trip into the engine as
+/// part of `RawToolCall.metadata` and are available to normalizers/risk
+/// rules that opt in to consuming them.
+#[derive(Debug, Deserialize, Default)]
 struct CheckRequest {
     #[serde(alias = "tool")]
     tool_name: String,
     #[serde(alias = "input")]
     parameters: serde_json::Value,
+    #[serde(default)]
+    metadata: serde_json::Map<String, serde_json::Value>,
 }
 
 /// Response for POST /api/v1/check.
@@ -77,14 +89,26 @@ async fn check_handler(
     State(state): State<ServerState>,
     Json(req): Json<CheckRequest>,
 ) -> Result<Json<CheckResponse>, (StatusCode, String)> {
+    // Pull well-known fields out of metadata before moving it into the
+    // tool_call. Anything else stays in metadata for normalizers/risk
+    // rules to inspect.
+    let session_id = extract_string_field(&req.metadata, "session_id");
+    let task_goal = extract_string_field(&req.metadata, "task_goal");
+
     let tool_call = RawToolCall {
         tool_name: req.tool_name,
         parameters: req.parameters,
-        metadata: Default::default(),
+        metadata: req.metadata,
     };
 
-    let ctx = PermissionCtx::new(NormalizeCtx::new().with_org_domain(&state.org_domain))
+    let mut ctx = PermissionCtx::new(NormalizeCtx::new().with_org_domain(&state.org_domain))
         .with_skip_audit(state.calibrate);
+    if let Some(sid) = session_id {
+        ctx = ctx.with_session(SessionContext::new(sid));
+    }
+    if let Some(goal) = task_goal {
+        ctx = ctx.with_task_goal(goal);
+    }
 
     let result = state
         .engine
@@ -102,6 +126,169 @@ async fn check_handler(
         .take(200)
         .collect();
     record_and_respond(&state, &result, tool_call.tool_name.clone(), surface_command, meta)
+}
+
+/// Pull a string field out of the metadata map, ignoring non-string types.
+fn extract_string_field(
+    metadata: &serde_json::Map<String, serde_json::Value>,
+    key: &str,
+) -> Option<String> {
+    metadata
+        .get(key)
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned)
+}
+
+// ── Audit replay (Lane A step 1b) ─────────────────────────────────────
+
+/// One buffered failed-open event from a client. Mirrors
+/// `FailedOpenEvent` in @permit0/openclaw's TS code.
+#[derive(Debug, Deserialize)]
+struct FailedOpenEvent {
+    event_id: String,
+    #[allow(dead_code)] // captured for forensics, not consumed server-side today
+    occurred_at: String,
+    tool_name: String,
+    parameters: serde_json::Value,
+    #[serde(default)]
+    metadata: serde_json::Map<String, serde_json::Value>,
+    #[serde(default)]
+    fail_reason: String,
+    #[serde(default)]
+    fail_reason_code: String,
+    #[allow(dead_code)] // captured for forensics, not consumed server-side today
+    #[serde(default)]
+    outcome: Option<String>,
+    #[serde(default)]
+    client_version: String,
+    #[serde(default)]
+    fail_open_source: String,
+}
+
+/// Request body for POST /api/v1/audit/replay.
+#[derive(Debug, Deserialize)]
+struct ReplayRequest {
+    events: Vec<FailedOpenEvent>,
+    #[serde(default)]
+    client_window_start: String,
+    #[serde(default)]
+    client_window_end: String,
+    #[serde(default)]
+    #[allow(dead_code)] // surfaced in dashboard banner (Lane A step 1c), not in this response
+    dropped_count: u32,
+}
+
+/// One per-event failure inside a partial replay batch.
+#[derive(Debug, Serialize)]
+struct ReplayRejection {
+    event_id: String,
+    error: String,
+}
+
+/// Response body for POST /api/v1/audit/replay.
+#[derive(Debug, Serialize)]
+struct ReplayResponse {
+    accepted: u32,
+    rejected: Vec<ReplayRejection>,
+}
+
+/// Maximum events accepted in a single replay batch. The TS client batches
+/// at 100; 500 leaves headroom for client retries that bundle multiple
+/// drained windows.
+const REPLAY_BATCH_MAX: usize = 500;
+
+/// POST /api/v1/audit/replay handler.
+///
+/// Accepts a batch of `FailedOpenEvent`s buffered by a client during a
+/// daemon outage. For each event, retro-scores against the current pack
+/// to compute the would-have decision, then writes one audit entry with
+/// `decision_source: "failed_open"` and the retroactive verdict.
+///
+/// v1 limitations (called out so future tightening is informed):
+///   - No idempotency dedup. The TS client uses ULIDs and a single-flight
+///     drain mutex, so duplicates are rare. Auditors can dedupe by
+///     `event_id` (visible in raw_tool_call.metadata) at query time.
+///   - No summary entry per batch. The dashboard banner (Lane A 1c) reads
+///     directly from the audit log, grouping by client_window_start/end.
+async fn audit_replay_handler(
+    State(state): State<ServerState>,
+    Json(req): Json<ReplayRequest>,
+) -> Result<Json<ReplayResponse>, (StatusCode, String)> {
+    if req.events.len() > REPLAY_BATCH_MAX {
+        return Err((
+            StatusCode::PAYLOAD_TOO_LARGE,
+            format!(
+                "replay batch too large: {} events (max {})",
+                req.events.len(),
+                REPLAY_BATCH_MAX
+            ),
+        ));
+    }
+
+    let mut accepted: u32 = 0;
+    let mut rejected: Vec<ReplayRejection> = Vec::new();
+
+    for event in &req.events {
+        let session_id = extract_string_field(&event.metadata, "session_id");
+        let task_goal = extract_string_field(&event.metadata, "task_goal");
+
+        let mut metadata = event.metadata.clone();
+        // Stamp event_id into metadata so it survives the audit redactor
+        // and surfaces in raw_tool_call.metadata.event_id for dedup queries.
+        metadata.insert(
+            "event_id".to_string(),
+            serde_json::Value::String(event.event_id.clone()),
+        );
+
+        let tool_call = RawToolCall {
+            tool_name: event.tool_name.clone(),
+            parameters: event.parameters.clone(),
+            metadata,
+        };
+
+        let mut ctx = PermissionCtx::new(NormalizeCtx::new().with_org_domain(&state.org_domain))
+            .with_skip_audit(true); // we'll write our own failed-open entry below
+        if let Some(sid) = session_id {
+            ctx = ctx.with_session(SessionContext::new(sid));
+        }
+        if let Some(goal) = task_goal {
+            ctx = ctx.with_task_goal(goal);
+        }
+
+        let result = match state.engine.get_permission(&tool_call, &ctx) {
+            Ok(r) => r,
+            Err(e) => {
+                rejected.push(ReplayRejection {
+                    event_id: event.event_id.clone(),
+                    error: format!("retro-score failed: {e}"),
+                });
+                continue;
+            }
+        };
+
+        let foc = FailedOpenContext {
+            fail_reason_code: event.fail_reason_code.clone(),
+            fail_reason: event.fail_reason.clone(),
+            client_window_start: req.client_window_start.clone(),
+            client_window_end: req.client_window_end.clone(),
+            client_version: event.client_version.clone(),
+            fail_open_source: event.fail_open_source.clone(),
+        };
+
+        match state
+            .engine
+            .log_failed_open_replay(&tool_call, &ctx, &result, foc)
+        {
+            Ok(_entry_id) => accepted += 1,
+            Err(e) => rejected.push(ReplayRejection {
+                event_id: event.event_id.clone(),
+                error: format!("audit write failed: {e}"),
+            }),
+        }
+    }
+
+    Ok(Json(ReplayResponse { accepted, rejected }))
 }
 
 /// Request body for POST /api/v1/check_action.
@@ -325,11 +512,28 @@ pub fn run(
     with_ui: bool,
     calibrate: bool,
 ) -> Result<()> {
-    let engine = engine_factory::build_engine_from_packs(profile.as_deref(), None)?;
-
     let rt = tokio::runtime::Runtime::new().context("creating tokio runtime")?;
     rt.block_on(async move {
         let app = if with_ui {
+            // Shared in-memory audit sink so /check and /audit/replay both
+            // write here, and the dashboard can read the same chain. This
+            // is what makes failed-open windows visible to the banner UI.
+            //
+            // For now the sink is in-memory only — it is wiped on daemon
+            // restart. Persisting the audit chain to disk is a separate
+            // hardening step (the SQLite store at db_path is for
+            // DecisionRecords only; chained AuditEntries need their own
+            // sink implementation that writes to disk).
+            let audit_sink: Arc<dyn AuditSink> = Arc::new(InMemoryAuditSink::new());
+            let audit_signer: Arc<dyn AuditSigner> = Arc::new(Ed25519Signer::generate());
+
+            let engine = engine_factory::build_engine_builder_from_packs(
+                profile.as_deref(),
+                None,
+            )?
+            .with_audit(audit_sink.clone(), audit_signer)
+            .build()?;
+
             let packs_dir = engine_factory::resolve_packs_dir(None);
             let db_dir = engine_factory::dirs_home()
                 .unwrap_or_else(|| std::path::PathBuf::from("."))
@@ -360,11 +564,12 @@ pub fn run(
             let check_api = Router::new()
                 .route("/check", post(check_handler))
                 .route("/check_action", post(check_action_handler))
+                .route("/audit/replay", post(audit_replay_handler))
                 .with_state(server_state);
 
             let ui_state = AppState {
                 store: shared_store,
-                audit_sink: None,
+                audit_sink: Some(audit_sink),
                 token_store: Arc::new(TokenStore::new()),
                 approval_manager,
                 packs_dir: packs_dir.clone(),
@@ -383,6 +588,12 @@ pub fn run(
 
             app
         } else {
+            // No-UI mode: no shared audit sink. Calls still work but
+            // failed-open replay events have nowhere to land in the
+            // audit chain. The /audit/replay endpoint will accept the
+            // batch and the engine's log_failed_open_replay will no-op
+            // when no AuditSink is configured.
+            let engine = engine_factory::build_engine_from_packs(profile.as_deref(), None)?;
             let server_state = ServerState {
                 engine: Arc::new(engine),
                 org_domain: org_domain.into(),
@@ -393,6 +604,7 @@ pub fn run(
             let check_api = Router::new()
                 .route("/check", post(check_handler))
                 .route("/check_action", post(check_action_handler))
+                .route("/audit/replay", post(audit_replay_handler))
                 .route("/health", get(health))
                 .with_state(server_state);
             Router::new().nest("/api/v1", check_api)
@@ -444,5 +656,128 @@ mod tests {
         let req: CheckRequest = serde_json::from_str(json).unwrap();
         assert_eq!(req.tool_name, "Bash");
         assert_eq!(req.parameters["command"], "ls");
+        // metadata defaults to empty when absent
+        assert!(req.metadata.is_empty());
+    }
+
+    #[test]
+    fn check_request_accepts_metadata() {
+        let json = r#"{
+            "tool_name": "Bash",
+            "parameters": {"command": "ls"},
+            "metadata": {
+                "session_id": "conv-42",
+                "task_goal": "list files",
+                "trace_id": "abc-123"
+            }
+        }"#;
+        let req: CheckRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.metadata.get("session_id").unwrap(), "conv-42");
+        assert_eq!(req.metadata.get("task_goal").unwrap(), "list files");
+        assert_eq!(req.metadata.get("trace_id").unwrap(), "abc-123");
+    }
+
+    #[test]
+    fn extract_string_field_pulls_strings() {
+        let mut m = serde_json::Map::new();
+        m.insert("session_id".into(), serde_json::json!("s-1"));
+        m.insert("task_goal".into(), serde_json::json!("do thing"));
+        assert_eq!(extract_string_field(&m, "session_id"), Some("s-1".into()));
+        assert_eq!(extract_string_field(&m, "task_goal"), Some("do thing".into()));
+    }
+
+    #[test]
+    fn extract_string_field_returns_none_for_missing() {
+        let m = serde_json::Map::new();
+        assert_eq!(extract_string_field(&m, "session_id"), None);
+    }
+
+    #[test]
+    fn extract_string_field_returns_none_for_non_string() {
+        let mut m = serde_json::Map::new();
+        m.insert("session_id".into(), serde_json::json!(42));
+        m.insert("task_goal".into(), serde_json::json!({"nested": "object"}));
+        // Non-string types are ignored rather than coerced — silently
+        // dropping a malformed field is safer than guessing what the
+        // caller meant. The TS client only ever sends strings.
+        assert_eq!(extract_string_field(&m, "session_id"), None);
+        assert_eq!(extract_string_field(&m, "task_goal"), None);
+    }
+
+    #[test]
+    fn extract_string_field_returns_none_for_empty_string() {
+        let mut m = serde_json::Map::new();
+        m.insert("session_id".into(), serde_json::json!(""));
+        // Empty string is treated as absent so we don't write empty
+        // session_ids into the audit log.
+        assert_eq!(extract_string_field(&m, "session_id"), None);
+    }
+
+    // ── Audit replay deserialization (Lane A step 1b) ────────────────
+
+    #[test]
+    fn replay_request_minimal_shape() {
+        // The TS client always sends the full set of fields; minimal shape
+        // here verifies serde defaults work so a partial migration of the
+        // client doesn't break the endpoint.
+        let json = r#"{
+            "events": [
+                {
+                    "event_id": "01JX",
+                    "occurred_at": "2026-04-30T10:00:00Z",
+                    "tool_name": "Bash",
+                    "parameters": {"command": "ls"}
+                }
+            ]
+        }"#;
+        let req: ReplayRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.events.len(), 1);
+        assert_eq!(req.events[0].event_id, "01JX");
+        assert_eq!(req.events[0].tool_name, "Bash");
+        assert_eq!(req.dropped_count, 0);
+        assert_eq!(req.client_window_start, "");
+    }
+
+    #[test]
+    fn replay_request_full_shape() {
+        let json = r#"{
+            "events": [
+                {
+                    "event_id": "01JX",
+                    "occurred_at": "2026-04-30T10:00:00Z",
+                    "tool_name": "Bash",
+                    "parameters": {"command": "ls"},
+                    "metadata": {"session_id": "conv-1", "trace_id": "t1"},
+                    "fail_reason": "ECONNREFUSED",
+                    "fail_reason_code": "refused",
+                    "outcome": "executed",
+                    "client_version": "0.1.0",
+                    "fail_open_source": "env_var"
+                }
+            ],
+            "client_window_start": "2026-04-30T10:00:00Z",
+            "client_window_end":   "2026-04-30T10:05:00Z",
+            "dropped_count": 7
+        }"#;
+        let req: ReplayRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.events[0].fail_reason_code, "refused");
+        assert_eq!(req.events[0].fail_open_source, "env_var");
+        assert_eq!(req.events[0].metadata.get("session_id").unwrap(), "conv-1");
+        assert_eq!(req.client_window_start, "2026-04-30T10:00:00Z");
+        assert_eq!(req.dropped_count, 7);
+    }
+
+    #[test]
+    fn replay_response_serialization() {
+        let resp = ReplayResponse {
+            accepted: 12,
+            rejected: vec![ReplayRejection {
+                event_id: "01JX-bad".into(),
+                error: "audit write failed".into(),
+            }],
+        };
+        let json = serde_json::to_string(&resp).unwrap();
+        assert!(json.contains(r#""accepted":12"#));
+        assert!(json.contains(r#""event_id":"01JX-bad""#));
     }
 }

@@ -12,7 +12,7 @@ use permit0_scoring::{ScoringConfig, compute_hybrid};
 use permit0_agent::{AgentReviewer, ReviewInput, ReviewVerdict};
 use permit0_session::{SessionContext, evaluate_session_block_rules, session_amplifier_score};
 use permit0_store::audit::{
-    AuditEntry, AuditPolicy, AuditSigner, AuditSink,
+    AuditEntry, AuditPolicy, AuditSigner, AuditSink, FailedOpenContext,
     chain::{GENESIS_HASH, compute_entry_hash},
     Redactor,
 };
@@ -390,6 +390,8 @@ impl Engine {
                 entry_hash: String::new(),
                 signature: String::new(),
                 correction_of: None,
+                failed_open_context: None,
+                retroactive_decision: None,
             };
 
             entry.entry_hash = compute_entry_hash(&entry);
@@ -417,6 +419,107 @@ impl Engine {
         }
 
         Ok(())
+    }
+
+    /// Reconstruct an audit entry from a client-side `FailOpenBuffer` event.
+    ///
+    /// Two facts are recorded:
+    ///   - `decision: Allow` — the action ran on the client because policy
+    ///     review was unreachable. We record what actually happened.
+    ///   - `retroactive_decision: <whatever current pack says>` — what the
+    ///     pack would say *now*. Auditors compare the two to find calls
+    ///     that should not have run.
+    ///
+    /// `decision_source` is `"failed_open"`. The chain hash includes both
+    /// the failed-open context and the retroactive decision, so tampering
+    /// with either is detectable. Returns the entry_id used (a fresh ULID
+    /// independent of the client's event_id, which is captured separately
+    /// inside `failed_open_context` for forensic linkage).
+    pub fn log_failed_open_replay(
+        &self,
+        tool_call: &RawToolCall,
+        ctx: &PermissionCtx,
+        retroactive_result: &PermissionResult,
+        failed_open_context: FailedOpenContext,
+    ) -> Result<String, EngineError> {
+        let now = chrono::Utc::now().to_rfc3339();
+        let entry_id = ulid::Ulid::new().to_string();
+
+        // Failed-open replay does not write a DecisionRecord — the action
+        // already ran on the client; this entry is purely for the audit
+        // chain. The dashboard's audit-log query reads from the AuditSink,
+        // so the failed-open window surfaces there.
+
+        if let (Some(sink), Some(signer)) = (&self.audit_sink, &self.audit_signer) {
+            let raw_tool_call = if let Some(ref redactor) = self.audit_redactor {
+                redactor.redact(&serde_json::to_value(tool_call).unwrap_or_default())
+            } else {
+                serde_json::to_value(tool_call).unwrap_or_default()
+            };
+
+            let sequence = self
+                .audit_sequence
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+                + 1;
+            let prev_hash = {
+                let guard = self.audit_prev_hash.lock().unwrap();
+                guard.clone()
+            };
+
+            let mut entry = AuditEntry {
+                entry_id: entry_id.clone(),
+                timestamp: now,
+                sequence,
+                decision: Permission::Allow,
+                decision_source: "failed_open".into(),
+                norm_action: retroactive_result.norm_action.clone(),
+                norm_hash: retroactive_result.norm_action.norm_hash(),
+                raw_tool_call,
+                risk_score: retroactive_result.risk_score.clone(),
+                scoring_detail: None,
+                agent_id: String::new(),
+                session_id: ctx.session.as_ref().map(|s| s.session_id.clone()),
+                task_goal: ctx.task_goal.clone(),
+                org_id: ctx.normalize_ctx.org_domain.clone().unwrap_or_default(),
+                environment: String::new(),
+                engine_version: env!("CARGO_PKG_VERSION").into(),
+                pack_id: String::new(),
+                pack_version: String::new(),
+                dsl_version: "1.0".into(),
+                human_review: None,
+                token_id: None,
+                prev_hash,
+                entry_hash: String::new(),
+                signature: String::new(),
+                correction_of: None,
+                failed_open_context: Some(failed_open_context),
+                retroactive_decision: Some(retroactive_result.permission),
+            };
+
+            entry.entry_hash = compute_entry_hash(&entry);
+            entry.signature = signer.sign(&entry.entry_hash);
+
+            {
+                let mut guard = self.audit_prev_hash.lock().unwrap();
+                *guard = entry.entry_hash.clone();
+            }
+
+            match sink.append(&entry) {
+                Ok(()) => {}
+                Err(e) => match self.audit_policy {
+                    AuditPolicy::Strict => {
+                        return Err(EngineError::AuditFailure(format!(
+                            "audit sink failed (strict policy): {e}"
+                        )));
+                    }
+                    AuditPolicy::BestEffort => {
+                        tracing::warn!("audit sink failed (best_effort): {e}");
+                    }
+                },
+            }
+        }
+
+        Ok(entry_id)
     }
 }
 
@@ -886,5 +989,136 @@ mod tests {
             .unwrap();
         assert_eq!(result.source, DecisionSource::Scorer);
         assert!(result.risk_score.is_some());
+    }
+
+    // ── Failed-open replay (Lane A step 1b) ──────────────────────────
+
+    fn build_test_engine_with_audit() -> (Engine, Arc<permit0_store::audit::InMemoryAuditSink>) {
+        let signer = Arc::new(permit0_store::audit::Ed25519Signer::generate());
+        let sink = Arc::new(permit0_store::audit::InMemoryAuditSink::new());
+        let engine = EngineBuilder::new()
+            .install_normalizer_yaml(GMAIL_NORM_YAML)
+            .unwrap()
+            .install_normalizer_yaml(OUTLOOK_NORM_YAML)
+            .unwrap()
+            .install_risk_rule_yaml(EMAIL_RISK_YAML)
+            .unwrap()
+            .with_audit(sink.clone() as Arc<dyn AuditSink>, signer)
+            .build()
+            .unwrap();
+        (engine, sink)
+    }
+
+    fn sample_failed_open_context() -> FailedOpenContext {
+        FailedOpenContext {
+            fail_reason_code: "refused".into(),
+            fail_reason: "ECONNREFUSED".into(),
+            client_window_start: "2026-04-30T10:00:00Z".into(),
+            client_window_end: "2026-04-30T10:05:00Z".into(),
+            client_version: "0.1.0".into(),
+            fail_open_source: "env_var".into(),
+        }
+    }
+
+    #[test]
+    fn failed_open_replay_writes_audit_entry() {
+        let (engine, sink) = build_test_engine_with_audit();
+        let ctx = default_ctx();
+
+        // Pretend the original tool call ran during a daemon outage.
+        let tool_call = gmail_send("Hello", "body");
+
+        // Retro-score the same call against the current pack.
+        let mut retro_ctx = default_ctx();
+        retro_ctx = retro_ctx.with_skip_audit(true);
+        let retro = engine.get_permission(&tool_call, &retro_ctx).unwrap();
+
+        let entry_id = engine
+            .log_failed_open_replay(&tool_call, &ctx, &retro, sample_failed_open_context())
+            .unwrap();
+
+        // The sink received exactly one entry, with the right flavor.
+        let entries = sink.all_entries();
+        assert_eq!(entries.len(), 1);
+        let e = &entries[0];
+        assert_eq!(e.entry_id, entry_id);
+        assert_eq!(e.decision_source, "failed_open");
+        assert_eq!(e.decision, Permission::Allow); // it ran
+        assert!(e.failed_open_context.is_some());
+        assert_eq!(e.retroactive_decision, Some(retro.permission));
+    }
+
+    #[test]
+    fn failed_open_replay_chain_is_continuous() {
+        let (engine, sink) = build_test_engine_with_audit();
+        let ctx = default_ctx();
+
+        // Mix one normal entry, one replay, one normal — ensure the chain
+        // sequence numbers are monotonic and prev_hash links are intact.
+        let tc1 = gmail_send("first", "body");
+        engine.get_permission(&tc1, &ctx).unwrap();
+
+        let tc2 = gmail_send("replayed", "body");
+        let mut retro_ctx = default_ctx();
+        retro_ctx = retro_ctx.with_skip_audit(true);
+        let retro = engine.get_permission(&tc2, &retro_ctx).unwrap();
+        engine
+            .log_failed_open_replay(&tc2, &ctx, &retro, sample_failed_open_context())
+            .unwrap();
+
+        let tc3 = gmail_send("third", "body");
+        engine.get_permission(&tc3, &ctx).unwrap();
+
+        let entries = sink.all_entries();
+        assert_eq!(entries.len(), 3);
+        assert_eq!(entries[0].sequence, 1);
+        assert_eq!(entries[1].sequence, 2);
+        assert_eq!(entries[2].sequence, 3);
+
+        assert_eq!(entries[1].prev_hash, entries[0].entry_hash);
+        assert_eq!(entries[2].prev_hash, entries[1].entry_hash);
+
+        // The replay entry is distinguishable by decision_source.
+        assert_eq!(entries[1].decision_source, "failed_open");
+        assert_ne!(entries[0].decision_source, "failed_open");
+        assert_ne!(entries[2].decision_source, "failed_open");
+    }
+
+    #[test]
+    fn failed_open_replay_threads_session_and_task_goal() {
+        let (engine, sink) = build_test_engine_with_audit();
+        let ctx = default_ctx()
+            .with_session(SessionContext::new("conv-99"))
+            .with_task_goal("send the report");
+
+        let tool_call = gmail_send("report", "body");
+        let retro = engine
+            .get_permission(&tool_call, &default_ctx().with_skip_audit(true))
+            .unwrap();
+        engine
+            .log_failed_open_replay(&tool_call, &ctx, &retro, sample_failed_open_context())
+            .unwrap();
+
+        let entries = sink.all_entries();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].session_id.as_deref(), Some("conv-99"));
+        assert_eq!(entries[0].task_goal.as_deref(), Some("send the report"));
+    }
+
+    #[test]
+    fn failed_open_replay_no_op_without_audit_sink() {
+        // No sink configured → method still succeeds and returns an
+        // entry_id, but writes nothing. Mirrors log_decision behavior so
+        // callers don't have to know whether audit is wired up.
+        let engine = build_test_engine();
+        let ctx = default_ctx();
+        let tool_call = gmail_send("Hello", "body");
+        let retro = engine
+            .get_permission(&tool_call, &default_ctx().with_skip_audit(true))
+            .unwrap();
+        let entry_id = engine
+            .log_failed_open_replay(&tool_call, &ctx, &retro, sample_failed_open_context())
+            .unwrap();
+        assert!(!entry_id.is_empty()); // ULID returned even without sink
     }
 }

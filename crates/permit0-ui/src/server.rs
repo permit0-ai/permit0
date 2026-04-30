@@ -25,6 +25,10 @@ pub fn build_router(state: AppState) -> Router {
         .route("/health", get(routes::health))
         .route("/audit", get(routes::list_audit))
         .route("/audit/export", get(dashboard_routes::audit_export))
+        .route(
+            "/audit/failed_open_windows",
+            get(dashboard_routes::failed_open_windows),
+        )
         .route("/stats", get(dashboard_routes::stats))
         .route("/approvals", get(routes::list_approvals))
         .route("/approvals/decide", post(routes::submit_approval))
@@ -69,6 +73,10 @@ pub fn build_router_with_auth(state: AppState) -> Router {
     let protected_api = Router::new()
         .route("/audit", get(routes::list_audit))
         .route("/audit/export", get(dashboard_routes::audit_export))
+        .route(
+            "/audit/failed_open_windows",
+            get(dashboard_routes::failed_open_windows),
+        )
         .route("/stats", get(dashboard_routes::stats))
         .route("/approvals", get(routes::list_approvals))
         .route("/approvals/decide", post(routes::submit_approval))
@@ -149,6 +157,10 @@ pub fn build_router_with_oidc(state: AppState, oidc_state: oidc::OidcState) -> R
     let protected_api = Router::new()
         .route("/audit", get(routes::list_audit))
         .route("/audit/export", get(dashboard_routes::audit_export))
+        .route(
+            "/audit/failed_open_windows",
+            get(dashboard_routes::failed_open_windows),
+        )
         .route("/stats", get(dashboard_routes::stats))
         .route("/approvals", get(routes::list_approvals))
         .route("/approvals/decide", post(routes::submit_approval))

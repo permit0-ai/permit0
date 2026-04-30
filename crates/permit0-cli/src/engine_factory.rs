@@ -6,16 +6,15 @@ use anyhow::{Context, Result};
 use permit0_engine::EngineBuilder;
 use permit0_scoring::{ProfileOverrides, ScoringConfig, Guardrails};
 
-/// Load all packs from the packs/ directory and build an engine.
+/// Load all packs into an `EngineBuilder` without finalizing it. Lets
+/// callers stack additional configuration (e.g. audit sink + signer)
+/// before calling `.build()`.
 ///
-/// Search order for packs:
-/// 1. Explicit `packs_dir` if provided
-/// 2. `./packs/` relative to CWD
-/// 3. `~/.permit0/packs/`
-pub fn build_engine_from_packs(
+/// Search order for packs is the same as `build_engine_from_packs`.
+pub fn build_engine_builder_from_packs(
     profile: Option<&str>,
     packs_dir: Option<&str>,
-) -> Result<permit0_engine::Engine> {
+) -> Result<EngineBuilder> {
     let config = load_scoring_config(profile)?;
     let mut builder = EngineBuilder::new().with_config(config);
 
@@ -29,7 +28,22 @@ pub fn build_engine_from_packs(
         }
     }
 
-    builder.build().map_err(Into::into)
+    Ok(builder)
+}
+
+/// Load all packs from the packs/ directory and build an engine.
+///
+/// Search order for packs:
+/// 1. Explicit `packs_dir` if provided
+/// 2. `./packs/` relative to CWD
+/// 3. `~/.permit0/packs/`
+pub fn build_engine_from_packs(
+    profile: Option<&str>,
+    packs_dir: Option<&str>,
+) -> Result<permit0_engine::Engine> {
+    build_engine_builder_from_packs(profile, packs_dir)?
+        .build()
+        .map_err(Into::into)
 }
 
 /// Resolve the packs directory from explicit path, CWD, or ~/.permit0/packs/.

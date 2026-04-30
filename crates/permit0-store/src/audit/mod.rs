@@ -17,5 +17,6 @@ pub use signer::{AuditSigner, Ed25519Signer, Ed25519Verifier};
 pub use sink::{AuditError, AuditSink};
 pub use stdout_sink::StdoutAuditSink;
 pub use types::{
-    AuditEntry, AuditFilter, AuditPolicy, ChainVerification, HumanReview, ScoringDetail,
+    AuditEntry, AuditFilter, AuditPolicy, ChainVerification, FailedOpenContext, HumanReview,
+    ScoringDetail,
 };
