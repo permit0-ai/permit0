@@ -492,8 +492,12 @@ mod tests {
     #[test]
     fn derive_session_id_ppid_fallback() {
         let id = derive_session_id(None);
-        // On Unix, should start with "ppid-"
+        // On Unix, should start with "ppid-". On Windows, the fallback
+        // path uses a different scheme — we just assert non-empty so the
+        // test compiles on both platforms.
         #[cfg(unix)]
         assert!(id.starts_with("ppid-"));
+        #[cfg(not(unix))]
+        assert!(!id.is_empty());
     }
 }
