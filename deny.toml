@@ -3,13 +3,21 @@
 # preserved via the v2-equivalent settings below.
 
 [advisories]
-# Audit transitive deps for unmaintained crates, in addition to direct ones.
 unmaintained = "transitive"
-# Hard-deny yanked dependencies.
 yanked = "deny"
+# Pre-existing transitive issues we don't directly own. Each entry is
+# tracked for cleanup separately:
+#   RUSTSEC-2024-0370  proc-macro-error 1.x is unmaintained — pulled in
+#                      by an old transitive crate. Replace once the
+#                      offending dependency upgrades or we replace it.
+#   RUSTSEC-2026-0097  rand soundness with custom logger — does not
+#                      affect our use; track upstream rand upgrade.
+ignore = [
+    "RUSTSEC-2024-0370",
+    "RUSTSEC-2026-0097",
+]
 
 [licenses]
-# Allowlist of acceptable licenses. anything outside this list errors.
 allow = [
     "MIT",
     "Apache-2.0",
@@ -28,6 +36,10 @@ allow = [
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"
+# Workspace-internal deps use `path = "..."` without a version and are
+# treated as wildcard by cargo-deny. They're not actually wildcards in
+# the supply-chain sense — they always resolve to the in-tree crate.
+allow-wildcard-paths = true
 
 [sources]
 unknown-registry = "deny"

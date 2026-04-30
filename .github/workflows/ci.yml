@@ -9,6 +9,10 @@ on:
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: "-D warnings"
+  # Allow building against Python interpreters newer than pyo3 explicitly
+  # supports (macOS runners ship Python 3.14 but pyo3 0.24 only knows up
+  # to 3.13). Forces the stable ABI path under cargo check.
+  PYO3_USE_ABI3_FORWARD_COMPATIBILITY: "1"
 
 jobs:
   check:
