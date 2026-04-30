@@ -36,8 +36,8 @@ pub fn test_corpus(corpus_path: &str) -> Result<()> {
         }
         let yaml = std::fs::read_to_string(&path)
             .with_context(|| format!("reading {}", path.display()))?;
-        let case: CorpusCase = serde_yaml::from_str(&yaml)
-            .with_context(|| format!("parsing {}", path.display()))?;
+        let case: CorpusCase =
+            serde_yaml::from_str(&yaml).with_context(|| format!("parsing {}", path.display()))?;
 
         let tool_call = RawToolCall {
             tool_name: case.tool_name,
@@ -90,7 +90,10 @@ pub fn test_corpus(corpus_path: &str) -> Result<()> {
     }
 
     println!("\n── Calibration Results ──");
-    println!("{passed} passed, {failed} failed, {} total", passed + failed);
+    println!(
+        "{passed} passed, {failed} failed, {} total",
+        passed + failed
+    );
 
     if failed > 0 {
         println!("\nFailures:");

@@ -107,8 +107,7 @@ fn process_line(
     engine: &permit0_engine::Engine,
     ctx: &PermissionCtx,
 ) -> Result<GatewayDecision> {
-    let input: GatewayInput =
-        serde_json::from_str(json_str).context("parsing tool call JSON")?;
+    let input: GatewayInput = serde_json::from_str(json_str).context("parsing tool call JSON")?;
     let tool_call = RawToolCall {
         tool_name: input.tool_name,
         parameters: input.parameters,

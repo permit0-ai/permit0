@@ -75,11 +75,7 @@ impl SessionStore {
 
     /// Remove a session (logout).
     pub fn remove(&self, session_id: &str) -> bool {
-        self.sessions
-            .write()
-            .unwrap()
-            .remove(session_id)
-            .is_some()
+        self.sessions.write().unwrap().remove(session_id).is_some()
     }
 
     /// Update session tokens after refresh.
@@ -182,8 +178,7 @@ mod tests {
         let store = SessionStore::new(1); // 1 second TTL
         let mut session = make_session("sess-1");
         // Set created_at to 10 seconds ago
-        session.created_at =
-            (chrono::Utc::now() - chrono::Duration::seconds(10)).to_rfc3339();
+        session.created_at = (chrono::Utc::now() - chrono::Duration::seconds(10)).to_rfc3339();
         store.create(session);
         assert!(store.get("sess-1").is_none());
     }
@@ -193,8 +188,7 @@ mod tests {
         let store = SessionStore::new(3600);
         store.create(make_session("sess-1"));
 
-        let new_expires =
-            (chrono::Utc::now() + chrono::Duration::hours(2)).to_rfc3339();
+        let new_expires = (chrono::Utc::now() + chrono::Duration::hours(2)).to_rfc3339();
         assert!(store.update_tokens(
             "sess-1",
             "at-new".into(),
@@ -211,8 +205,7 @@ mod tests {
     fn cleanup_expired() {
         let store = SessionStore::new(1);
         let mut old = make_session("old");
-        old.created_at =
-            (chrono::Utc::now() - chrono::Duration::seconds(10)).to_rfc3339();
+        old.created_at = (chrono::Utc::now() - chrono::Duration::seconds(10)).to_rfc3339();
         store.create(old);
         store.create(make_session("fresh"));
 

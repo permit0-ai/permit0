@@ -20,12 +20,14 @@ use crate::tokenize::{TokenizeError, Tokens};
 /// on their threat model.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum UnknownCommandPolicy {
     /// The dispatcher returns [`DispatchOutcome::Passthrough`] — "don't
     /// know this; let the bash pack handle it as plain `process.shell`."
     ///
     /// Use when you trust the bash pack to score unrecognized commands
     /// correctly on their own (the common choice for interactive CLIs).
+    #[default]
     Passthrough,
 
     /// The dispatcher returns [`DispatchOutcome::FlaggedUnknown`] with the
@@ -35,12 +37,6 @@ pub enum UnknownCommandPolicy {
     /// signal (e.g. a locked-down agent sandbox with an allowlist of known
     /// programs).
     FlagAsUnknown,
-}
-
-impl Default for UnknownCommandPolicy {
-    fn default() -> Self {
-        Self::Passthrough
-    }
 }
 
 /// The outcome of dispatching a shell command.
@@ -185,10 +181,7 @@ impl Dispatcher {
     ///     .unwrap();
     /// assert!(d.dispatch("myorg service verb --x 1").is_ok());
     /// ```
-    pub fn with_yaml_str(
-        mut self,
-        yaml: &str,
-    ) -> Result<Self, crate::yaml::YamlParserError> {
+    pub fn with_yaml_str(mut self, yaml: &str) -> Result<Self, crate::yaml::YamlParserError> {
         let parser = crate::yaml::YamlCommandParser::from_yaml(yaml)?;
         self.parsers.push(Box::new(parser));
         Ok(self)

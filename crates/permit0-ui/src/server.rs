@@ -2,12 +2,12 @@
 
 use std::sync::Arc;
 
+use axum::Router;
 use axum::extract::State;
 use axum::http::{HeaderMap, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::Response;
 use axum::routing::{get, post};
-use axum::Router;
 
 use permit0_store::{AuditSink, Store};
 
@@ -25,6 +25,10 @@ pub fn build_router(state: AppState) -> Router {
         .route("/health", get(routes::health))
         .route("/audit", get(routes::list_audit))
         .route("/audit/export", get(dashboard_routes::audit_export))
+        .route(
+            "/audit/failed_open_windows",
+            get(dashboard_routes::failed_open_windows),
+        )
         .route("/stats", get(dashboard_routes::stats))
         .route("/approvals", get(routes::list_approvals))
         .route("/approvals/decide", post(routes::submit_approval))
@@ -42,8 +46,14 @@ pub fn build_router(state: AppState) -> Router {
         )
         .route("/profiles", get(dashboard_routes::list_profiles))
         .route("/profiles/{name}", get(dashboard_routes::get_profile))
-        .route("/calibration/stats", get(dashboard_routes::calibration_stats))
-        .route("/calibration/records", get(dashboard_routes::calibration_records))
+        .route(
+            "/calibration/stats",
+            get(dashboard_routes::calibration_stats),
+        )
+        .route(
+            "/calibration/records",
+            get(dashboard_routes::calibration_records),
+        )
         .route("/packs", get(pack_routes::list_packs))
         .route("/packs/validate", post(pack_routes::validate_yaml))
         .route("/packs/{pack_name}", get(pack_routes::get_pack))
@@ -56,19 +66,20 @@ pub fn build_router(state: AppState) -> Router {
             get(pack_routes::get_risk_rule).put(pack_routes::update_risk_rule),
         );
 
-    Router::new()
-        .nest("/api/v1", api)
-        .with_state(state)
+    Router::new().nest("/api/v1", api).with_state(state)
 }
 
 /// Build the router with auth middleware.
 pub fn build_router_with_auth(state: AppState) -> Router {
-    let public_api = Router::new()
-        .route("/health", get(routes::health));
+    let public_api = Router::new().route("/health", get(routes::health));
 
     let protected_api = Router::new()
         .route("/audit", get(routes::list_audit))
         .route("/audit/export", get(dashboard_routes::audit_export))
+        .route(
+            "/audit/failed_open_windows",
+            get(dashboard_routes::failed_open_windows),
+        )
         .route("/stats", get(dashboard_routes::stats))
         .route("/approvals", get(routes::list_approvals))
         .route("/approvals/decide", post(routes::submit_approval))
@@ -86,8 +97,14 @@ pub fn build_router_with_auth(state: AppState) -> Router {
         )
         .route("/profiles", get(dashboard_routes::list_profiles))
         .route("/profiles/{name}", get(dashboard_routes::get_profile))
-        .route("/calibration/stats", get(dashboard_routes::calibration_stats))
-        .route("/calibration/records", get(dashboard_routes::calibration_records))
+        .route(
+            "/calibration/stats",
+            get(dashboard_routes::calibration_stats),
+        )
+        .route(
+            "/calibration/records",
+            get(dashboard_routes::calibration_records),
+        )
         .route("/packs", get(pack_routes::list_packs))
         .route("/packs/validate", post(pack_routes::validate_yaml))
         .route("/packs/{pack_name}", get(pack_routes::get_pack))
@@ -135,8 +152,7 @@ async fn auth_middleware(
 
 /// Build the router with OIDC authentication.
 pub fn build_router_with_oidc(state: AppState, oidc_state: oidc::OidcState) -> Router {
-    let public_api = Router::new()
-        .route("/health", get(routes::health));
+    let public_api = Router::new().route("/health", get(routes::health));
 
     // OIDC routes (public — handle login/callback flow)
     let oidc_routes = Router::new()
@@ -149,6 +165,10 @@ pub fn build_router_with_oidc(state: AppState, oidc_state: oidc::OidcState) -> R
     let protected_api = Router::new()
         .route("/audit", get(routes::list_audit))
         .route("/audit/export", get(dashboard_routes::audit_export))
+        .route(
+            "/audit/failed_open_windows",
+            get(dashboard_routes::failed_open_windows),
+        )
         .route("/stats", get(dashboard_routes::stats))
         .route("/approvals", get(routes::list_approvals))
         .route("/approvals/decide", post(routes::submit_approval))
@@ -166,8 +186,14 @@ pub fn build_router_with_oidc(state: AppState, oidc_state: oidc::OidcState) -> R
         )
         .route("/profiles", get(dashboard_routes::list_profiles))
         .route("/profiles/{name}", get(dashboard_routes::get_profile))
-        .route("/calibration/stats", get(dashboard_routes::calibration_stats))
-        .route("/calibration/records", get(dashboard_routes::calibration_records))
+        .route(
+            "/calibration/stats",
+            get(dashboard_routes::calibration_stats),
+        )
+        .route(
+            "/calibration/records",
+            get(dashboard_routes::calibration_records),
+        )
         .route("/packs", get(pack_routes::list_packs))
         .route("/packs/validate", post(pack_routes::validate_yaml))
         .route("/packs/{pack_name}", get(pack_routes::get_pack))
@@ -186,7 +212,10 @@ pub fn build_router_with_oidc(state: AppState, oidc_state: oidc::OidcState) -> R
         .with_state(state.clone());
 
     Router::new()
-        .nest("/api/v1", public_api.merge(oidc_routes).merge(protected_api))
+        .nest(
+            "/api/v1",
+            public_api.merge(oidc_routes).merge(protected_api),
+        )
         .with_state(state)
 }
 

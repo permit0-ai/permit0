@@ -21,8 +21,6 @@ pub mod parser;
 pub mod schema;
 
 pub use eval::{eval_field_spec, eval_parameters, render_tool_name_template, resolve_source_path};
-pub use loader::{load_pack_dispatchers, load_yaml_dir, LoadError};
+pub use loader::{LoadError, load_pack_dispatchers, load_yaml_dir};
 pub use parser::{YamlCommandParser, YamlParserError};
-pub use schema::{
-    DispatchRule, DispatcherYaml, FallbackRule, FieldSpec, FieldType, MatchClause,
-};
+pub use schema::{DispatchRule, DispatcherYaml, FallbackRule, FieldSpec, FieldType, MatchClause};

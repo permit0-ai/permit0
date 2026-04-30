@@ -69,8 +69,7 @@ pub struct Ed25519Verifier {
 impl Ed25519Verifier {
     /// Create from a hex-encoded public key.
     pub fn from_hex(public_key_hex: &str) -> Result<Self, String> {
-        let bytes = hex::decode(public_key_hex)
-            .map_err(|e| format!("invalid hex: {e}"))?;
+        let bytes = hex::decode(public_key_hex).map_err(|e| format!("invalid hex: {e}"))?;
         let key_bytes: [u8; 32] = bytes
             .try_into()
             .map_err(|_| "public key must be 32 bytes".to_string())?;

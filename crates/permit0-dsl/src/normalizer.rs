@@ -5,9 +5,9 @@ use std::collections::HashMap;
 use permit0_normalize::{NormalizeCtx, NormalizeError, Normalizer};
 use permit0_types::{ActionType, Entities, ExecutionMeta, NormAction, RawToolCall};
 
-use crate::eval::entity::{extract_entities, EntityError};
-use crate::eval::matcher::{eval_condition, MatchContext};
-use crate::helpers::{build_helper_registry, HelperFn};
+use crate::eval::entity::{EntityError, extract_entities};
+use crate::eval::matcher::{MatchContext, eval_condition};
+use crate::helpers::{HelperFn, build_helper_registry};
 use crate::schema::normalizer::NormalizerDef;
 
 /// A YAML-driven normalizer: parses a `NormalizerDef` and implements the
@@ -61,35 +61,33 @@ impl Normalizer for DslNormalizer {
         let norm = &self.def.normalize;
 
         // Parse the action type from the YAML definition
-        let action_type = ActionType::parse(&norm.action_type).map_err(|e| {
-            NormalizeError::HelperFailed {
+        let action_type =
+            ActionType::parse(&norm.action_type).map_err(|e| NormalizeError::HelperFailed {
                 helper: "action_type_parse".into(),
                 reason: e.to_string(),
-            }
-        })?;
+            })?;
 
         // Extract entities
-        let entity_map =
-            extract_entities(&raw.parameters, &norm.entities, &self.helpers).map_err(
-                |e| match e {
-                    EntityError::MissingRequired(field) => NormalizeError::MissingRequiredField {
-                        tool_name: raw.tool_name.clone(),
-                        field,
-                    },
-                    EntityError::UnknownHelper(h) => NormalizeError::HelperFailed {
-                        helper: h,
-                        reason: "unknown helper".into(),
-                    },
-                    EntityError::ArityMismatch {
-                        helper,
-                        expected,
-                        got,
-                    } => NormalizeError::HelperFailed {
-                        helper,
-                        reason: format!("expected {expected} args, got {got}"),
-                    },
+        let entity_map = extract_entities(&raw.parameters, &norm.entities, &self.helpers).map_err(
+            |e| match e {
+                EntityError::MissingRequired(field) => NormalizeError::MissingRequiredField {
+                    tool_name: raw.tool_name.clone(),
+                    field,
                 },
-            )?;
+                EntityError::UnknownHelper(h) => NormalizeError::HelperFailed {
+                    helper: h,
+                    reason: "unknown helper".into(),
+                },
+                EntityError::ArityMismatch {
+                    helper,
+                    expected,
+                    got,
+                } => NormalizeError::HelperFailed {
+                    helper,
+                    reason: format!("expected {expected} args, got {got}"),
+                },
+            },
+        )?;
 
         // Convert HashMap<String, Value> → Entities (serde_json::Map)
         let mut entities = Entities::new();
@@ -143,8 +141,8 @@ match:
           host: api.stripe.com
           path: /v1/charges
 normalize:
-  action_type: "payments.charge"
-  domain: "payments"
+  action_type: "payment.charge"
+  domain: "payment"
   verb: "charge"
   channel: "stripe"
   entities:
@@ -214,7 +212,7 @@ normalize:
         let ctx = NormalizeCtx::new().with_org_domain("acme.com");
         let norm = normalizer.normalize(&raw, &ctx).unwrap();
 
-        assert_eq!(norm.action_type.as_action_str(), "payments.charge");
+        assert_eq!(norm.action_type.as_action_str(), "payment.charge");
         assert_eq!(norm.channel, "stripe");
         assert_eq!(norm.entities["amount"], json!(5000));
         assert_eq!(norm.entities["currency"], json!("usd"));

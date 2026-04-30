@@ -43,7 +43,11 @@ impl NormalizerRegistry {
         let new_priority = normalizer.priority();
 
         // Check for priority conflicts
-        if let Some(existing) = self.by_priority.iter().find(|n| n.priority() == new_priority) {
+        if let Some(existing) = self
+            .by_priority
+            .iter()
+            .find(|n| n.priority() == new_priority)
+        {
             return Err(RegistryError::PriorityConflict {
                 a: existing.id().to_string(),
                 b: normalizer.id().to_string(),
@@ -148,7 +152,7 @@ mod tests {
     fn highest_priority_wins() {
         let mut reg = NormalizerRegistry::new();
         let email_send = ActionType::parse("email.send").unwrap();
-        let payments_charge = ActionType::parse("payments.charge").unwrap();
+        let payments_charge = ActionType::parse("payment.charge").unwrap();
 
         reg.register(Arc::new(MockNormalizer {
             id: "low".into(),
@@ -206,8 +210,8 @@ mod tests {
     #[test]
     fn first_matching_normalizer_wins() {
         let mut reg = NormalizerRegistry::new();
-        let payments_charge = ActionType::parse("payments.charge").unwrap();
-        let network_http_post = ActionType::parse("network.http_post").unwrap();
+        let payments_charge = ActionType::parse("payment.charge").unwrap();
+        let network_http_post = ActionType::parse("network.post").unwrap();
 
         reg.register(Arc::new(MockNormalizer {
             id: "stripe".into(),
@@ -232,7 +236,7 @@ mod tests {
     #[test]
     fn non_matching_normalizer_skipped() {
         let mut reg = NormalizerRegistry::new();
-        let payments_charge = ActionType::parse("payments.charge").unwrap();
+        let payments_charge = ActionType::parse("payment.charge").unwrap();
 
         reg.register(Arc::new(MockNormalizer {
             id: "stripe".into(),

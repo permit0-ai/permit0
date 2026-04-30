@@ -37,7 +37,9 @@ pub enum ValidationError {
     DuplicateNormalizerId(String),
 }
 
-const VALID_ENTITY_TYPES: &[&str] = &["string", "int", "integer", "bool", "boolean", "float", "number", "list"];
+const VALID_ENTITY_TYPES: &[&str] = &[
+    "string", "int", "integer", "bool", "boolean", "float", "number", "list",
+];
 
 /// Validate a normalizer definition.
 pub fn validate_normalizer(def: &NormalizerDef) -> Vec<ValidationError> {
@@ -139,15 +141,13 @@ fn validate_mutations(
     use crate::schema::risk_rule::MutationDef;
     for m in mutations {
         match m {
-            MutationDef::Gate { gate } => {
-                if gate.is_empty() {
-                    errors.push(ValidationError::EmptyGateReason);
-                }
+            MutationDef::Gate { gate } if gate.is_empty() => {
+                errors.push(ValidationError::EmptyGateReason);
             }
-            MutationDef::AddFlag { add_flag } => {
-                if add_flag.role != "primary" && add_flag.role != "secondary" {
-                    errors.push(ValidationError::InvalidFlagRole(add_flag.role.clone()));
-                }
+            MutationDef::AddFlag { add_flag }
+                if add_flag.role != "primary" && add_flag.role != "secondary" =>
+            {
+                errors.push(ValidationError::InvalidFlagRole(add_flag.role.clone()));
             }
             MutationDef::Split { split } => {
                 for (dim, value) in &split.amplifiers {
@@ -192,7 +192,7 @@ mod tests {
             match_expr: serde_yaml::from_str("tool: http").unwrap(),
             normalize: NormalizeDef {
                 action_type: action_type.into(),
-                domain: "payments".into(),
+                domain: "payment".into(),
                 verb: "charge".into(),
                 channel: "test".into(),
                 entities: HashMap::new(),
@@ -202,7 +202,7 @@ mod tests {
 
     #[test]
     fn valid_normalizer_passes() {
-        let def = minimal_normalizer("payments.charge");
+        let def = minimal_normalizer("payment.charge");
         let errors = validate_normalizer(&def);
         assert!(errors.is_empty(), "unexpected errors: {errors:?}");
     }
@@ -211,12 +211,16 @@ mod tests {
     fn invalid_action_type() {
         let def = minimal_normalizer("invalid_action");
         let errors = validate_normalizer(&def);
-        assert!(errors.iter().any(|e| matches!(e, ValidationError::InvalidActionType(_))));
+        assert!(
+            errors
+                .iter()
+                .any(|e| matches!(e, ValidationError::InvalidActionType(_)))
+        );
     }
 
     #[test]
     fn unknown_helper() {
-        let mut def = minimal_normalizer("payments.charge");
+        let mut def = minimal_normalizer("payment.charge");
         def.normalize.entities.insert(
             "test".into(),
             EntityDef {
@@ -233,12 +237,16 @@ mod tests {
             },
         );
         let errors = validate_normalizer(&def);
-        assert!(errors.iter().any(|e| matches!(e, ValidationError::UnknownHelper(_))));
+        assert!(
+            errors
+                .iter()
+                .any(|e| matches!(e, ValidationError::UnknownHelper(_)))
+        );
     }
 
     #[test]
     fn wrong_arity() {
-        let mut def = minimal_normalizer("payments.charge");
+        let mut def = minimal_normalizer("payment.charge");
         def.normalize.entities.insert(
             "test".into(),
             EntityDef {
@@ -255,12 +263,16 @@ mod tests {
             },
         );
         let errors = validate_normalizer(&def);
-        assert!(errors.iter().any(|e| matches!(e, ValidationError::WrongArgCount { .. })));
+        assert!(
+            errors
+                .iter()
+                .any(|e| matches!(e, ValidationError::WrongArgCount { .. }))
+        );
     }
 
     #[test]
     fn unknown_entity_type() {
-        let mut def = minimal_normalizer("payments.charge");
+        let mut def = minimal_normalizer("payment.charge");
         def.normalize.entities.insert(
             "test".into(),
             EntityDef {
@@ -277,12 +289,16 @@ mod tests {
             },
         );
         let errors = validate_normalizer(&def);
-        assert!(errors.iter().any(|e| matches!(e, ValidationError::UnknownEntityType(_))));
+        assert!(
+            errors
+                .iter()
+                .any(|e| matches!(e, ValidationError::UnknownEntityType(_)))
+        );
     }
 
     #[test]
     fn conflicting_required_optional() {
-        let mut def = minimal_normalizer("payments.charge");
+        let mut def = minimal_normalizer("payment.charge");
         def.normalize.entities.insert(
             "test".into(),
             EntityDef {
@@ -299,12 +315,16 @@ mod tests {
             },
         );
         let errors = validate_normalizer(&def);
-        assert!(errors.iter().any(|e| matches!(e, ValidationError::ConflictingRequirements(_))));
+        assert!(
+            errors
+                .iter()
+                .any(|e| matches!(e, ValidationError::ConflictingRequirements(_)))
+        );
     }
 
     #[test]
     fn required_with_default() {
-        let mut def = minimal_normalizer("payments.charge");
+        let mut def = minimal_normalizer("payment.charge");
         def.normalize.entities.insert(
             "test".into(),
             EntityDef {
@@ -321,7 +341,11 @@ mod tests {
             },
         );
         let errors = validate_normalizer(&def);
-        assert!(errors.iter().any(|e| matches!(e, ValidationError::RequiredWithDefault(_))));
+        assert!(
+            errors
+                .iter()
+                .any(|e| matches!(e, ValidationError::RequiredWithDefault(_)))
+        );
     }
 
     #[test]
@@ -329,7 +353,7 @@ mod tests {
         let def: RiskRuleDef = serde_yaml::from_str(
             r#"
 permit0_pack: "v1"
-action_type: "payments.charge"
+action_type: "payment.charge"
 base:
   flags:
     financial_write: primary
@@ -341,7 +365,11 @@ session_rules: []
         )
         .unwrap();
         let errors = validate_risk_rule(&def);
-        assert!(errors.iter().any(|e| matches!(e, ValidationError::AmplifierOutOfRange { .. })));
+        assert!(
+            errors
+                .iter()
+                .any(|e| matches!(e, ValidationError::AmplifierOutOfRange { .. }))
+        );
     }
 
     #[test]
@@ -349,7 +377,7 @@ session_rules: []
         let def: RiskRuleDef = serde_yaml::from_str(
             r#"
 permit0_pack: "v1"
-action_type: "payments.charge"
+action_type: "payment.charge"
 base:
   flags:
     financial_write: invalid_role
@@ -361,7 +389,11 @@ session_rules: []
         )
         .unwrap();
         let errors = validate_risk_rule(&def);
-        assert!(errors.iter().any(|e| matches!(e, ValidationError::InvalidFlagRole(_))));
+        assert!(
+            errors
+                .iter()
+                .any(|e| matches!(e, ValidationError::InvalidFlagRole(_)))
+        );
     }
 
     #[test]
@@ -374,10 +406,12 @@ session_rules: []
 
     #[test]
     fn duplicate_normalizer_ids() {
-        let n1 = minimal_normalizer("payments.charge");
-        let n2 = minimal_normalizer("payments.charge");
+        let n1 = minimal_normalizer("payment.charge");
+        let n2 = minimal_normalizer("payment.charge");
         let errors = check_duplicate_ids(&[n1, n2]);
         assert_eq!(errors.len(), 1);
-        assert!(matches!(&errors[0], ValidationError::DuplicateNormalizerId(id) if id == "test:norm"));
+        assert!(
+            matches!(&errors[0], ValidationError::DuplicateNormalizerId(id) if id == "test:norm")
+        );
     }
 }

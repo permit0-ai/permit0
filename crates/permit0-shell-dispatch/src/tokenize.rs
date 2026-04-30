@@ -114,12 +114,19 @@ mod tests {
 
     #[test]
     fn flags_and_quoted_values() {
-        let t = Tokens::parse(r#"gog gmail send --to "alice@acme.com" --subject 'Hi there'"#)
-            .unwrap();
+        let t =
+            Tokens::parse(r#"gog gmail send --to "alice@acme.com" --subject 'Hi there'"#).unwrap();
         assert_eq!(t.program, "gog");
         assert_eq!(
             t.rest,
-            vec!["gmail", "send", "--to", "alice@acme.com", "--subject", "Hi there"]
+            vec![
+                "gmail",
+                "send",
+                "--to",
+                "alice@acme.com",
+                "--subject",
+                "Hi there"
+            ]
         );
     }
 

@@ -1,0 +1,7 @@
+{
+  "permission": "allow",
+  "action_type": "fs.read",
+  "channel": "fs",
+  "norm_hash": "0000",
+  "source": "policy_cache"
+}

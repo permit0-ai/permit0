@@ -46,9 +46,7 @@ impl LearningAnalyzer {
             .iter()
             .filter(|d| d.permission == Permission::Allow)
             .count() as u64;
-        let overrides = self
-            .override_store
-            .count_overrides(action_type)?;
+        let overrides = self.override_store.count_overrides(action_type)?;
 
         let override_rate = if total_decisions > 0 {
             overrides as f64 / total_decisions as f64
@@ -125,10 +123,7 @@ impl LearningAnalyzer {
             if stats.total_decisions >= 10 {
                 let human_decisions = all_decisions
                     .iter()
-                    .filter(|d| {
-                        d.action_type == *at
-                            && d.permission == Permission::HumanInTheLoop
-                    })
+                    .filter(|d| d.action_type == *at && d.permission == Permission::HumanInTheLoop)
                     .count() as f64;
                 let rate = human_decisions / stats.total_decisions as f64;
                 if rate > ALWAYS_HUMAN_ROUTE_THRESHOLD {
@@ -144,7 +139,10 @@ impl LearningAnalyzer {
     }
 
     /// Extract training features from decision records (for ML pipeline).
-    pub fn extract_training_features(&self, action_type: &str) -> Result<Vec<TrainingFeatures>, String> {
+    pub fn extract_training_features(
+        &self,
+        action_type: &str,
+    ) -> Result<Vec<TrainingFeatures>, String> {
         let decisions = self
             .store
             .query_decisions(&DecisionFilter {
@@ -154,14 +152,10 @@ impl LearningAnalyzer {
             })
             .map_err(|e| e.to_string())?;
 
-        let overrides = self
-            .override_store
-            .get_overrides_by_action(action_type)?;
+        let overrides = self.override_store.get_overrides_by_action(action_type)?;
 
-        let override_hashes: std::collections::HashSet<permit0_types::NormHash> = overrides
-            .iter()
-            .map(|o| o.norm_hash)
-            .collect();
+        let override_hashes: std::collections::HashSet<permit0_types::NormHash> =
+            overrides.iter().map(|o| o.norm_hash).collect();
 
         let mut features = Vec::new();
         for d in &decisions {
@@ -177,11 +171,8 @@ impl LearningAnalyzer {
                 d.permission
             };
 
-            let flag_map: HashMap<String, bool> = d
-                .flags
-                .iter()
-                .map(|f| (f.clone(), true))
-                .collect();
+            let flag_map: HashMap<String, bool> =
+                d.flags.iter().map(|f| (f.clone(), true)).collect();
 
             // Parse domain.verb from action_type
             let parts: Vec<&str> = d.action_type.splitn(2, '.').collect();
@@ -190,10 +181,7 @@ impl LearningAnalyzer {
 
             features.push(TrainingFeatures {
                 raw_score: d.risk_raw.unwrap_or(0.0),
-                score: d
-                    .risk_raw
-                    .map(|r| (r * 100.0) as u32)
-                    .unwrap_or(0),
+                score: d.risk_raw.map(|r| (r * 100.0) as u32).unwrap_or(0),
                 tier: d.tier.unwrap_or(permit0_types::Tier::Medium),
                 flag_count: d.flags.len(),
                 blocked: d.blocked,
@@ -236,10 +224,10 @@ pub fn record_human_decision(
 
 #[cfg(test)]
 mod tests {
+    use super::super::override_store::InMemoryOverrideStore;
     use super::*;
     use permit0_store::InMemoryStore;
     use permit0_types::{DecisionRecord, Permission, Tier};
-    use super::super::override_store::InMemoryOverrideStore;
 
     fn make_decision(action_type: &str, permission: Permission, idx: u32) -> DecisionRecord {
         DecisionRecord {
@@ -256,6 +244,9 @@ mod tests {
             timestamp: format!("2025-01-{:02}T00:00:00Z", (idx % 28) + 1),
             surface_tool: "test".into(),
             surface_command: "test cmd".into(),
+            engine_permission: None,
+            reviewer: None,
+            reason: None,
         }
     }
 
@@ -276,11 +267,7 @@ mod tests {
         }
         for _ in 0..human_count {
             store
-                .save_decision(make_decision(
-                    action_type,
-                    Permission::HumanInTheLoop,
-                    idx,
-                ))
+                .save_decision(make_decision(action_type, Permission::HumanInTheLoop, idx))
                 .unwrap();
             idx += 1;
         }
@@ -318,8 +305,7 @@ mod tests {
 
     #[test]
     fn allowlist_suggestion_fires_at_threshold() {
-        let (store, override_store) =
-            setup_store_with_decisions("email.send", 50, 0);
+        let (store, override_store) = setup_store_with_decisions("email.send", 50, 0);
 
         let analyzer = LearningAnalyzer::new(store, override_store);
         let stats = analyzer.action_stats("email.send").unwrap();
@@ -330,8 +316,7 @@ mod tests {
 
     #[test]
     fn allowlist_suggestion_does_not_fire_below_threshold() {
-        let (store, override_store) =
-            setup_store_with_decisions("email.send", 49, 0);
+        let (store, override_store) = setup_store_with_decisions("email.send", 49, 0);
 
         let analyzer = LearningAnalyzer::new(store, override_store);
         let stats = analyzer.action_stats("email.send").unwrap();
@@ -340,8 +325,7 @@ mod tests {
 
     #[test]
     fn allowlist_suggestion_blocked_by_override_rate() {
-        let (store, override_store) =
-            setup_store_with_decisions("email.send", 50, 0);
+        let (store, override_store) = setup_store_with_decisions("email.send", 50, 0);
 
         // Record 2 overrides (2/50 = 4% > 2%)
         for i in 0..2u32 {
@@ -365,14 +349,12 @@ mod tests {
 
     #[test]
     fn auto_approve_requires_100_examples() {
-        let (store, override_store) =
-            setup_store_with_decisions("email.send", 99, 0);
+        let (store, override_store) = setup_store_with_decisions("email.send", 99, 0);
 
         let analyzer = LearningAnalyzer::new(store, override_store);
         assert!(!analyzer.should_auto_approve("email.send").unwrap());
 
-        let (store2, override_store2) =
-            setup_store_with_decisions("email.send", 100, 0);
+        let (store2, override_store2) = setup_store_with_decisions("email.send", 100, 0);
 
         let analyzer2 = LearningAnalyzer::new(store2, override_store2);
         assert!(analyzer2.should_auto_approve("email.send").unwrap());
@@ -380,8 +362,7 @@ mod tests {
 
     #[test]
     fn training_features_extraction() {
-        let (store, override_store) =
-            setup_store_with_decisions("email.send", 5, 0);
+        let (store, override_store) = setup_store_with_decisions("email.send", 5, 0);
 
         let analyzer = LearningAnalyzer::new(store, override_store);
         let features = analyzer.extract_training_features("email.send").unwrap();
@@ -394,8 +375,7 @@ mod tests {
 
     #[test]
     fn training_features_with_override() {
-        let (store, override_store) =
-            setup_store_with_decisions("email.send", 3, 0);
+        let (store, override_store) = setup_store_with_decisions("email.send", 3, 0);
 
         // Override the first decision
         override_store
@@ -421,8 +401,7 @@ mod tests {
 
     #[test]
     fn generate_suggestions_promotes_allowlist() {
-        let (store, override_store) =
-            setup_store_with_decisions("email.send", 55, 0);
+        let (store, override_store) = setup_store_with_decisions("email.send", 55, 0);
 
         let analyzer = LearningAnalyzer::new(store, override_store);
         let suggestions = analyzer.generate_suggestions().unwrap();
@@ -436,8 +415,7 @@ mod tests {
 
     #[test]
     fn always_human_suggestion_when_high_human_rate() {
-        let (store, override_store) =
-            setup_store_with_decisions("risky.action", 1, 9);
+        let (store, override_store) = setup_store_with_decisions("risky.action", 1, 9);
 
         let analyzer = LearningAnalyzer::new(store, override_store);
         let suggestions = analyzer.generate_suggestions().unwrap();

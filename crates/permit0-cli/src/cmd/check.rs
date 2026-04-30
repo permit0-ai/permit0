@@ -43,10 +43,7 @@ pub fn run(input: Option<String>, profile: Option<String>, org_domain: &str) -> 
         result.norm_action.action_type.as_action_str()
     );
     println!("│ Channel:     {}", result.norm_action.channel);
-    println!(
-        "│ NormHash:    {}",
-        result.norm_action.norm_hash_hex()
-    );
+    println!("│ NormHash:    {}", result.norm_action.norm_hash_hex());
 
     if let Some(ref score) = result.risk_score {
         println!("├─ risk score ───────────────────────────────");

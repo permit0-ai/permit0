@@ -35,80 +35,122 @@ impl Default for InMemoryStore {
 
 impl Store for InMemoryStore {
     fn denylist_check(&self, hash: &NormHash) -> Result<Option<String>, StoreError> {
-        let guard = self.denylist.read().map_err(|e| StoreError::Io(e.to_string()))?;
+        let guard = self
+            .denylist
+            .read()
+            .map_err(|e| StoreError::Io(e.to_string()))?;
         Ok(guard.get(hash).cloned())
     }
 
     fn denylist_add(&self, hash: NormHash, reason: String) -> Result<(), StoreError> {
-        let mut guard = self.denylist.write().map_err(|e| StoreError::Io(e.to_string()))?;
+        let mut guard = self
+            .denylist
+            .write()
+            .map_err(|e| StoreError::Io(e.to_string()))?;
         guard.insert(hash, reason);
         Ok(())
     }
 
     fn denylist_remove(&self, hash: &NormHash) -> Result<(), StoreError> {
-        let mut guard = self.denylist.write().map_err(|e| StoreError::Io(e.to_string()))?;
+        let mut guard = self
+            .denylist
+            .write()
+            .map_err(|e| StoreError::Io(e.to_string()))?;
         guard.remove(hash);
         Ok(())
     }
 
     fn denylist_list(&self) -> Result<Vec<(NormHash, String)>, StoreError> {
-        let guard = self.denylist.read().map_err(|e| StoreError::Io(e.to_string()))?;
+        let guard = self
+            .denylist
+            .read()
+            .map_err(|e| StoreError::Io(e.to_string()))?;
         Ok(guard.iter().map(|(k, v)| (*k, v.clone())).collect())
     }
 
     fn allowlist_check(&self, hash: &NormHash) -> Result<bool, StoreError> {
-        let guard = self.allowlist.read().map_err(|e| StoreError::Io(e.to_string()))?;
+        let guard = self
+            .allowlist
+            .read()
+            .map_err(|e| StoreError::Io(e.to_string()))?;
         Ok(guard.contains_key(hash))
     }
 
     fn allowlist_add(&self, hash: NormHash, justification: String) -> Result<(), StoreError> {
-        let mut guard = self.allowlist.write().map_err(|e| StoreError::Io(e.to_string()))?;
+        let mut guard = self
+            .allowlist
+            .write()
+            .map_err(|e| StoreError::Io(e.to_string()))?;
         guard.insert(hash, justification);
         Ok(())
     }
 
     fn allowlist_remove(&self, hash: &NormHash) -> Result<(), StoreError> {
-        let mut guard = self.allowlist.write().map_err(|e| StoreError::Io(e.to_string()))?;
+        let mut guard = self
+            .allowlist
+            .write()
+            .map_err(|e| StoreError::Io(e.to_string()))?;
         guard.remove(hash);
         Ok(())
     }
 
     fn allowlist_list(&self) -> Result<Vec<(NormHash, String)>, StoreError> {
-        let guard = self.allowlist.read().map_err(|e| StoreError::Io(e.to_string()))?;
+        let guard = self
+            .allowlist
+            .read()
+            .map_err(|e| StoreError::Io(e.to_string()))?;
         Ok(guard.iter().map(|(k, v)| (*k, v.clone())).collect())
     }
 
     fn policy_cache_get(&self, hash: &NormHash) -> Result<Option<Permission>, StoreError> {
-        let guard = self.policy_cache.read().map_err(|e| StoreError::Io(e.to_string()))?;
+        let guard = self
+            .policy_cache
+            .read()
+            .map_err(|e| StoreError::Io(e.to_string()))?;
         Ok(guard.get(hash).copied())
     }
 
     fn policy_cache_set(&self, hash: NormHash, decision: Permission) -> Result<(), StoreError> {
-        let mut guard = self.policy_cache.write().map_err(|e| StoreError::Io(e.to_string()))?;
+        let mut guard = self
+            .policy_cache
+            .write()
+            .map_err(|e| StoreError::Io(e.to_string()))?;
         guard.insert(hash, decision);
         Ok(())
     }
 
     fn policy_cache_clear(&self) -> Result<(), StoreError> {
-        let mut guard = self.policy_cache.write().map_err(|e| StoreError::Io(e.to_string()))?;
+        let mut guard = self
+            .policy_cache
+            .write()
+            .map_err(|e| StoreError::Io(e.to_string()))?;
         guard.clear();
         Ok(())
     }
 
     fn policy_cache_invalidate(&self, hash: &NormHash) -> Result<(), StoreError> {
-        let mut guard = self.policy_cache.write().map_err(|e| StoreError::Io(e.to_string()))?;
+        let mut guard = self
+            .policy_cache
+            .write()
+            .map_err(|e| StoreError::Io(e.to_string()))?;
         guard.remove(hash);
         Ok(())
     }
 
     fn save_decision(&self, record: DecisionRecord) -> Result<(), StoreError> {
-        let mut guard = self.decisions.write().map_err(|e| StoreError::Io(e.to_string()))?;
+        let mut guard = self
+            .decisions
+            .write()
+            .map_err(|e| StoreError::Io(e.to_string()))?;
         guard.push(record);
         Ok(())
     }
 
     fn query_decisions(&self, filter: &DecisionFilter) -> Result<Vec<DecisionRecord>, StoreError> {
-        let guard = self.decisions.read().map_err(|e| StoreError::Io(e.to_string()))?;
+        let guard = self
+            .decisions
+            .read()
+            .map_err(|e| StoreError::Io(e.to_string()))?;
         let limit = filter.limit.unwrap_or(100) as usize;
 
         let results: Vec<DecisionRecord> = guard
@@ -203,7 +245,12 @@ mod tests {
         assert!(store.policy_cache_get(&dummy_hash()).unwrap().is_none());
     }
 
-    fn test_decision(action_type: &str, permission: Permission, channel: &str, ts: &str) -> DecisionRecord {
+    fn test_decision(
+        action_type: &str,
+        permission: Permission,
+        channel: &str,
+        ts: &str,
+    ) -> DecisionRecord {
         DecisionRecord {
             id: format!("test-{ts}"),
             norm_hash: dummy_hash(),
@@ -218,6 +265,9 @@ mod tests {
             timestamp: ts.into(),
             surface_tool: "test".into(),
             surface_command: "test".into(),
+            engine_permission: None,
+            reviewer: None,
+            reason: None,
         }
     }
 
@@ -225,10 +275,20 @@ mod tests {
     fn decision_save_and_query() {
         let store = InMemoryStore::new();
         store
-            .save_decision(test_decision("payments.charge", Permission::Allow, "stripe", "2025-01-01T00:00:00Z"))
+            .save_decision(test_decision(
+                "payments.charge",
+                Permission::Allow,
+                "stripe",
+                "2025-01-01T00:00:00Z",
+            ))
             .unwrap();
         store
-            .save_decision(test_decision("email.send", Permission::Deny, "gmail", "2025-01-02T00:00:00Z"))
+            .save_decision(test_decision(
+                "email.send",
+                Permission::Deny,
+                "gmail",
+                "2025-01-02T00:00:00Z",
+            ))
             .unwrap();
 
         let all = store.query_decisions(&DecisionFilter::default()).unwrap();
@@ -242,13 +302,28 @@ mod tests {
     fn decision_query_with_filter() {
         let store = InMemoryStore::new();
         store
-            .save_decision(test_decision("payments.charge", Permission::Allow, "stripe", "2025-01-01T00:00:00Z"))
+            .save_decision(test_decision(
+                "payments.charge",
+                Permission::Allow,
+                "stripe",
+                "2025-01-01T00:00:00Z",
+            ))
             .unwrap();
         store
-            .save_decision(test_decision("payments.refund", Permission::Deny, "stripe", "2025-01-02T00:00:00Z"))
+            .save_decision(test_decision(
+                "payments.refund",
+                Permission::Deny,
+                "stripe",
+                "2025-01-02T00:00:00Z",
+            ))
             .unwrap();
         store
-            .save_decision(test_decision("email.send", Permission::Allow, "gmail", "2025-01-03T00:00:00Z"))
+            .save_decision(test_decision(
+                "email.send",
+                Permission::Allow,
+                "gmail",
+                "2025-01-03T00:00:00Z",
+            ))
             .unwrap();
 
         // Filter by action_type prefix

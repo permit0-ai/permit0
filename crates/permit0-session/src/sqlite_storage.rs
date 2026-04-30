@@ -9,7 +9,7 @@
 use std::path::Path;
 use std::sync::Mutex;
 
-use rusqlite::{params, Connection};
+use rusqlite::{Connection, params};
 
 use crate::context::SessionContext;
 use crate::types::ActionRecord;
@@ -76,8 +76,7 @@ impl SqliteSessionStore {
     pub fn record_action(&self, session_id: &str, record: &ActionRecord) {
         let conn = self.conn.lock().unwrap();
         let flags_json = serde_json::to_string(&record.flags).unwrap_or_default();
-        let entities_json =
-            serde_json::to_string(&record.entities).unwrap_or_else(|_| "{}".into());
+        let entities_json = serde_json::to_string(&record.entities).unwrap_or_else(|_| "{}".into());
         let tier_str = record.tier.to_string();
 
         let _ = conn.execute(
@@ -115,8 +114,7 @@ impl SqliteSessionStore {
                 let entities_json: String = row.get(4)?;
 
                 let tier = parse_tier(&tier_str);
-                let flags: Vec<String> =
-                    serde_json::from_str(&flags_json).unwrap_or_default();
+                let flags: Vec<String> = serde_json::from_str(&flags_json).unwrap_or_default();
                 let entities: serde_json::Map<String, serde_json::Value> =
                     serde_json::from_str(&entities_json).unwrap_or_default();
 

@@ -3,8 +3,8 @@
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use permit0_token::{
-    BiscuitTokenProvider, IssuedBy, Safeguard, TokenClaims, TokenScope, build_claims,
-    safeguards_for_tier, SCORER_TTL_SECS, HUMAN_TTL_SECS,
+    BiscuitTokenProvider, HUMAN_TTL_SECS, IssuedBy, SCORER_TTL_SECS, Safeguard, TokenClaims,
+    TokenScope, build_claims, safeguards_for_tier,
 };
 use permit0_types::{Entities, Tier};
 
@@ -66,8 +66,8 @@ fn expired_token_rejected() {
         risk_tier: Tier::Minimal,
         session_id: "sess-002".into(),
         safeguards: vec![],
-        issued_at: now - 600,      // issued 10 min ago
-        expires_at: now - 300,     // expired 5 min ago
+        issued_at: now - 600,  // issued 10 min ago
+        expires_at: now - 300, // expired 5 min ago
     };
 
     let token = provider.mint(&claims).unwrap();
@@ -225,7 +225,10 @@ fn build_claims_helper_human_ttl() {
 fn safeguards_per_tier() {
     assert!(safeguards_for_tier(Tier::Minimal).is_empty());
     assert!(safeguards_for_tier(Tier::Low).is_empty());
-    assert_eq!(safeguards_for_tier(Tier::Medium), vec![Safeguard::LogEntities]);
+    assert_eq!(
+        safeguards_for_tier(Tier::Medium),
+        vec![Safeguard::LogEntities]
+    );
     assert_eq!(
         safeguards_for_tier(Tier::High),
         vec![
@@ -255,7 +258,9 @@ fn medium_tier_claims_have_safeguards() {
 
     let token = provider.mint(&claims).unwrap();
     let entities = Entities::new();
-    let result = provider.verify(&token, "payments.charge", &entities).unwrap();
+    let result = provider
+        .verify(&token, "payments.charge", &entities)
+        .unwrap();
 
     assert_eq!(result.claims.safeguards, vec![Safeguard::LogEntities]);
 }

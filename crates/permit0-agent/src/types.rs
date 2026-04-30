@@ -59,11 +59,16 @@ pub const DENY_CONFIDENCE_THRESHOLD: f64 = 0.90;
 pub const MEDIUM_SCORE_SKIP_THRESHOLD: u32 = 52;
 
 /// Action types that always skip the reviewer and go straight to HUMAN.
+///
+/// Strings here must match the canonical `Domain.Verb` form from
+/// permit0-types/catalog.rs (singular domain). `secret.get` covers the
+/// retrieval path since the Secret domain does not expose a dedicated
+/// "read" verb.
 pub const ALWAYS_HUMAN_TYPES: &[&str] = &[
-    "payments.charge",
-    "payments.transfer",
+    "payment.charge",
+    "payment.transfer",
     "iam.assign_role",
     "iam.generate_api_key",
-    "secrets.read",
+    "secret.get",
     "legal.sign_document",
 ];

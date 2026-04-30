@@ -36,7 +36,10 @@ impl SqliteStore {
     }
 
     fn init_schema(&self) -> Result<(), StoreError> {
-        let conn = self.conn.lock().map_err(|e| StoreError::Io(e.to_string()))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| StoreError::Io(e.to_string()))?;
 
         conn.execute_batch("PRAGMA journal_mode=WAL;")
             .map_err(|e| StoreError::Io(e.to_string()))?;
@@ -84,11 +87,7 @@ impl SqliteStore {
         Self::add_column_if_missing(&conn, "decisions", "engine_permission", "TEXT")?;
         Self::add_column_if_missing(&conn, "decisions", "reviewer", "TEXT")?;
         Self::add_column_if_missing(&conn, "decisions", "reason", "TEXT")?;
-        Self::add_index_if_missing(
-            &conn,
-            "idx_decisions_reviewer",
-            "decisions(reviewer)",
-        )?;
+        Self::add_index_if_missing(&conn, "idx_decisions_reviewer", "decisions(reviewer)")?;
 
         Ok(())
     }
@@ -185,7 +184,10 @@ fn str_to_tier(s: &str) -> Tier {
 
 impl Store for SqliteStore {
     fn denylist_check(&self, hash: &NormHash) -> Result<Option<String>, StoreError> {
-        let conn = self.conn.lock().map_err(|e| StoreError::Io(e.to_string()))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| StoreError::Io(e.to_string()))?;
         let mut stmt = conn
             .prepare_cached("SELECT reason FROM denylist WHERE norm_hash = ?1")
             .map_err(|e| StoreError::Io(e.to_string()))?;
@@ -197,7 +199,10 @@ impl Store for SqliteStore {
     }
 
     fn denylist_add(&self, hash: NormHash, reason: String) -> Result<(), StoreError> {
-        let conn = self.conn.lock().map_err(|e| StoreError::Io(e.to_string()))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| StoreError::Io(e.to_string()))?;
         conn.execute(
             "INSERT OR REPLACE INTO denylist (norm_hash, reason) VALUES (?1, ?2)",
             params![hash_to_blob(&hash), reason],
@@ -207,7 +212,10 @@ impl Store for SqliteStore {
     }
 
     fn denylist_remove(&self, hash: &NormHash) -> Result<(), StoreError> {
-        let conn = self.conn.lock().map_err(|e| StoreError::Io(e.to_string()))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| StoreError::Io(e.to_string()))?;
         conn.execute(
             "DELETE FROM denylist WHERE norm_hash = ?1",
             params![hash_to_blob(hash)],
@@ -217,7 +225,10 @@ impl Store for SqliteStore {
     }
 
     fn denylist_list(&self) -> Result<Vec<(NormHash, String)>, StoreError> {
-        let conn = self.conn.lock().map_err(|e| StoreError::Io(e.to_string()))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| StoreError::Io(e.to_string()))?;
         let mut stmt = conn
             .prepare("SELECT norm_hash, reason FROM denylist")
             .map_err(|e| StoreError::Io(e.to_string()))?;
@@ -236,7 +247,10 @@ impl Store for SqliteStore {
     }
 
     fn allowlist_check(&self, hash: &NormHash) -> Result<bool, StoreError> {
-        let conn = self.conn.lock().map_err(|e| StoreError::Io(e.to_string()))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| StoreError::Io(e.to_string()))?;
         let mut stmt = conn
             .prepare_cached("SELECT 1 FROM allowlist WHERE norm_hash = ?1")
             .map_err(|e| StoreError::Io(e.to_string()))?;
@@ -249,7 +263,10 @@ impl Store for SqliteStore {
     }
 
     fn allowlist_add(&self, hash: NormHash, justification: String) -> Result<(), StoreError> {
-        let conn = self.conn.lock().map_err(|e| StoreError::Io(e.to_string()))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| StoreError::Io(e.to_string()))?;
         conn.execute(
             "INSERT OR REPLACE INTO allowlist (norm_hash, justification) VALUES (?1, ?2)",
             params![hash_to_blob(&hash), justification],
@@ -259,7 +276,10 @@ impl Store for SqliteStore {
     }
 
     fn allowlist_remove(&self, hash: &NormHash) -> Result<(), StoreError> {
-        let conn = self.conn.lock().map_err(|e| StoreError::Io(e.to_string()))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| StoreError::Io(e.to_string()))?;
         conn.execute(
             "DELETE FROM allowlist WHERE norm_hash = ?1",
             params![hash_to_blob(hash)],
@@ -269,7 +289,10 @@ impl Store for SqliteStore {
     }
 
     fn allowlist_list(&self) -> Result<Vec<(NormHash, String)>, StoreError> {
-        let conn = self.conn.lock().map_err(|e| StoreError::Io(e.to_string()))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| StoreError::Io(e.to_string()))?;
         let mut stmt = conn
             .prepare("SELECT norm_hash, justification FROM allowlist")
             .map_err(|e| StoreError::Io(e.to_string()))?;
@@ -288,7 +311,10 @@ impl Store for SqliteStore {
     }
 
     fn policy_cache_get(&self, hash: &NormHash) -> Result<Option<Permission>, StoreError> {
-        let conn = self.conn.lock().map_err(|e| StoreError::Io(e.to_string()))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| StoreError::Io(e.to_string()))?;
         let mut stmt = conn
             .prepare_cached("SELECT permission FROM policy_cache WHERE norm_hash = ?1")
             .map_err(|e| StoreError::Io(e.to_string()))?;
@@ -303,7 +329,10 @@ impl Store for SqliteStore {
     }
 
     fn policy_cache_set(&self, hash: NormHash, decision: Permission) -> Result<(), StoreError> {
-        let conn = self.conn.lock().map_err(|e| StoreError::Io(e.to_string()))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| StoreError::Io(e.to_string()))?;
         conn.execute(
             "INSERT OR REPLACE INTO policy_cache (norm_hash, permission) VALUES (?1, ?2)",
             params![hash_to_blob(&hash), permission_to_str(decision)],
@@ -313,14 +342,20 @@ impl Store for SqliteStore {
     }
 
     fn policy_cache_clear(&self) -> Result<(), StoreError> {
-        let conn = self.conn.lock().map_err(|e| StoreError::Io(e.to_string()))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| StoreError::Io(e.to_string()))?;
         conn.execute("DELETE FROM policy_cache", [])
             .map_err(|e| StoreError::Io(e.to_string()))?;
         Ok(())
     }
 
     fn policy_cache_invalidate(&self, hash: &NormHash) -> Result<(), StoreError> {
-        let conn = self.conn.lock().map_err(|e| StoreError::Io(e.to_string()))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| StoreError::Io(e.to_string()))?;
         conn.execute(
             "DELETE FROM policy_cache WHERE norm_hash = ?1",
             params![hash_to_blob(hash)],
@@ -330,7 +365,10 @@ impl Store for SqliteStore {
     }
 
     fn save_decision(&self, record: DecisionRecord) -> Result<(), StoreError> {
-        let conn = self.conn.lock().map_err(|e| StoreError::Io(e.to_string()))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| StoreError::Io(e.to_string()))?;
         let tier_str = record.tier.map(tier_to_str);
         let flags_json =
             serde_json::to_string(&record.flags).map_err(|e| StoreError::Io(e.to_string()))?;
@@ -363,7 +401,10 @@ impl Store for SqliteStore {
     }
 
     fn query_decisions(&self, filter: &DecisionFilter) -> Result<Vec<DecisionRecord>, StoreError> {
-        let conn = self.conn.lock().map_err(|e| StoreError::Io(e.to_string()))?;
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| StoreError::Io(e.to_string()))?;
 
         let mut sql = String::from(
             "SELECT id, norm_hash, action_type, channel, permission, source, tier, risk_raw, blocked, flags, timestamp, surface_tool, surface_command, engine_permission, reviewer, reason FROM decisions WHERE 1=1",
@@ -399,7 +440,9 @@ impl Store for SqliteStore {
         let params_refs: Vec<&dyn rusqlite::types::ToSql> =
             param_values.iter().map(|p| p.as_ref()).collect();
 
-        let mut stmt = conn.prepare(&sql).map_err(|e| StoreError::Io(e.to_string()))?;
+        let mut stmt = conn
+            .prepare(&sql)
+            .map_err(|e| StoreError::Io(e.to_string()))?;
         let rows = stmt
             .query_map(params_refs.as_slice(), |row| {
                 let norm_hash_blob: Vec<u8> = row.get(1)?;
@@ -469,7 +512,12 @@ mod tests {
         h
     }
 
-    fn test_decision(action_type: &str, permission: Permission, channel: &str, ts: &str) -> DecisionRecord {
+    fn test_decision(
+        action_type: &str,
+        permission: Permission,
+        channel: &str,
+        ts: &str,
+    ) -> DecisionRecord {
         DecisionRecord {
             id: format!("test-{ts}-{action_type}"),
             norm_hash: dummy_hash(),
@@ -484,6 +532,9 @@ mod tests {
             timestamp: ts.into(),
             surface_tool: "test".into(),
             surface_command: "test cmd".into(),
+            engine_permission: None,
+            reviewer: None,
+            reason: None,
         }
     }
 
@@ -493,7 +544,10 @@ mod tests {
         assert!(store.denylist_check(&dummy_hash()).unwrap().is_none());
 
         store.denylist_add(dummy_hash(), "bad".into()).unwrap();
-        assert_eq!(store.denylist_check(&dummy_hash()).unwrap(), Some("bad".into()));
+        assert_eq!(
+            store.denylist_check(&dummy_hash()).unwrap(),
+            Some("bad".into())
+        );
 
         store.denylist_remove(&dummy_hash()).unwrap();
         assert!(store.denylist_check(&dummy_hash()).unwrap().is_none());
@@ -516,8 +570,13 @@ mod tests {
         let store = SqliteStore::in_memory().unwrap();
         assert!(store.policy_cache_get(&dummy_hash()).unwrap().is_none());
 
-        store.policy_cache_set(dummy_hash(), Permission::Allow).unwrap();
-        assert_eq!(store.policy_cache_get(&dummy_hash()).unwrap(), Some(Permission::Allow));
+        store
+            .policy_cache_set(dummy_hash(), Permission::Allow)
+            .unwrap();
+        assert_eq!(
+            store.policy_cache_get(&dummy_hash()).unwrap(),
+            Some(Permission::Allow)
+        );
 
         store.policy_cache_invalidate(&dummy_hash()).unwrap();
         assert!(store.policy_cache_get(&dummy_hash()).unwrap().is_none());
@@ -526,8 +585,12 @@ mod tests {
     #[test]
     fn sqlite_policy_cache_clear() {
         let store = SqliteStore::in_memory().unwrap();
-        store.policy_cache_set(dummy_hash(), Permission::Allow).unwrap();
-        store.policy_cache_set(other_hash(), Permission::Deny).unwrap();
+        store
+            .policy_cache_set(dummy_hash(), Permission::Allow)
+            .unwrap();
+        store
+            .policy_cache_set(other_hash(), Permission::Deny)
+            .unwrap();
 
         store.policy_cache_clear().unwrap();
         assert!(store.policy_cache_get(&dummy_hash()).unwrap().is_none());
@@ -538,10 +601,20 @@ mod tests {
     fn sqlite_decision_save_and_query() {
         let store = SqliteStore::in_memory().unwrap();
         store
-            .save_decision(test_decision("payments.charge", Permission::Allow, "stripe", "2025-01-01T00:00:00Z"))
+            .save_decision(test_decision(
+                "payments.charge",
+                Permission::Allow,
+                "stripe",
+                "2025-01-01T00:00:00Z",
+            ))
             .unwrap();
         store
-            .save_decision(test_decision("email.send", Permission::Deny, "gmail", "2025-01-02T00:00:00Z"))
+            .save_decision(test_decision(
+                "email.send",
+                Permission::Deny,
+                "gmail",
+                "2025-01-02T00:00:00Z",
+            ))
             .unwrap();
 
         let all = store.query_decisions(&DecisionFilter::default()).unwrap();
@@ -558,13 +631,28 @@ mod tests {
     fn sqlite_decision_query_filters() {
         let store = SqliteStore::in_memory().unwrap();
         store
-            .save_decision(test_decision("payments.charge", Permission::Allow, "stripe", "2025-01-01T00:00:00Z"))
+            .save_decision(test_decision(
+                "payments.charge",
+                Permission::Allow,
+                "stripe",
+                "2025-01-01T00:00:00Z",
+            ))
             .unwrap();
         store
-            .save_decision(test_decision("payments.refund", Permission::Deny, "stripe", "2025-01-02T00:00:00Z"))
+            .save_decision(test_decision(
+                "payments.refund",
+                Permission::Deny,
+                "stripe",
+                "2025-01-02T00:00:00Z",
+            ))
             .unwrap();
         store
-            .save_decision(test_decision("email.send", Permission::Allow, "gmail", "2025-01-03T00:00:00Z"))
+            .save_decision(test_decision(
+                "email.send",
+                Permission::Allow,
+                "gmail",
+                "2025-01-03T00:00:00Z",
+            ))
             .unwrap();
 
         // Action type prefix
@@ -625,19 +713,34 @@ mod tests {
         {
             let store = SqliteStore::open(&db_path).unwrap();
             store.denylist_add(dummy_hash(), "blocked".into()).unwrap();
-            store.allowlist_add(other_hash(), "approved".into()).unwrap();
-            store.policy_cache_set(dummy_hash(), Permission::Deny).unwrap();
             store
-                .save_decision(test_decision("payments.charge", Permission::Allow, "stripe", "2025-01-01T00:00:00Z"))
+                .allowlist_add(other_hash(), "approved".into())
+                .unwrap();
+            store
+                .policy_cache_set(dummy_hash(), Permission::Deny)
+                .unwrap();
+            store
+                .save_decision(test_decision(
+                    "payments.charge",
+                    Permission::Allow,
+                    "stripe",
+                    "2025-01-01T00:00:00Z",
+                ))
                 .unwrap();
         }
 
         // Second session: verify data survives
         {
             let store = SqliteStore::open(&db_path).unwrap();
-            assert_eq!(store.denylist_check(&dummy_hash()).unwrap(), Some("blocked".into()));
+            assert_eq!(
+                store.denylist_check(&dummy_hash()).unwrap(),
+                Some("blocked".into())
+            );
             assert!(store.allowlist_check(&other_hash()).unwrap());
-            assert_eq!(store.policy_cache_get(&dummy_hash()).unwrap(), Some(Permission::Deny));
+            assert_eq!(
+                store.policy_cache_get(&dummy_hash()).unwrap(),
+                Some(Permission::Deny)
+            );
             let decisions = store.query_decisions(&DecisionFilter::default()).unwrap();
             assert_eq!(decisions.len(), 1);
             assert_eq!(decisions[0].action_type, "payments.charge");

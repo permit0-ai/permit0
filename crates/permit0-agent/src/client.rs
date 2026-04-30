@@ -58,13 +58,16 @@ impl LlmClient for MockLlmClient {
     }
 }
 
+/// Closure type used by `CallbackLlmClient`.
+type LlmCallback = Box<dyn Fn(&str) -> Result<String, LlmError> + Send + Sync>;
+
 /// Callback-based LLM client.
 ///
 /// The caller provides a closure that performs the actual LLM call.
 /// This enables host languages (Python, TypeScript) to supply their
 /// own LLM SDK while Rust runs the full reviewer pipeline.
 pub struct CallbackLlmClient {
-    callback: Box<dyn Fn(&str) -> Result<String, LlmError> + Send + Sync>,
+    callback: LlmCallback,
 }
 
 impl CallbackLlmClient {

@@ -82,73 +82,179 @@ impl Domain {
 
             // ── PLACEHOLDERS (verb skeleton only, no packs yet) ──
             Self::Message => &[
-                Verb::PostChannel, Verb::SendDm, Verb::SendSms, Verb::Search,
-                Verb::Get, Verb::React, Verb::Update, Verb::Delete,
+                Verb::PostChannel,
+                Verb::SendDm,
+                Verb::SendSms,
+                Verb::Search,
+                Verb::Get,
+                Verb::React,
+                Verb::Update,
+                Verb::Delete,
             ],
             Self::Social => &[
-                Verb::Post, Verb::Reply, Verb::Delete, Verb::Like, Verb::SendDm, Verb::Search,
+                Verb::Post,
+                Verb::Reply,
+                Verb::Delete,
+                Verb::Like,
+                Verb::SendDm,
+                Verb::Search,
             ],
             Self::Cms => &[
-                Verb::Publish, Verb::Update, Verb::Unpublish, Verb::Schedule,
-                Verb::Delete, Verb::List,
+                Verb::Publish,
+                Verb::Update,
+                Verb::Unpublish,
+                Verb::Schedule,
+                Verb::Delete,
+                Verb::List,
             ],
             Self::Newsletter => &[
-                Verb::Send, Verb::Schedule, Verb::Draft, Verb::Update, Verb::Unsubscribe,
+                Verb::Send,
+                Verb::Schedule,
+                Verb::Draft,
+                Verb::Update,
+                Verb::Unsubscribe,
             ],
             Self::Calendar => &[
-                Verb::List, Verb::Get, Verb::Create, Verb::Update, Verb::Delete, Verb::Rsvp,
+                Verb::List,
+                Verb::Get,
+                Verb::Create,
+                Verb::Update,
+                Verb::Delete,
+                Verb::Rsvp,
             ],
             Self::Task => &[
-                Verb::Create, Verb::Get, Verb::List, Verb::Update,
-                Verb::Complete, Verb::Assign, Verb::Delete, Verb::Comment,
+                Verb::Create,
+                Verb::Get,
+                Verb::List,
+                Verb::Update,
+                Verb::Complete,
+                Verb::Assign,
+                Verb::Delete,
+                Verb::Comment,
             ],
             Self::File => &[
-                Verb::List, Verb::Get, Verb::Read, Verb::Create, Verb::Update,
-                Verb::Delete, Verb::DeleteRecursive, Verb::Move, Verb::Copy,
-                Verb::Share, Verb::Upload, Verb::Download, Verb::Export, Verb::Search,
+                Verb::List,
+                Verb::Get,
+                Verb::Read,
+                Verb::Create,
+                Verb::Update,
+                Verb::Delete,
+                Verb::DeleteRecursive,
+                Verb::Move,
+                Verb::Copy,
+                Verb::Share,
+                Verb::Upload,
+                Verb::Download,
+                Verb::Export,
+                Verb::Search,
             ],
             Self::Db => &[
-                Verb::Select, Verb::Insert, Verb::Update, Verb::Delete,
-                Verb::Create, Verb::Alter, Verb::Drop, Verb::Truncate,
-                Verb::GrantAccess, Verb::RevokeAccess, Verb::Export, Verb::Backup, Verb::Restore,
+                Verb::Select,
+                Verb::Insert,
+                Verb::Update,
+                Verb::Delete,
+                Verb::Create,
+                Verb::Alter,
+                Verb::Drop,
+                Verb::Truncate,
+                Verb::GrantAccess,
+                Verb::RevokeAccess,
+                Verb::Export,
+                Verb::Backup,
+                Verb::Restore,
             ],
             Self::Crm => &[
-                Verb::List, Verb::Get, Verb::Search, Verb::Create, Verb::Update,
-                Verb::Delete, Verb::LogActivity, Verb::Export,
+                Verb::List,
+                Verb::Get,
+                Verb::Search,
+                Verb::Create,
+                Verb::Update,
+                Verb::Delete,
+                Verb::LogActivity,
+                Verb::Export,
             ],
             Self::Payment => &[
-                Verb::Charge, Verb::Refund, Verb::Transfer, Verb::GetBalance,
-                Verb::List, Verb::Get, Verb::Create, Verb::Update, Verb::CancelSubscription,
+                Verb::Charge,
+                Verb::Refund,
+                Verb::Transfer,
+                Verb::GetBalance,
+                Verb::List,
+                Verb::Get,
+                Verb::Create,
+                Verb::Update,
+                Verb::CancelSubscription,
             ],
             Self::Legal => &[Verb::SignDocument, Verb::SubmitFiling, Verb::AcceptTerms],
             Self::Iam => &[
-                Verb::List, Verb::Get, Verb::Create, Verb::Update, Verb::Delete,
-                Verb::AssignRole, Verb::RevokeRole, Verb::ResetPassword,
-                Verb::GenerateApiKey, Verb::RevokeApiKey,
+                Verb::List,
+                Verb::Get,
+                Verb::Create,
+                Verb::Update,
+                Verb::Delete,
+                Verb::AssignRole,
+                Verb::RevokeRole,
+                Verb::ResetPassword,
+                Verb::GenerateApiKey,
+                Verb::RevokeApiKey,
             ],
             Self::Secret => &[
-                Verb::Get, Verb::List, Verb::Create, Verb::Update, Verb::Rotate, Verb::Delete,
+                Verb::Get,
+                Verb::List,
+                Verb::Create,
+                Verb::Update,
+                Verb::Rotate,
+                Verb::Delete,
             ],
             Self::Infra => &[
-                Verb::List, Verb::Get, Verb::Create, Verb::Update, Verb::Terminate, Verb::Scale,
+                Verb::List,
+                Verb::Get,
+                Verb::Create,
+                Verb::Update,
+                Verb::Terminate,
+                Verb::Scale,
             ],
             Self::Process => &[Verb::Run, Verb::Invoke],
-            Self::Network => &[Verb::Get, Verb::Post, Verb::Put, Verb::Delete, Verb::SendWebhook],
+            Self::Network => &[
+                Verb::Get,
+                Verb::Post,
+                Verb::Put,
+                Verb::Delete,
+                Verb::SendWebhook,
+            ],
             Self::Dev => &[
-                Verb::List, Verb::Get, Verb::Create, Verb::Update,
-                Verb::CloseIssue, Verb::MergePr, Verb::PushCode,
-                Verb::Deploy, Verb::RunPipeline,
+                Verb::List,
+                Verb::Get,
+                Verb::Create,
+                Verb::Update,
+                Verb::CloseIssue,
+                Verb::MergePr,
+                Verb::PushCode,
+                Verb::Deploy,
+                Verb::RunPipeline,
             ],
             Self::Browser => &[
-                Verb::Navigate, Verb::Click, Verb::FillForm, Verb::SubmitForm,
-                Verb::TakeScreenshot, Verb::DownloadFile, Verb::ExecuteJs, Verb::Scrape,
+                Verb::Navigate,
+                Verb::Click,
+                Verb::FillForm,
+                Verb::SubmitForm,
+                Verb::TakeScreenshot,
+                Verb::DownloadFile,
+                Verb::ExecuteJs,
+                Verb::Scrape,
             ],
             Self::Device => &[
-                Verb::Lock, Verb::Unlock, Verb::Enable, Verb::Disable, Verb::Move,
+                Verb::Lock,
+                Verb::Unlock,
+                Verb::Enable,
+                Verb::Disable,
+                Verb::Move,
             ],
             Self::Ai => &[
-                Verb::Prompt, Verb::Embed, Verb::FineTune,
-                Verb::InvokeAgent, Verb::GenerateImage,
+                Verb::Prompt,
+                Verb::Embed,
+                Verb::FineTune,
+                Verb::InvokeAgent,
+                Verb::GenerateImage,
             ],
             Self::Unknown => &[Verb::Unclassified],
         }
@@ -481,12 +587,10 @@ impl ActionType {
         let (domain_str, verb_str) = s.split_once('.').ok_or_else(|| {
             CatalogError::ParseError(format!("expected 'domain.verb', got '{s}'"))
         })?;
-        let domain = Domain::parse(domain_str).ok_or_else(|| {
-            CatalogError::UnknownDomain(domain_str.to_string())
-        })?;
-        let verb = Verb::parse(verb_str).ok_or_else(|| {
-            CatalogError::UnknownVerb(verb_str.to_string())
-        })?;
+        let domain = Domain::parse(domain_str)
+            .ok_or_else(|| CatalogError::UnknownDomain(domain_str.to_string()))?;
+        let verb =
+            Verb::parse(verb_str).ok_or_else(|| CatalogError::UnknownVerb(verb_str.to_string()))?;
         Self::new(domain, verb)
     }
 
@@ -544,55 +648,119 @@ pub const ALL_DOMAINS: &[Domain] = &[
 /// All verbs in the catalog (flat list, deduplicated).
 const ALL_VERBS: &[Verb] = &[
     // Generic CRUD + read
-    Verb::Get, Verb::List, Verb::Read, Verb::Create, Verb::Update, Verb::Delete,
-    Verb::Search, Verb::Export,
+    Verb::Get,
+    Verb::List,
+    Verb::Read,
+    Verb::Create,
+    Verb::Update,
+    Verb::Delete,
+    Verb::Search,
+    Verb::Export,
     // Email
-    Verb::ReadThread, Verb::ListMailboxes, Verb::Draft, Verb::Send, Verb::MarkRead,
-    Verb::Flag, Verb::Move, Verb::Archive, Verb::MarkSpam, Verb::CreateMailbox,
-    Verb::SetForwarding, Verb::AddDelegate,
+    Verb::ReadThread,
+    Verb::ListMailboxes,
+    Verb::Draft,
+    Verb::Send,
+    Verb::MarkRead,
+    Verb::Flag,
+    Verb::Move,
+    Verb::Archive,
+    Verb::MarkSpam,
+    Verb::CreateMailbox,
+    Verb::SetForwarding,
+    Verb::AddDelegate,
     // Message
-    Verb::PostChannel, Verb::SendDm, Verb::SendSms, Verb::React,
+    Verb::PostChannel,
+    Verb::SendDm,
+    Verb::SendSms,
+    Verb::React,
     // Social
-    Verb::Post, Verb::Reply, Verb::Like,
+    Verb::Post,
+    Verb::Reply,
+    Verb::Like,
     // CMS
-    Verb::Publish, Verb::Unpublish, Verb::Schedule,
+    Verb::Publish,
+    Verb::Unpublish,
+    Verb::Schedule,
     // Newsletter
     Verb::Unsubscribe,
     // Calendar
     Verb::Rsvp,
     // Task
-    Verb::Complete, Verb::Assign, Verb::Comment,
+    Verb::Complete,
+    Verb::Assign,
+    Verb::Comment,
     // File
-    Verb::DeleteRecursive, Verb::Copy, Verb::Share, Verb::Upload, Verb::Download,
+    Verb::DeleteRecursive,
+    Verb::Copy,
+    Verb::Share,
+    Verb::Upload,
+    Verb::Download,
     // Db
-    Verb::Select, Verb::Insert, Verb::Alter, Verb::Drop, Verb::Truncate,
-    Verb::GrantAccess, Verb::RevokeAccess, Verb::Backup, Verb::Restore,
+    Verb::Select,
+    Verb::Insert,
+    Verb::Alter,
+    Verb::Drop,
+    Verb::Truncate,
+    Verb::GrantAccess,
+    Verb::RevokeAccess,
+    Verb::Backup,
+    Verb::Restore,
     // Crm
     Verb::LogActivity,
     // Payment
-    Verb::Charge, Verb::Refund, Verb::Transfer, Verb::GetBalance, Verb::CancelSubscription,
+    Verb::Charge,
+    Verb::Refund,
+    Verb::Transfer,
+    Verb::GetBalance,
+    Verb::CancelSubscription,
     // Legal
-    Verb::SignDocument, Verb::SubmitFiling, Verb::AcceptTerms,
+    Verb::SignDocument,
+    Verb::SubmitFiling,
+    Verb::AcceptTerms,
     // Iam
-    Verb::AssignRole, Verb::RevokeRole, Verb::ResetPassword,
-    Verb::GenerateApiKey, Verb::RevokeApiKey,
+    Verb::AssignRole,
+    Verb::RevokeRole,
+    Verb::ResetPassword,
+    Verb::GenerateApiKey,
+    Verb::RevokeApiKey,
     // Secret
     Verb::Rotate,
     // Infra
-    Verb::Terminate, Verb::Scale,
+    Verb::Terminate,
+    Verb::Scale,
     // Process
-    Verb::Run, Verb::Invoke,
+    Verb::Run,
+    Verb::Invoke,
     // Network
-    Verb::Put, Verb::SendWebhook,
+    Verb::Put,
+    Verb::SendWebhook,
     // Dev
-    Verb::CloseIssue, Verb::MergePr, Verb::PushCode, Verb::Deploy, Verb::RunPipeline,
+    Verb::CloseIssue,
+    Verb::MergePr,
+    Verb::PushCode,
+    Verb::Deploy,
+    Verb::RunPipeline,
     // Browser
-    Verb::Navigate, Verb::Click, Verb::FillForm, Verb::SubmitForm,
-    Verb::TakeScreenshot, Verb::DownloadFile, Verb::ExecuteJs, Verb::Scrape,
+    Verb::Navigate,
+    Verb::Click,
+    Verb::FillForm,
+    Verb::SubmitForm,
+    Verb::TakeScreenshot,
+    Verb::DownloadFile,
+    Verb::ExecuteJs,
+    Verb::Scrape,
     // Device
-    Verb::Lock, Verb::Unlock, Verb::Enable, Verb::Disable,
+    Verb::Lock,
+    Verb::Unlock,
+    Verb::Enable,
+    Verb::Disable,
     // Ai
-    Verb::Prompt, Verb::Embed, Verb::FineTune, Verb::InvokeAgent, Verb::GenerateImage,
+    Verb::Prompt,
+    Verb::Embed,
+    Verb::FineTune,
+    Verb::InvokeAgent,
+    Verb::GenerateImage,
     // Unknown
     Verb::Unclassified,
 ];
@@ -601,7 +769,12 @@ const ALL_VERBS: &[Verb] = &[
 pub fn all_action_types() -> Vec<ActionType> {
     ALL_DOMAINS
         .iter()
-        .flat_map(|d| d.verbs().iter().map(move |v| ActionType { domain: *d, verb: *v }))
+        .flat_map(|d| {
+            d.verbs().iter().map(move |v| ActionType {
+                domain: *d,
+                verb: *v,
+            })
+        })
         .collect()
 }
 
@@ -681,7 +854,11 @@ mod tests {
         let all = all_action_types();
         let expected = ALL_DOMAINS.iter().map(|d| d.verbs().len()).sum::<usize>();
         assert_eq!(all.len(), expected);
-        assert!(all.len() > 100, "catalog should have >100 entries, got {}", all.len());
+        assert!(
+            all.len() > 100,
+            "catalog should have >100 entries, got {}",
+            all.len()
+        );
     }
 
     #[test]
@@ -708,7 +885,10 @@ mod tests {
             .iter()
             .filter(|d| d.verbs().contains(&Verb::Get))
             .collect();
-        assert!(domains_with_get.len() >= 5,
-                "expected `get` to be reused across many domains, got {}", domains_with_get.len());
+        assert!(
+            domains_with_get.len() >= 5,
+            "expected `get` to be reused across many domains, got {}",
+            domains_with_get.len()
+        );
     }
 }

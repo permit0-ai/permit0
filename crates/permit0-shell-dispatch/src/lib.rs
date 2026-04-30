@@ -73,11 +73,10 @@ pub mod tokenize;
 pub mod yaml;
 
 pub use dispatcher::{
-    CommandParser, Confidence, DispatchOutcome, DispatchedAction, Dispatcher,
-    UnknownCommandPolicy,
+    CommandParser, Confidence, DispatchOutcome, DispatchedAction, Dispatcher, UnknownCommandPolicy,
 };
-pub use parsed::{extract_structure, FlagValue, ParsedCommand};
+pub use parsed::{FlagValue, ParsedCommand, extract_structure};
 pub use tokenize::{TokenizeError, Tokens};
 pub use yaml::{
-    load_pack_dispatchers, load_yaml_dir, LoadError, YamlCommandParser, YamlParserError,
+    LoadError, YamlCommandParser, YamlParserError, load_pack_dispatchers, load_yaml_dir,
 };

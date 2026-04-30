@@ -5,8 +5,8 @@ use permit0_store::audit::{AuditEntry, Ed25519Verifier, chain};
 
 /// Verify a JSONL audit file: chain integrity + ed25519 signatures.
 pub fn verify(path: &str, public_key: &str) -> Result<()> {
-    let content = std::fs::read_to_string(path)
-        .with_context(|| format!("failed to read {path}"))?;
+    let content =
+        std::fs::read_to_string(path).with_context(|| format!("failed to read {path}"))?;
 
     let verifier = Ed25519Verifier::from_hex(public_key)
         .map_err(|e| anyhow::anyhow!("invalid public key: {e}"))?;
@@ -50,8 +50,14 @@ pub fn verify(path: &str, public_key: &str) -> Result<()> {
     }
 
     println!("  Chain integrity .... VALID");
-    println!("  Signatures ........ ALL VALID ({} checked)", entries.len());
-    println!("  First entry seq ... {}", entries.first().unwrap().sequence);
+    println!(
+        "  Signatures ........ ALL VALID ({} checked)",
+        entries.len()
+    );
+    println!(
+        "  First entry seq ... {}",
+        entries.first().unwrap().sequence
+    );
     println!("  Last entry seq .... {}", entries.last().unwrap().sequence);
     println!();
     println!("PASS: audit trail is intact and authentic.");
@@ -60,8 +66,8 @@ pub fn verify(path: &str, public_key: &str) -> Result<()> {
 
 /// Inspect a JSONL audit file: show summary and entries.
 pub fn inspect(path: &str, limit: usize) -> Result<()> {
-    let content = std::fs::read_to_string(path)
-        .with_context(|| format!("failed to read {path}"))?;
+    let content =
+        std::fs::read_to_string(path).with_context(|| format!("failed to read {path}"))?;
 
     let entries = parse_entries(&content)?;
     if entries.is_empty() {
@@ -101,8 +107,8 @@ pub fn inspect(path: &str, limit: usize) -> Result<()> {
 
 /// Dump full JSON of a specific entry by sequence number.
 pub fn dump_entry(path: &str, sequence: u64) -> Result<()> {
-    let content = std::fs::read_to_string(path)
-        .with_context(|| format!("failed to read {path}"))?;
+    let content =
+        std::fs::read_to_string(path).with_context(|| format!("failed to read {path}"))?;
 
     let entries = parse_entries(&content)?;
     let entry = entries

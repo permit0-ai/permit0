@@ -90,7 +90,7 @@ impl From<&RiskScore> for JsRiskScore {
 /// Normalized action — the tool-agnostic representation.
 #[napi(object)]
 pub struct JsNormAction {
-    /// Action type string, e.g. "payments.charge".
+    /// Action type string, e.g. "payment.charge".
     pub action_type: String,
     /// Channel/vendor, e.g. "stripe".
     pub channel: String,
@@ -120,8 +120,7 @@ impl JsDecisionResult {
             norm_action: JsNormAction {
                 action_type: r.norm_action.action_type.as_action_str(),
                 channel: r.norm_action.channel.clone(),
-                entities_json: serde_json::to_string(&r.norm_action.entities)
-                    .unwrap_or_default(),
+                entities_json: serde_json::to_string(&r.norm_action.entities).unwrap_or_default(),
                 norm_hash: r.norm_action.norm_hash_hex(),
             },
             risk_score: r.risk_score.as_ref().map(JsRiskScore::from),
@@ -147,10 +146,7 @@ impl Engine {
     /// @param packsDir - Path to packs directory (default: "packs")
     /// @param profilePath - Optional path to a profile YAML file
     #[napi(factory)]
-    pub fn from_packs(
-        packs_dir: Option<String>,
-        profile_path: Option<String>,
-    ) -> Result<Self> {
+    pub fn from_packs(packs_dir: Option<String>, profile_path: Option<String>) -> Result<Self> {
         let packs = packs_dir.as_deref().unwrap_or("packs");
         let config = load_config(profile_path.as_deref())?;
         let mut builder = EngineBuilder::new().with_config(config);
@@ -228,6 +224,12 @@ pub struct JsEngineBuilder {
     inner: Option<EngineBuilder>,
 }
 
+impl Default for JsEngineBuilder {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[napi]
 impl JsEngineBuilder {
     #[napi(constructor)]
@@ -284,9 +286,7 @@ impl JsEngineBuilder {
 // ── Helpers ──
 
 /// Load scoring config with optional profile path.
-fn load_config(
-    profile_path: Option<&str>,
-) -> Result<permit0_scoring::ScoringConfig> {
+fn load_config(profile_path: Option<&str>) -> Result<permit0_scoring::ScoringConfig> {
     let profile_overrides = match profile_path {
         Some(path) => {
             let _yaml = std::fs::read_to_string(path)
@@ -302,10 +302,7 @@ fn load_config(
 }
 
 /// Install all packs from a directory into the builder.
-fn install_packs_from_dir(
-    mut builder: EngineBuilder,
-    packs_dir: &Path,
-) -> Result<EngineBuilder> {
+fn install_packs_from_dir(mut builder: EngineBuilder, packs_dir: &Path) -> Result<EngineBuilder> {
     let entries = std::fs::read_dir(packs_dir)
         .map_err(|e| Error::from_reason(format!("reading packs dir: {e}")))?;
 

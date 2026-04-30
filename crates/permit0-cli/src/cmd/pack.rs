@@ -153,10 +153,7 @@ pub fn test(pack_path: &str) -> Result<()> {
 }
 
 /// Run fixture test cases from a directory.
-fn run_fixtures(
-    fixtures_dir: &Path,
-    engine: &permit0_engine::Engine,
-) -> Result<()> {
+fn run_fixtures(fixtures_dir: &Path, engine: &permit0_engine::Engine) -> Result<()> {
     let mut passed = 0;
     let mut failed = 0;
 
@@ -326,6 +323,5 @@ permit0 pack test packs/{name}
 }
 
 fn is_yaml(path: &Path) -> bool {
-    path.extension()
-        .is_some_and(|e| e == "yaml" || e == "yml")
+    path.extension().is_some_and(|e| e == "yaml" || e == "yml")
 }

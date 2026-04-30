@@ -120,10 +120,7 @@ impl AuditSink for InMemoryAuditSink {
                     valid: false,
                     entries_checked: entry.sequence - from,
                     first_broken_at: Some(entry.sequence),
-                    failure_reason: Some(format!(
-                        "Entry {} has invalid hash",
-                        entry.sequence
-                    )),
+                    failure_reason: Some(format!("Entry {} has invalid hash", entry.sequence)),
                 });
             }
         }
@@ -155,17 +152,13 @@ impl AuditSink for InMemoryAuditSink {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::audit::chain::{compute_entry_hash, GENESIS_HASH};
+    use crate::audit::chain::{GENESIS_HASH, compute_entry_hash};
     use crate::audit::signer::{AuditSigner, Ed25519Signer};
     use crate::audit::types::AuditEntry;
     use permit0_types::{ActionType, ExecutionMeta, NormAction, Permission};
     use serde_json::json;
 
-    fn make_signed_entry(
-        seq: u64,
-        prev_hash: &str,
-        signer: &Ed25519Signer,
-    ) -> AuditEntry {
+    fn make_signed_entry(seq: u64, prev_hash: &str, signer: &Ed25519Signer) -> AuditEntry {
         let mut entry = AuditEntry {
             entry_id: format!("entry-{seq}"),
             timestamp: "2025-01-01T00:00:00Z".into(),
@@ -200,6 +193,8 @@ mod tests {
             entry_hash: String::new(),
             signature: String::new(),
             correction_of: None,
+            failed_open_context: None,
+            retroactive_decision: None,
         };
         entry.entry_hash = compute_entry_hash(&entry);
         entry.signature = signer.sign(&entry.entry_hash);

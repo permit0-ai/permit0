@@ -229,6 +229,9 @@ mod tests {
 
         let s1 = compute_hybrid(&t1, &config, None);
         let s2 = compute_hybrid(&t2, &config, None);
-        assert!(s2.raw >= s1.raw, "more flags should yield higher or equal score");
+        assert!(
+            s2.raw >= s1.raw,
+            "more flags should yield higher or equal score"
+        );
     }
 }

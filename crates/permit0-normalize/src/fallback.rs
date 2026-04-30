@@ -41,8 +41,7 @@ impl Normalizer for FallbackNormalizer {
             entities,
             execution: ExecutionMeta {
                 surface_tool: raw.tool_name.clone(),
-                surface_command: serde_json::to_string(&raw.parameters)
-                    .unwrap_or_default(),
+                surface_command: serde_json::to_string(&raw.parameters).unwrap_or_default(),
             },
         })
     }

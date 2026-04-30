@@ -3,18 +3,17 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use permit0_agent::{AgentReviewer, ReviewInput, ReviewVerdict};
 use permit0_dsl::normalizer::DslNormalizer;
 use permit0_dsl::risk_executor::{execute_risk_rules_with_sets, execute_session_rules_with_sets};
 use permit0_dsl::schema::risk_rule::RiskRuleDef;
 use permit0_dsl::validate;
-use permit0_normalize::{NormalizerRegistry, Normalizer};
+use permit0_normalize::{Normalizer, NormalizerRegistry};
 use permit0_scoring::{ScoringConfig, compute_hybrid};
-use permit0_agent::{AgentReviewer, ReviewInput, ReviewVerdict};
 use permit0_session::{SessionContext, evaluate_session_block_rules, session_amplifier_score};
 use permit0_store::audit::{
-    AuditEntry, AuditPolicy, AuditSigner, AuditSink,
+    AuditEntry, AuditPolicy, AuditSigner, AuditSink, FailedOpenContext, Redactor,
     chain::{GENESIS_HASH, compute_entry_hash},
-    Redactor,
 };
 use permit0_store::{InMemoryStore, Store};
 use permit0_types::{DecisionRecord, NormAction, Permission, RawToolCall, RiskScore, Tier};
@@ -101,9 +100,7 @@ impl Engine {
         ctx: &PermissionCtx,
     ) -> Result<PermissionResult, EngineError> {
         // Step 1: Normalize
-        let norm = self
-            .registry
-            .normalize(tool_call, &ctx.normalize_ctx)?;
+        let norm = self.registry.normalize(tool_call, &ctx.normalize_ctx)?;
         self.run_pipeline(norm, tool_call, ctx)
     }
 
@@ -180,8 +177,7 @@ impl Engine {
         if !self.risk_rules.contains_key(&action_key) {
             // No risk rule for this action type → Human-in-the-loop (conservative default)
             let permission = Permission::HumanInTheLoop;
-            self.store
-                .policy_cache_set(norm_hash, permission)?;
+            self.store.policy_cache_set(norm_hash, permission)?;
             let result = PermissionResult {
                 permission,
                 norm_action: norm,
@@ -199,32 +195,28 @@ impl Engine {
         let base_permission = score_to_permission(risk_score.tier, risk_score.blocked);
 
         // Step 7b: Agent reviewer for MEDIUM tier
-        let (permission, source) =
-            if base_permission == Permission::HumanInTheLoop {
-                if let Some(ref reviewer) = self.reviewer {
-                    let review_input = ReviewInput {
-                        norm_action: norm.clone(),
-                        risk_score: risk_score.clone(),
-                        raw_tool_call: tool_call.clone(),
-                        task_goal: ctx.task_goal.clone(),
-                        session_summary: None,
-                        org_policy: None,
-                    };
-                    let review = reviewer.handle_medium(
-                        &review_input,
-                        ctx.session.as_ref(),
-                    );
-                    let perm = match review.verdict {
-                        ReviewVerdict::HumanInTheLoop => Permission::HumanInTheLoop,
-                        ReviewVerdict::Deny => Permission::Deny,
-                    };
-                    (perm, DecisionSource::AgentReviewer)
-                } else {
-                    (base_permission, DecisionSource::Scorer)
-                }
+        let (permission, source) = if base_permission == Permission::HumanInTheLoop {
+            if let Some(ref reviewer) = self.reviewer {
+                let review_input = ReviewInput {
+                    norm_action: norm.clone(),
+                    risk_score: risk_score.clone(),
+                    raw_tool_call: tool_call.clone(),
+                    task_goal: ctx.task_goal.clone(),
+                    session_summary: None,
+                    org_policy: None,
+                };
+                let review = reviewer.handle_medium(&review_input, ctx.session.as_ref());
+                let perm = match review.verdict {
+                    ReviewVerdict::HumanInTheLoop => Permission::HumanInTheLoop,
+                    ReviewVerdict::Deny => Permission::Deny,
+                };
+                (perm, DecisionSource::AgentReviewer)
             } else {
                 (base_permission, DecisionSource::Scorer)
-            };
+            }
+        } else {
+            (base_permission, DecisionSource::Scorer)
+        };
 
         // Cache the result
         self.store.policy_cache_set(norm_hash, permission)?;
@@ -265,8 +257,12 @@ impl Engine {
         let merged_data = merge_raw_with_entities(raw_params, &norm.entities);
 
         // Execute per-call risk rules
-        let mut template =
-            execute_risk_rules_with_sets(rule_def, &merged_data, None, Some(&self.config.named_sets));
+        let mut template = execute_risk_rules_with_sets(
+            rule_def,
+            &merged_data,
+            None,
+            Some(&self.config.named_sets),
+        );
 
         // Session-aware scoring
         if let Some(session_ctx) = session {
@@ -285,11 +281,8 @@ impl Engine {
             );
 
             // 3. Evaluate built-in session block rules
-            let block_result = evaluate_session_block_rules(
-                session_ctx,
-                &action_key,
-                &norm.entities,
-            );
+            let block_result =
+                evaluate_session_block_rules(session_ctx, &action_key, &norm.entities);
             if block_result.blocked {
                 template.gate(
                     block_result
@@ -311,7 +304,12 @@ impl Engine {
     }
 
     /// Build and persist a decision audit record.
-    fn log_decision(&self, result: &PermissionResult, tool_call: &RawToolCall, ctx: &PermissionCtx) -> Result<(), EngineError> {
+    fn log_decision(
+        &self,
+        result: &PermissionResult,
+        tool_call: &RawToolCall,
+        ctx: &PermissionCtx,
+    ) -> Result<(), EngineError> {
         // Caller (e.g. calibration daemon) intends to write a richer
         // composite record itself; don't double-log.
         if ctx.skip_audit {
@@ -390,6 +388,8 @@ impl Engine {
                 entry_hash: String::new(),
                 signature: String::new(),
                 correction_of: None,
+                failed_open_context: None,
+                retroactive_decision: None,
             };
 
             entry.entry_hash = compute_entry_hash(&entry);
@@ -417,6 +417,107 @@ impl Engine {
         }
 
         Ok(())
+    }
+
+    /// Reconstruct an audit entry from a client-side `FailOpenBuffer` event.
+    ///
+    /// Two facts are recorded:
+    ///   - `decision: Allow` — the action ran on the client because policy
+    ///     review was unreachable. We record what actually happened.
+    ///   - `retroactive_decision: <whatever current pack says>` — what the
+    ///     pack would say *now*. Auditors compare the two to find calls
+    ///     that should not have run.
+    ///
+    /// `decision_source` is `"failed_open"`. The chain hash includes both
+    /// the failed-open context and the retroactive decision, so tampering
+    /// with either is detectable. Returns the entry_id used (a fresh ULID
+    /// independent of the client's event_id, which is captured separately
+    /// inside `failed_open_context` for forensic linkage).
+    pub fn log_failed_open_replay(
+        &self,
+        tool_call: &RawToolCall,
+        ctx: &PermissionCtx,
+        retroactive_result: &PermissionResult,
+        failed_open_context: FailedOpenContext,
+    ) -> Result<String, EngineError> {
+        let now = chrono::Utc::now().to_rfc3339();
+        let entry_id = ulid::Ulid::new().to_string();
+
+        // Failed-open replay does not write a DecisionRecord — the action
+        // already ran on the client; this entry is purely for the audit
+        // chain. The dashboard's audit-log query reads from the AuditSink,
+        // so the failed-open window surfaces there.
+
+        if let (Some(sink), Some(signer)) = (&self.audit_sink, &self.audit_signer) {
+            let raw_tool_call = if let Some(ref redactor) = self.audit_redactor {
+                redactor.redact(&serde_json::to_value(tool_call).unwrap_or_default())
+            } else {
+                serde_json::to_value(tool_call).unwrap_or_default()
+            };
+
+            let sequence = self
+                .audit_sequence
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+                + 1;
+            let prev_hash = {
+                let guard = self.audit_prev_hash.lock().unwrap();
+                guard.clone()
+            };
+
+            let mut entry = AuditEntry {
+                entry_id: entry_id.clone(),
+                timestamp: now,
+                sequence,
+                decision: Permission::Allow,
+                decision_source: "failed_open".into(),
+                norm_action: retroactive_result.norm_action.clone(),
+                norm_hash: retroactive_result.norm_action.norm_hash(),
+                raw_tool_call,
+                risk_score: retroactive_result.risk_score.clone(),
+                scoring_detail: None,
+                agent_id: String::new(),
+                session_id: ctx.session.as_ref().map(|s| s.session_id.clone()),
+                task_goal: ctx.task_goal.clone(),
+                org_id: ctx.normalize_ctx.org_domain.clone().unwrap_or_default(),
+                environment: String::new(),
+                engine_version: env!("CARGO_PKG_VERSION").into(),
+                pack_id: String::new(),
+                pack_version: String::new(),
+                dsl_version: "1.0".into(),
+                human_review: None,
+                token_id: None,
+                prev_hash,
+                entry_hash: String::new(),
+                signature: String::new(),
+                correction_of: None,
+                failed_open_context: Some(failed_open_context),
+                retroactive_decision: Some(retroactive_result.permission),
+            };
+
+            entry.entry_hash = compute_entry_hash(&entry);
+            entry.signature = signer.sign(&entry.entry_hash);
+
+            {
+                let mut guard = self.audit_prev_hash.lock().unwrap();
+                *guard = entry.entry_hash.clone();
+            }
+
+            match sink.append(&entry) {
+                Ok(()) => {}
+                Err(e) => match self.audit_policy {
+                    AuditPolicy::Strict => {
+                        return Err(EngineError::AuditFailure(format!(
+                            "audit sink failed (strict policy): {e}"
+                        )));
+                    }
+                    AuditPolicy::BestEffort => {
+                        tracing::warn!("audit sink failed (best_effort): {e}");
+                    }
+                },
+            }
+        }
+
+        Ok(entry_id)
     }
 }
 
@@ -465,8 +566,10 @@ fn merge_raw_with_entities(
     };
 
     if !out.contains_key("entity") {
-        let entity_obj: serde_json::Map<String, serde_json::Value> =
-            entities.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+        let entity_obj: serde_json::Map<String, serde_json::Value> = entities
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
         out.insert("entity".into(), serde_json::Value::Object(entity_obj));
     }
 
@@ -482,11 +585,26 @@ fn session_to_json(session: &SessionContext) -> serde_json::Value {
     let filter_all = SessionFilter::new();
 
     let mut map = serde_json::Map::new();
-    map.insert("session_id".into(), serde_json::Value::String(session.session_id.clone()));
-    map.insert("record_count".into(), serde_json::json!(session.records.len()));
-    map.insert("max_tier".into(), serde_json::Value::String(session.max_tier().to_string()));
-    map.insert("duration_minutes".into(), serde_json::json!(session.duration_minutes()));
-    map.insert("distinct_flags".into(), serde_json::json!(session.distinct_flags(None)));
+    map.insert(
+        "session_id".into(),
+        serde_json::Value::String(session.session_id.clone()),
+    );
+    map.insert(
+        "record_count".into(),
+        serde_json::json!(session.records.len()),
+    );
+    map.insert(
+        "max_tier".into(),
+        serde_json::Value::String(session.max_tier().to_string()),
+    );
+    map.insert(
+        "duration_minutes".into(),
+        serde_json::json!(session.duration_minutes()),
+    );
+    map.insert(
+        "distinct_flags".into(),
+        serde_json::json!(session.distinct_flags(None)),
+    );
 
     // Aggregate common fields for convenience
     // Sum of "amount" across all records (commonly used)
@@ -555,11 +673,7 @@ impl EngineBuilder {
     }
 
     /// Configure the audit subsystem.
-    pub fn with_audit(
-        mut self,
-        sink: Arc<dyn AuditSink>,
-        signer: Arc<dyn AuditSigner>,
-    ) -> Self {
+    pub fn with_audit(mut self, sink: Arc<dyn AuditSink>, signer: Arc<dyn AuditSigner>) -> Self {
         self.audit_sink = Some(sink);
         self.audit_signer = Some(signer);
         self
@@ -578,10 +692,7 @@ impl EngineBuilder {
     }
 
     /// Install a YAML normalizer from a parsed definition.
-    pub fn install_normalizer(
-        mut self,
-        normalizer: DslNormalizer,
-    ) -> Result<Self, EngineError> {
+    pub fn install_normalizer(mut self, normalizer: DslNormalizer) -> Result<Self, EngineError> {
         self.registry
             .register(Arc::new(normalizer))
             .map_err(|e| EngineError::Build(e.to_string()))?;
@@ -596,10 +707,7 @@ impl EngineBuilder {
     }
 
     /// Install a native (Rust-coded) normalizer.
-    pub fn install_native(
-        mut self,
-        normalizer: Arc<dyn Normalizer>,
-    ) -> Result<Self, EngineError> {
+    pub fn install_native(mut self, normalizer: Arc<dyn Normalizer>) -> Result<Self, EngineError> {
         self.registry
             .register(normalizer)
             .map_err(|e| EngineError::Build(e.to_string()))?;
@@ -630,9 +738,7 @@ impl EngineBuilder {
 
     /// Build the engine. Uses `InMemoryStore` if no store was provided.
     pub fn build(self) -> Result<Engine, EngineError> {
-        let store = self
-            .store
-            .unwrap_or_else(|| Arc::new(InMemoryStore::new()));
+        let store = self.store.unwrap_or_else(|| Arc::new(InMemoryStore::new()));
 
         Ok(Engine {
             registry: self.registry,
@@ -663,7 +769,8 @@ mod tests {
     use serde_json::json;
 
     const GMAIL_NORM_YAML: &str = include_str!("../../../packs/email/normalizers/gmail_send.yaml");
-    const OUTLOOK_NORM_YAML: &str = include_str!("../../../packs/email/normalizers/outlook_send.yaml");
+    const OUTLOOK_NORM_YAML: &str =
+        include_str!("../../../packs/email/normalizers/outlook_send.yaml");
     const EMAIL_RISK_YAML: &str = include_str!("../../../packs/email/risk_rules/send.yaml");
 
     fn build_test_engine() -> Engine {
@@ -782,7 +889,10 @@ mod tests {
         let hash = result.norm_action.norm_hash();
 
         engine.store().policy_cache_invalidate(&hash).unwrap();
-        engine.store().allowlist_add(hash, "approved".into()).unwrap();
+        engine
+            .store()
+            .allowlist_add(hash, "approved".into())
+            .unwrap();
 
         let result = engine
             .get_permission(&gmail_send("Hello", "body"), &ctx)
@@ -802,7 +912,10 @@ mod tests {
         let hash = result.norm_action.norm_hash();
 
         engine.store().policy_cache_invalidate(&hash).unwrap();
-        engine.store().allowlist_add(hash, "approved".into()).unwrap();
+        engine
+            .store()
+            .allowlist_add(hash, "approved".into())
+            .unwrap();
         engine.store().denylist_add(hash, "blocked".into()).unwrap();
 
         let result = engine
@@ -886,5 +999,136 @@ mod tests {
             .unwrap();
         assert_eq!(result.source, DecisionSource::Scorer);
         assert!(result.risk_score.is_some());
+    }
+
+    // ── Failed-open replay (Lane A step 1b) ──────────────────────────
+
+    fn build_test_engine_with_audit() -> (Engine, Arc<permit0_store::audit::InMemoryAuditSink>) {
+        let signer = Arc::new(permit0_store::audit::Ed25519Signer::generate());
+        let sink = Arc::new(permit0_store::audit::InMemoryAuditSink::new());
+        let engine = EngineBuilder::new()
+            .install_normalizer_yaml(GMAIL_NORM_YAML)
+            .unwrap()
+            .install_normalizer_yaml(OUTLOOK_NORM_YAML)
+            .unwrap()
+            .install_risk_rule_yaml(EMAIL_RISK_YAML)
+            .unwrap()
+            .with_audit(sink.clone() as Arc<dyn AuditSink>, signer)
+            .build()
+            .unwrap();
+        (engine, sink)
+    }
+
+    fn sample_failed_open_context() -> FailedOpenContext {
+        FailedOpenContext {
+            fail_reason_code: "refused".into(),
+            fail_reason: "ECONNREFUSED".into(),
+            client_window_start: "2026-04-30T10:00:00Z".into(),
+            client_window_end: "2026-04-30T10:05:00Z".into(),
+            client_version: "0.1.0".into(),
+            fail_open_source: "env_var".into(),
+        }
+    }
+
+    #[test]
+    fn failed_open_replay_writes_audit_entry() {
+        let (engine, sink) = build_test_engine_with_audit();
+        let ctx = default_ctx();
+
+        // Pretend the original tool call ran during a daemon outage.
+        let tool_call = gmail_send("Hello", "body");
+
+        // Retro-score the same call against the current pack.
+        let mut retro_ctx = default_ctx();
+        retro_ctx = retro_ctx.with_skip_audit(true);
+        let retro = engine.get_permission(&tool_call, &retro_ctx).unwrap();
+
+        let entry_id = engine
+            .log_failed_open_replay(&tool_call, &ctx, &retro, sample_failed_open_context())
+            .unwrap();
+
+        // The sink received exactly one entry, with the right flavor.
+        let entries = sink.all_entries();
+        assert_eq!(entries.len(), 1);
+        let e = &entries[0];
+        assert_eq!(e.entry_id, entry_id);
+        assert_eq!(e.decision_source, "failed_open");
+        assert_eq!(e.decision, Permission::Allow); // it ran
+        assert!(e.failed_open_context.is_some());
+        assert_eq!(e.retroactive_decision, Some(retro.permission));
+    }
+
+    #[test]
+    fn failed_open_replay_chain_is_continuous() {
+        let (engine, sink) = build_test_engine_with_audit();
+        let ctx = default_ctx();
+
+        // Mix one normal entry, one replay, one normal — ensure the chain
+        // sequence numbers are monotonic and prev_hash links are intact.
+        let tc1 = gmail_send("first", "body");
+        engine.get_permission(&tc1, &ctx).unwrap();
+
+        let tc2 = gmail_send("replayed", "body");
+        let mut retro_ctx = default_ctx();
+        retro_ctx = retro_ctx.with_skip_audit(true);
+        let retro = engine.get_permission(&tc2, &retro_ctx).unwrap();
+        engine
+            .log_failed_open_replay(&tc2, &ctx, &retro, sample_failed_open_context())
+            .unwrap();
+
+        let tc3 = gmail_send("third", "body");
+        engine.get_permission(&tc3, &ctx).unwrap();
+
+        let entries = sink.all_entries();
+        assert_eq!(entries.len(), 3);
+        assert_eq!(entries[0].sequence, 1);
+        assert_eq!(entries[1].sequence, 2);
+        assert_eq!(entries[2].sequence, 3);
+
+        assert_eq!(entries[1].prev_hash, entries[0].entry_hash);
+        assert_eq!(entries[2].prev_hash, entries[1].entry_hash);
+
+        // The replay entry is distinguishable by decision_source.
+        assert_eq!(entries[1].decision_source, "failed_open");
+        assert_ne!(entries[0].decision_source, "failed_open");
+        assert_ne!(entries[2].decision_source, "failed_open");
+    }
+
+    #[test]
+    fn failed_open_replay_threads_session_and_task_goal() {
+        let (engine, sink) = build_test_engine_with_audit();
+        let ctx = default_ctx()
+            .with_session(SessionContext::new("conv-99"))
+            .with_task_goal("send the report");
+
+        let tool_call = gmail_send("report", "body");
+        let retro = engine
+            .get_permission(&tool_call, &default_ctx().with_skip_audit(true))
+            .unwrap();
+        engine
+            .log_failed_open_replay(&tool_call, &ctx, &retro, sample_failed_open_context())
+            .unwrap();
+
+        let entries = sink.all_entries();
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].session_id.as_deref(), Some("conv-99"));
+        assert_eq!(entries[0].task_goal.as_deref(), Some("send the report"));
+    }
+
+    #[test]
+    fn failed_open_replay_no_op_without_audit_sink() {
+        // No sink configured → method still succeeds and returns an
+        // entry_id, but writes nothing. Mirrors log_decision behavior so
+        // callers don't have to know whether audit is wired up.
+        let engine = build_test_engine();
+        let ctx = default_ctx();
+        let tool_call = gmail_send("Hello", "body");
+        let retro = engine
+            .get_permission(&tool_call, &default_ctx().with_skip_audit(true))
+            .unwrap();
+        let entry_id = engine
+            .log_failed_open_replay(&tool_call, &ctx, &retro, sample_failed_open_context())
+            .unwrap();
+        assert!(!entry_id.is_empty()); // ULID returned even without sink
     }
 }

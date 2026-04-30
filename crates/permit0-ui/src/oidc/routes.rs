@@ -262,9 +262,9 @@ pub async fn oidc_auth_middleware(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::super::client::{OidcError, OidcHttpClient};
     use super::super::config::*;
-    use super::super::client::{OidcHttpClient, OidcError};
+    use super::*;
 
     struct MockHttpClient;
 
@@ -280,7 +280,13 @@ mod tests {
         }
 
         fn exchange_code(
-            &self, _: &str, _: &str, _: &str, _: &str, _: &str, _: &str,
+            &self,
+            _: &str,
+            _: &str,
+            _: &str,
+            _: &str,
+            _: &str,
+            _: &str,
         ) -> Result<TokenResponse, OidcError> {
             Ok(TokenResponse {
                 access_token: "at-mock".into(),
@@ -291,9 +297,7 @@ mod tests {
             })
         }
 
-        fn fetch_userinfo(
-            &self, _: &str, _: &str,
-        ) -> Result<UserInfo, OidcError> {
+        fn fetch_userinfo(&self, _: &str, _: &str) -> Result<UserInfo, OidcError> {
             Ok(UserInfo {
                 sub: "user-1".into(),
                 email: Some("alice@acme.com".into()),
@@ -303,7 +307,11 @@ mod tests {
         }
 
         fn refresh_token(
-            &self, _: &str, _: &str, _: &str, _: &str,
+            &self,
+            _: &str,
+            _: &str,
+            _: &str,
+            _: &str,
         ) -> Result<TokenResponse, OidcError> {
             Ok(TokenResponse {
                 access_token: "at-refreshed".into(),
@@ -336,10 +344,8 @@ mod tests {
             "test-secret".into(),
         );
 
-        let role_mapper = RoleMapper::new(
-            config.role_mapping.clone(),
-            config.allowed_domains.clone(),
-        );
+        let role_mapper =
+            RoleMapper::new(config.role_mapping.clone(), config.allowed_domains.clone());
 
         OidcState {
             client: std::sync::Arc::new(client),

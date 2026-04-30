@@ -6,9 +6,15 @@ use serde::Deserialize;
 #[derive(Debug, Clone, Deserialize)]
 #[serde(untagged)]
 pub enum ConditionExpr {
-    All { all: Vec<ConditionExpr> },
-    Any { any: Vec<ConditionExpr> },
-    Not { not: Box<ConditionExpr> },
+    All {
+        all: Vec<ConditionExpr>,
+    },
+    Any {
+        any: Vec<ConditionExpr>,
+    },
+    Not {
+        not: Box<ConditionExpr>,
+    },
     /// A map of field → predicate pairs. All must be true (implicit AND).
     Leaf(std::collections::HashMap<String, Predicate>),
 }

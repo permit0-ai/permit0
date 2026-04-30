@@ -55,8 +55,8 @@ impl SessionContext {
         self.records
             .iter()
             .filter(|r| {
-                action_type.is_none_or( |at| r.action_type == at)
-                    && flag.is_none_or( |f| r.flags.contains(&f.to_string()))
+                action_type.is_none_or(|at| r.action_type == at)
+                    && flag.is_none_or(|f| r.flags.contains(&f.to_string()))
             })
             .count()
     }
@@ -284,12 +284,7 @@ impl SessionContext {
     ///
     /// Splits matching records into `window_count` equal windows and checks
     /// whether each window has `factor` times more actions than the previous.
-    pub fn accelerating(
-        &self,
-        action_type: &str,
-        window_count: usize,
-        factor: f64,
-    ) -> bool {
+    pub fn accelerating(&self, action_type: &str, window_count: usize, factor: f64) -> bool {
         let matching: Vec<&ActionRecord> = self
             .records
             .iter()
@@ -351,9 +346,7 @@ impl SessionContext {
             pattern_idx == pattern.len()
         } else {
             // All pattern elements must appear
-            pattern
-                .iter()
-                .all(|p| recent_types.contains(p))
+            pattern.iter().all(|p| recent_types.contains(p))
         }
     }
 
@@ -363,11 +356,7 @@ impl SessionContext {
         let flags: HashSet<&str> = self
             .records
             .iter()
-            .filter(|r| {
-                within_min.is_none_or( |mins| {
-                    r.timestamp >= now - (mins as f64 * 60.0)
-                })
-            })
+            .filter(|r| within_min.is_none_or(|mins| r.timestamp >= now - (mins as f64 * 60.0)))
             .flat_map(|r| r.flags.iter().map(|f| f.as_str()))
             .collect();
         flags.len()
@@ -491,9 +480,24 @@ mod tests {
     #[test]
     fn flag_sequence() {
         let mut ctx = SessionContext::new("test");
-        ctx.push(make_record_with_flags("a", Tier::Low, base_ts(), vec!["EXPOSURE"]));
-        ctx.push(make_record_with_flags("b", Tier::Low, base_ts() + 1.0, vec!["MUTATION"]));
-        ctx.push(make_record_with_flags("c", Tier::Low, base_ts() + 2.0, vec!["FINANCIAL"]));
+        ctx.push(make_record_with_flags(
+            "a",
+            Tier::Low,
+            base_ts(),
+            vec!["EXPOSURE"],
+        ));
+        ctx.push(make_record_with_flags(
+            "b",
+            Tier::Low,
+            base_ts() + 1.0,
+            vec!["MUTATION"],
+        ));
+        ctx.push(make_record_with_flags(
+            "c",
+            Tier::Low,
+            base_ts() + 2.0,
+            vec!["FINANCIAL"],
+        ));
 
         let flags = ctx.flag_sequence(2);
         // Most recent first: FINANCIAL, MUTATION
@@ -686,8 +690,18 @@ mod tests {
     #[test]
     fn distinct_flags_count() {
         let mut ctx = SessionContext::new("test");
-        ctx.push(make_record_with_flags("a", Tier::Low, base_ts(), vec!["EXPOSURE", "MUTATION"]));
-        ctx.push(make_record_with_flags("b", Tier::Low, base_ts() + 1.0, vec!["FINANCIAL", "MUTATION"]));
+        ctx.push(make_record_with_flags(
+            "a",
+            Tier::Low,
+            base_ts(),
+            vec!["EXPOSURE", "MUTATION"],
+        ));
+        ctx.push(make_record_with_flags(
+            "b",
+            Tier::Low,
+            base_ts() + 1.0,
+            vec!["FINANCIAL", "MUTATION"],
+        ));
 
         assert_eq!(ctx.distinct_flags(None), 3); // EXPOSURE, MUTATION, FINANCIAL
     }

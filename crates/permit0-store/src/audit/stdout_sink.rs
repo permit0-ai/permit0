@@ -21,8 +21,7 @@ impl Default for StdoutAuditSink {
 
 impl AuditSink for StdoutAuditSink {
     fn append(&self, entry: &AuditEntry) -> Result<(), AuditError> {
-        let json = serde_json::to_string(entry)
-            .map_err(|e| AuditError::Io(e.to_string()))?;
+        let json = serde_json::to_string(entry).map_err(|e| AuditError::Io(e.to_string()))?;
         println!("{json}");
         Ok(())
     }

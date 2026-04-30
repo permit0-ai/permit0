@@ -95,8 +95,12 @@ mod tests {
     fn record_and_retrieve_by_hash() {
         let store = InMemoryOverrideStore::new();
         let hash = [1u8; 32];
-        store.record_override(make_override("email.send", hash)).unwrap();
-        store.record_override(make_override("email.send", [2u8; 32])).unwrap();
+        store
+            .record_override(make_override("email.send", hash))
+            .unwrap();
+        store
+            .record_override(make_override("email.send", [2u8; 32]))
+            .unwrap();
 
         let results = store.get_overrides(&hash).unwrap();
         assert_eq!(results.len(), 1);
@@ -106,9 +110,15 @@ mod tests {
     #[test]
     fn retrieve_by_action_type() {
         let store = InMemoryOverrideStore::new();
-        store.record_override(make_override("email.send", [1u8; 32])).unwrap();
-        store.record_override(make_override("email.send", [2u8; 32])).unwrap();
-        store.record_override(make_override("payments.charge", [3u8; 32])).unwrap();
+        store
+            .record_override(make_override("email.send", [1u8; 32]))
+            .unwrap();
+        store
+            .record_override(make_override("email.send", [2u8; 32]))
+            .unwrap();
+        store
+            .record_override(make_override("payments.charge", [3u8; 32]))
+            .unwrap();
 
         let email_overrides = store.get_overrides_by_action("email.send").unwrap();
         assert_eq!(email_overrides.len(), 2);
@@ -120,8 +130,12 @@ mod tests {
     #[test]
     fn count_overrides() {
         let store = InMemoryOverrideStore::new();
-        store.record_override(make_override("email.send", [1u8; 32])).unwrap();
-        store.record_override(make_override("email.send", [2u8; 32])).unwrap();
+        store
+            .record_override(make_override("email.send", [1u8; 32]))
+            .unwrap();
+        store
+            .record_override(make_override("email.send", [2u8; 32]))
+            .unwrap();
 
         assert_eq!(store.count_overrides("email.send").unwrap(), 2);
         assert_eq!(store.count_overrides("payments.charge").unwrap(), 0);

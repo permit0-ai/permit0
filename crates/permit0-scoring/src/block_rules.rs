@@ -24,11 +24,7 @@ impl BlockRule {
             return false;
         }
         self.amp_thresholds.iter().all(|(dim, threshold)| {
-            norm_amps
-                .get(dim.as_str())
-                .copied()
-                .unwrap_or(0.0)
-                >= *threshold
+            norm_amps.get(dim.as_str()).copied().unwrap_or(0.0) >= *threshold
         })
     }
 }

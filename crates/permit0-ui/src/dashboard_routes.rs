@@ -3,10 +3,11 @@
 use std::collections::HashMap;
 
 use axum::extract::{Path as AxumPath, Query, State};
-use axum::http::{header, StatusCode};
+use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Json, Response};
 use serde::{Deserialize, Serialize};
 
+use permit0_store::audit::AuditFilter;
 use permit0_types::{DecisionFilter, Permission};
 
 use crate::state::AppState;
@@ -134,9 +135,7 @@ pub async fn stats(
             Permission::HumanInTheLoop => human_count += 1,
         }
         if let Some(ref tier) = record.tier {
-            *tier_distribution
-                .entry(tier.to_string())
-                .or_insert(0) += 1;
+            *tier_distribution.entry(tier.to_string()).or_insert(0) += 1;
         }
     }
 
@@ -284,10 +283,7 @@ pub async fn audit_export(
                     .as_ref()
                     .map(|t| t.to_string())
                     .unwrap_or_default();
-                let risk_str = record
-                    .risk_raw
-                    .map(|r| r.to_string())
-                    .unwrap_or_default();
+                let risk_str = record.risk_raw.map(|r| r.to_string()).unwrap_or_default();
                 let flags_str = record.flags.join(";");
                 body.push_str(&format!(
                     "{},{},{},{},{},{},{},{},{},{},{},{},{}\n",
@@ -373,9 +369,8 @@ pub async fn get_profile(
     State(state): State<AppState>,
     AxumPath(name): AxumPath<String>,
 ) -> Result<Json<ApiResponse<String>>, (StatusCode, Json<ApiResponse<String>>)> {
-    let name = sanitize_profile_name(&name).map_err(|e| {
-        err_response::<String>(StatusCode::BAD_REQUEST, &e)
-    })?;
+    let name = sanitize_profile_name(&name)
+        .map_err(|e| err_response::<String>(StatusCode::BAD_REQUEST, &e))?;
 
     let profiles_dir = state.profiles_dir.as_ref().ok_or_else(|| {
         err_response::<String>(
@@ -387,10 +382,7 @@ pub async fn get_profile(
     let file_path = profiles_dir.join(format!("{name}.profile.yaml"));
 
     let content = std::fs::read_to_string(&file_path).map_err(|e| {
-        err_response::<String>(
-            StatusCode::NOT_FOUND,
-            &format!("profile not found: {e}"),
-        )
+        err_response::<String>(StatusCode::NOT_FOUND, &format!("profile not found: {e}"))
     })?;
 
     Ok(ok_response(content))
@@ -429,14 +421,20 @@ pub struct ActionOverrideCount {
 /// GET /api/v1/calibration/stats — aggregate stats over calibration records.
 pub async fn calibration_stats(
     State(state): State<AppState>,
-) -> Result<Json<ApiResponse<CalibrationStats>>, (StatusCode, Json<ApiResponse<CalibrationStats>>)> {
+) -> Result<Json<ApiResponse<CalibrationStats>>, (StatusCode, Json<ApiResponse<CalibrationStats>>)>
+{
     let records = state
         .store
         .query_decisions(&DecisionFilter {
             limit: Some(10000),
             ..Default::default()
         })
-        .map_err(|e| err_response(StatusCode::INTERNAL_SERVER_ERROR, &format!("query failed: {e}")))?;
+        .map_err(|e| {
+            err_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("query failed: {e}"),
+            )
+        })?;
 
     // Calibration records = those with a reviewer set.
     let calib: Vec<_> = records.iter().filter(|r| r.reviewer.is_some()).collect();
@@ -464,14 +462,16 @@ pub async fn calibration_stats(
         .into_iter()
         .map(|(reviewer, count)| ReviewerCount { reviewer, count })
         .collect();
-    by_reviewer.sort_by(|a, b| b.count.cmp(&a.count));
+    by_reviewer.sort_by_key(|x| std::cmp::Reverse(x.count));
     by_reviewer.truncate(10);
 
     let mut overridden_action_map: HashMap<String, usize> = HashMap::new();
     for r in &calib {
         if let Some(eng) = r.engine_permission {
             if eng != r.permission {
-                *overridden_action_map.entry(r.action_type.clone()).or_insert(0) += 1;
+                *overridden_action_map
+                    .entry(r.action_type.clone())
+                    .or_insert(0) += 1;
             }
         }
     }
@@ -479,7 +479,7 @@ pub async fn calibration_stats(
         .into_iter()
         .map(|(action_type, count)| ActionOverrideCount { action_type, count })
         .collect();
-    most_overridden_actions.sort_by(|a, b| b.count.cmp(&a.count));
+    most_overridden_actions.sort_by_key(|x| std::cmp::Reverse(x.count));
     most_overridden_actions.truncate(10);
 
     let agreement_rate = if total > 0 {
@@ -522,7 +522,12 @@ pub async fn calibration_records(
             limit: Some(q.limit.unwrap_or(500)),
             ..Default::default()
         })
-        .map_err(|e| err_response(StatusCode::INTERNAL_SERVER_ERROR, &format!("query failed: {e}")))?;
+        .map_err(|e| {
+            err_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("query failed: {e}"),
+            )
+        })?;
 
     let filtered: Vec<serde_json::Value> = records
         .into_iter()
@@ -544,6 +549,115 @@ pub async fn calibration_records(
         .collect();
 
     Ok(ok_response(filtered))
+}
+
+// ── Failed-open windows banner (Lane A step 1c) ──────────────────────
+
+/// One row in the dashboard banner: a single failed-open window the
+/// client buffered, replayed, and the daemon retro-scored. Operators
+/// review entries where `would_have_blocked > 0` first.
+#[derive(Debug, Serialize)]
+pub struct FailedOpenWindow {
+    pub client_window_start: String,
+    pub client_window_end: String,
+    pub fail_reason_code: String,
+    pub event_count: u64,
+    pub would_have_allowed: u64,
+    pub would_have_denied: u64,
+    pub would_have_human: u64,
+    /// Convenience for the UI: events with retroactive_decision != Allow.
+    pub would_have_blocked: u64,
+}
+
+/// GET /api/v1/audit/failed_open_windows
+///
+/// Aggregates audit entries with `decision_source == "failed_open"` by
+/// the `(client_window_start, client_window_end, fail_reason_code)`
+/// triple, returning one row per distinct window. Sorted most-recent-end
+/// first so the UI banner shows the freshest incident at the top.
+pub async fn failed_open_windows(
+    State(state): State<AppState>,
+) -> Result<
+    Json<ApiResponse<Vec<FailedOpenWindow>>>,
+    (StatusCode, Json<ApiResponse<Vec<FailedOpenWindow>>>),
+> {
+    let sink = match state.audit_sink {
+        Some(ref s) => s,
+        None => {
+            // No audit sink wired — banner has nothing to show. Return
+            // an empty list so the frontend can render "no incidents".
+            return Ok(ok_response(Vec::new()));
+        }
+    };
+
+    // Pull a generous batch of recent audit entries. The query path uses
+    // an AuditFilter that doesn't currently support filter-by-source, so
+    // we filter client-side.
+    let filter = AuditFilter {
+        limit: Some(10_000),
+        ..Default::default()
+    };
+    let entries = sink.query(&filter).map_err(|e| {
+        err_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &format!("audit query failed: {e}"),
+        )
+    })?;
+
+    let rows = aggregate_failed_open_windows(&entries);
+    Ok(ok_response(rows))
+}
+
+/// Aggregate audit entries into one row per `(window_start, window_end,
+/// reason_code)`. Pulled out as a pure function so it can be unit-tested
+/// without spinning up an AppState + AuditSink.
+///
+/// Result is sorted most-recent-end first (ISO 8601 lexical sort).
+fn aggregate_failed_open_windows(
+    entries: &[permit0_store::audit::AuditEntry],
+) -> Vec<FailedOpenWindow> {
+    let mut windows: HashMap<(String, String, String), FailedOpenWindow> = HashMap::new();
+    for entry in entries {
+        if entry.decision_source != "failed_open" {
+            continue;
+        }
+        let foc = match &entry.failed_open_context {
+            Some(c) => c,
+            None => continue, // legacy or malformed; skip
+        };
+        let key = (
+            foc.client_window_start.clone(),
+            foc.client_window_end.clone(),
+            foc.fail_reason_code.clone(),
+        );
+        let row = windows.entry(key).or_insert_with(|| FailedOpenWindow {
+            client_window_start: foc.client_window_start.clone(),
+            client_window_end: foc.client_window_end.clone(),
+            fail_reason_code: foc.fail_reason_code.clone(),
+            event_count: 0,
+            would_have_allowed: 0,
+            would_have_denied: 0,
+            would_have_human: 0,
+            would_have_blocked: 0,
+        });
+        row.event_count += 1;
+        match entry.retroactive_decision {
+            Some(Permission::Allow) => row.would_have_allowed += 1,
+            Some(Permission::Deny) => {
+                row.would_have_denied += 1;
+                row.would_have_blocked += 1;
+            }
+            Some(Permission::HumanInTheLoop) => {
+                row.would_have_human += 1;
+                row.would_have_blocked += 1;
+            }
+            None => {} // engine retro-score didn't run; leave counts alone
+        }
+    }
+
+    let mut rows: Vec<FailedOpenWindow> = windows.into_values().collect();
+    rows.sort_by(|a, b| b.client_window_end.cmp(&a.client_window_end));
+    rows
 }
 
 #[cfg(test)]
@@ -623,5 +737,168 @@ mod tests {
         assert!(filename.ends_with(".profile.yaml"));
         let name = filename.trim_end_matches(".profile.yaml");
         assert_eq!(name, "staging");
+    }
+
+    // ── aggregate_failed_open_windows tests ──
+
+    use permit0_store::audit::{AuditEntry, FailedOpenContext};
+    use permit0_types::{ActionType, ExecutionMeta, NormAction, Permission};
+    use serde_json::json;
+
+    fn make_failed_open_entry(
+        window_start: &str,
+        window_end: &str,
+        reason_code: &str,
+        retroactive: Option<Permission>,
+    ) -> AuditEntry {
+        AuditEntry {
+            entry_id: format!("e-{window_start}-{reason_code}"),
+            timestamp: window_end.into(),
+            sequence: 0,
+            decision: Permission::Allow,
+            decision_source: "failed_open".into(),
+            norm_action: NormAction {
+                action_type: ActionType::parse("email.send").unwrap(),
+                channel: "test".into(),
+                entities: serde_json::Map::new(),
+                execution: ExecutionMeta {
+                    surface_tool: "test".into(),
+                    surface_command: "".into(),
+                },
+            },
+            norm_hash: [0u8; 32],
+            raw_tool_call: json!({}),
+            risk_score: None,
+            scoring_detail: None,
+            agent_id: String::new(),
+            session_id: None,
+            task_goal: None,
+            org_id: String::new(),
+            environment: String::new(),
+            engine_version: "test".into(),
+            pack_id: String::new(),
+            pack_version: String::new(),
+            dsl_version: "1.0".into(),
+            human_review: None,
+            token_id: None,
+            prev_hash: String::new(),
+            entry_hash: String::new(),
+            signature: String::new(),
+            correction_of: None,
+            failed_open_context: Some(FailedOpenContext {
+                fail_reason_code: reason_code.into(),
+                fail_reason: "test".into(),
+                client_window_start: window_start.into(),
+                client_window_end: window_end.into(),
+                client_version: "0.1.0".into(),
+                fail_open_source: "env_var".into(),
+            }),
+            retroactive_decision: retroactive,
+        }
+    }
+
+    fn make_normal_entry(decision_source: &str) -> AuditEntry {
+        let mut e = make_failed_open_entry("a", "b", "refused", Some(Permission::Allow));
+        e.decision_source = decision_source.into();
+        e.failed_open_context = None;
+        e.retroactive_decision = None;
+        e
+    }
+
+    #[test]
+    fn aggregate_groups_by_window_and_reason() {
+        let entries = vec![
+            make_failed_open_entry(
+                "2026-04-30T10:00:00Z",
+                "2026-04-30T10:05:00Z",
+                "refused",
+                Some(Permission::Allow),
+            ),
+            make_failed_open_entry(
+                "2026-04-30T10:00:00Z",
+                "2026-04-30T10:05:00Z",
+                "refused",
+                Some(Permission::Deny),
+            ),
+            make_failed_open_entry(
+                "2026-04-30T10:00:00Z",
+                "2026-04-30T10:05:00Z",
+                "refused",
+                Some(Permission::HumanInTheLoop),
+            ),
+            make_failed_open_entry(
+                "2026-04-30T11:00:00Z",
+                "2026-04-30T11:02:00Z",
+                "timeout",
+                Some(Permission::Allow),
+            ),
+        ];
+        let rows = aggregate_failed_open_windows(&entries);
+        assert_eq!(rows.len(), 2);
+
+        // Sorted by window_end DESC: 11:02 first, then 10:05.
+        assert_eq!(rows[0].client_window_end, "2026-04-30T11:02:00Z");
+        assert_eq!(rows[0].event_count, 1);
+        assert_eq!(rows[0].would_have_allowed, 1);
+        assert_eq!(rows[0].would_have_blocked, 0);
+
+        assert_eq!(rows[1].client_window_end, "2026-04-30T10:05:00Z");
+        assert_eq!(rows[1].event_count, 3);
+        assert_eq!(rows[1].would_have_allowed, 1);
+        assert_eq!(rows[1].would_have_denied, 1);
+        assert_eq!(rows[1].would_have_human, 1);
+        assert_eq!(rows[1].would_have_blocked, 2);
+    }
+
+    #[test]
+    fn aggregate_skips_non_failed_open_entries() {
+        let entries = vec![
+            make_normal_entry("scorer"),
+            make_normal_entry("policy_cache"),
+            make_failed_open_entry("a", "b", "refused", Some(Permission::Deny)),
+        ];
+        let rows = aggregate_failed_open_windows(&entries);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].event_count, 1);
+    }
+
+    #[test]
+    fn aggregate_skips_failed_open_without_context() {
+        // Defensive: a tampered or legacy entry with decision_source ==
+        // "failed_open" but no failed_open_context should not crash the
+        // aggregator. It just gets skipped.
+        let mut bad = make_failed_open_entry("a", "b", "refused", Some(Permission::Deny));
+        bad.failed_open_context = None;
+        let entries = vec![bad];
+        let rows = aggregate_failed_open_windows(&entries);
+        assert!(rows.is_empty());
+    }
+
+    #[test]
+    fn aggregate_handles_missing_retroactive_decision() {
+        // If retro-scoring failed for an entry, retroactive_decision is
+        // None — the row still counts the event but doesn't increment any
+        // bucket. Operators see "event_count: N, but breakdown is 0/0/0"
+        // which signals "retro-score didn't run, look at raw entries".
+        let entries = vec![make_failed_open_entry("a", "b", "refused", None)];
+        let rows = aggregate_failed_open_windows(&entries);
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0].event_count, 1);
+        assert_eq!(rows[0].would_have_allowed, 0);
+        assert_eq!(rows[0].would_have_denied, 0);
+        assert_eq!(rows[0].would_have_human, 0);
+        assert_eq!(rows[0].would_have_blocked, 0);
+    }
+
+    #[test]
+    fn aggregate_separates_windows_with_different_reason_codes() {
+        // Same time window but two different reason_codes (operator
+        // hit a flapping daemon: timeout, then refused) → two rows.
+        let entries = vec![
+            make_failed_open_entry("a", "b", "timeout", Some(Permission::Allow)),
+            make_failed_open_entry("a", "b", "refused", Some(Permission::Allow)),
+        ];
+        let rows = aggregate_failed_open_windows(&entries);
+        assert_eq!(rows.len(), 2);
     }
 }

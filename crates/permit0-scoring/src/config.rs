@@ -46,11 +46,7 @@ impl Default for Guardrails {
             max_threshold_shift: 0.10,
             block_rules_direction: Direction::OnlyStricter,
             tanh_k_range: (1.0, 2.5),
-            immutable_flags: vec![
-                "DESTRUCTION".into(),
-                "PHYSICAL".into(),
-                "EXECUTION".into(),
-            ],
+            immutable_flags: vec!["DESTRUCTION".into(), "PHYSICAL".into(), "EXECUTION".into()],
             immutable_block_rules: immutable_block_rules()
                 .iter()
                 .map(|r| r.name.clone())
@@ -153,7 +149,10 @@ impl ScoringConfig {
 
         // Apply profile overrides
         if let Some(profile) = profile {
-            config.apply_overrides(&profile.risk_weight_adjustments, &profile.amp_weight_adjustments);
+            config.apply_overrides(
+                &profile.risk_weight_adjustments,
+                &profile.amp_weight_adjustments,
+            );
             if let Some(k) = profile.tanh_k {
                 config.tanh_k = k;
             }
@@ -193,11 +192,7 @@ impl ScoringConfig {
         Ok(config)
     }
 
-    fn apply_overrides(
-        &mut self,
-        risk_adj: &HashMap<String, f64>,
-        amp_adj: &HashMap<String, f64>,
-    ) {
+    fn apply_overrides(&mut self, risk_adj: &HashMap<String, f64>, amp_adj: &HashMap<String, f64>) {
         for (flag, factor) in risk_adj {
             if let Some(w) = self.risk_weights.get_mut(flag) {
                 *w *= factor;
@@ -300,11 +295,13 @@ pub fn check_guardrails(
 
     // Check immutable flags not zeroed
     for flag in &guardrails.immutable_flags {
-        let w = config.risk_weights.get(flag.as_str()).copied().unwrap_or(0.0);
+        let w = config
+            .risk_weights
+            .get(flag.as_str())
+            .copied()
+            .unwrap_or(0.0);
         if w <= 0.0 {
-            return Err(GuardrailViolation::ImmutableFlagRemoved {
-                flag: flag.clone(),
-            });
+            return Err(GuardrailViolation::ImmutableFlagRemoved { flag: flag.clone() });
         }
     }
 
@@ -335,9 +332,7 @@ mod tests {
     fn weight_too_low_rejected() {
         let mut config = ScoringConfig::default();
         // Set DESTRUCTION weight to 10% of base (0.28 * 0.1 = 0.028), below 0.5 ratio
-        config
-            .risk_weights
-            .insert("DESTRUCTION".into(), 0.28 * 0.1);
+        config.risk_weights.insert("DESTRUCTION".into(), 0.28 * 0.1);
         let guardrails = Guardrails::default();
         let err = check_guardrails(&config, &guardrails).unwrap_err();
         assert!(matches!(err, GuardrailViolation::WeightOutOfBounds { .. }));
@@ -346,9 +341,7 @@ mod tests {
     #[test]
     fn weight_too_high_rejected() {
         let mut config = ScoringConfig::default();
-        config
-            .risk_weights
-            .insert("DESTRUCTION".into(), 0.28 * 3.0);
+        config.risk_weights.insert("DESTRUCTION".into(), 0.28 * 3.0);
         let guardrails = Guardrails::default();
         let err = check_guardrails(&config, &guardrails).unwrap_err();
         assert!(matches!(err, GuardrailViolation::WeightOutOfBounds { .. }));

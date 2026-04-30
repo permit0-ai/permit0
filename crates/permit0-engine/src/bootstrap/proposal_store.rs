@@ -14,7 +14,10 @@ pub trait ProposalStore: Send + Sync {
     fn get_proposal(&self, proposal_id: &str) -> Result<Option<BootstrapProposal>, String>;
 
     /// Get the pending proposal for an action type (if any).
-    fn get_pending_for_action(&self, action_type: &str) -> Result<Option<BootstrapProposal>, String>;
+    fn get_pending_for_action(
+        &self,
+        action_type: &str,
+    ) -> Result<Option<BootstrapProposal>, String>;
 
     /// Update proposal status.
     fn update_status(
@@ -60,7 +63,10 @@ impl ProposalStore for InMemoryProposalStore {
         Ok(guard.get(proposal_id).cloned())
     }
 
-    fn get_pending_for_action(&self, action_type: &str) -> Result<Option<BootstrapProposal>, String> {
+    fn get_pending_for_action(
+        &self,
+        action_type: &str,
+    ) -> Result<Option<BootstrapProposal>, String> {
         let guard = self.proposals.read().map_err(|e| e.to_string())?;
         Ok(guard
             .values()

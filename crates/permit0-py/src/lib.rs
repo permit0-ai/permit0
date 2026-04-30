@@ -153,7 +153,7 @@ impl From<&RiskScore> for PyRiskScore {
 #[pyclass(name = "NormAction")]
 #[derive(Clone, Debug)]
 pub struct PyNormAction {
-    /// Action type string, e.g. "payments.charge".
+    /// Action type string, e.g. "payment.charge".
     #[pyo3(get)]
     pub action_type: String,
     /// Channel/vendor, e.g. "stripe".
@@ -220,8 +220,7 @@ impl PyDecisionResult {
             norm_action: PyNormAction {
                 action_type: r.norm_action.action_type.as_action_str(),
                 channel: r.norm_action.channel.clone(),
-                entities_json: serde_json::to_string(&r.norm_action.entities)
-                    .unwrap_or_default(),
+                entities_json: serde_json::to_string(&r.norm_action.entities).unwrap_or_default(),
                 norm_hash: r.norm_action.norm_hash_hex(),
             },
             risk_score: r.risk_score.as_ref().map(PyRiskScore::from),
@@ -469,9 +468,7 @@ impl PyEngineBuilder {
             .inner
             .take()
             .ok_or_else(|| PyRuntimeError::new_err("builder already consumed"))?;
-        self.inner = Some(
-            builder.with_audit(bundle.sink.clone(), bundle.signer.clone()),
-        );
+        self.inner = Some(builder.with_audit(bundle.sink.clone(), bundle.signer.clone()));
         Ok(())
     }
 
@@ -654,9 +651,7 @@ impl PyAuditBundle {
 fn pydict_to_json_value(dict: &Bound<'_, PyDict>) -> PyResult<serde_json::Value> {
     // Serialize via Python's json module for robust conversion
     let json_mod = dict.py().import("json")?;
-    let json_str: String = json_mod
-        .call_method1("dumps", (dict,))?
-        .extract()?;
+    let json_str: String = json_mod.call_method1("dumps", (dict,))?.extract()?;
     serde_json::from_str(&json_str)
         .map_err(|e| PyValueError::new_err(format!("JSON conversion error: {e}")))
 }
@@ -670,7 +665,9 @@ fn json_value_to_pydict<'py>(
         .map_err(|e| PyRuntimeError::new_err(format!("JSON serialize error: {e}")))?;
     let json_mod = py.import("json")?;
     let result = json_mod.call_method1("loads", (json_str,))?;
-    result.downcast::<PyDict>().map(|d| d.clone())
+    result
+        .downcast::<PyDict>()
+        .cloned()
         .map_err(|e| PyRuntimeError::new_err(format!("expected dict: {e}")))
 }
 
@@ -681,16 +678,18 @@ fn load_config(
 ) -> PyResult<permit0_scoring::ScoringConfig> {
     let profile_overrides = match (profile, profile_path) {
         (_, Some(path)) => {
-            let yaml = std::fs::read_to_string(path)
-                .map_err(|e| PyValueError::new_err(format!("failed to read profile {path}: {e}")))?;
+            let yaml = std::fs::read_to_string(path).map_err(|e| {
+                PyValueError::new_err(format!("failed to read profile {path}: {e}"))
+            })?;
             let overrides: serde_json::Value = serde_yaml::from_str(&yaml)
                 .map_err(|e| PyValueError::new_err(format!("failed to parse profile: {e}")))?;
             parse_profile_overrides(&overrides)?
         }
         (Some(name), None) => {
             let path = format!("profiles/{name}.profile.yaml");
-            let yaml = std::fs::read_to_string(&path)
-                .map_err(|e| PyValueError::new_err(format!("failed to read profile {path}: {e}")))?;
+            let yaml = std::fs::read_to_string(&path).map_err(|e| {
+                PyValueError::new_err(format!("failed to read profile {path}: {e}"))
+            })?;
             let overrides: serde_json::Value = serde_yaml::from_str(&yaml)
                 .map_err(|e| PyValueError::new_err(format!("failed to parse profile: {e}")))?;
             parse_profile_overrides(&overrides)?
@@ -712,16 +711,12 @@ fn parse_profile_overrides(
 }
 
 /// Install all packs from a directory into the builder.
-fn install_packs_from_dir(
-    mut builder: EngineBuilder,
-    packs_dir: &Path,
-) -> PyResult<EngineBuilder> {
+fn install_packs_from_dir(mut builder: EngineBuilder, packs_dir: &Path) -> PyResult<EngineBuilder> {
     let entries = std::fs::read_dir(packs_dir)
         .map_err(|e| PyRuntimeError::new_err(format!("reading packs dir: {e}")))?;
 
     for entry in entries {
-        let entry = entry
-            .map_err(|e| PyRuntimeError::new_err(format!("reading entry: {e}")))?;
+        let entry = entry.map_err(|e| PyRuntimeError::new_err(format!("reading entry: {e}")))?;
         if entry
             .file_type()
             .map_err(|e| PyRuntimeError::new_err(format!("file type: {e}")))?
@@ -738,11 +733,12 @@ fn install_packs_from_dir(
                     let f = f.map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
                     let path = f.path();
                     if path.extension().is_some_and(|e| e == "yaml" || e == "yml") {
-                        let yaml = std::fs::read_to_string(&path)
-                            .map_err(|e| PyRuntimeError::new_err(format!("reading {}: {e}", path.display())))?;
-                        builder = builder
-                            .install_normalizer_yaml(&yaml)
-                            .map_err(|e| PyRuntimeError::new_err(format!("normalizer {}: {e}", path.display())))?;
+                        let yaml = std::fs::read_to_string(&path).map_err(|e| {
+                            PyRuntimeError::new_err(format!("reading {}: {e}", path.display()))
+                        })?;
+                        builder = builder.install_normalizer_yaml(&yaml).map_err(|e| {
+                            PyRuntimeError::new_err(format!("normalizer {}: {e}", path.display()))
+                        })?;
                     }
                 }
             }
@@ -756,11 +752,12 @@ fn install_packs_from_dir(
                     let f = f.map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
                     let path = f.path();
                     if path.extension().is_some_and(|e| e == "yaml" || e == "yml") {
-                        let yaml = std::fs::read_to_string(&path)
-                            .map_err(|e| PyRuntimeError::new_err(format!("reading {}: {e}", path.display())))?;
-                        builder = builder
-                            .install_risk_rule_yaml(&yaml)
-                            .map_err(|e| PyRuntimeError::new_err(format!("risk rule {}: {e}", path.display())))?;
+                        let yaml = std::fs::read_to_string(&path).map_err(|e| {
+                            PyRuntimeError::new_err(format!("reading {}: {e}", path.display()))
+                        })?;
+                        builder = builder.install_risk_rule_yaml(&yaml).map_err(|e| {
+                            PyRuntimeError::new_err(format!("risk rule {}: {e}", path.display()))
+                        })?;
                     }
                 }
             }

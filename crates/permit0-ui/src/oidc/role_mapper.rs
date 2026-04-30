@@ -2,8 +2,8 @@
 
 use std::collections::HashMap;
 
-use crate::auth::Role;
 use super::config::UserInfo;
+use crate::auth::Role;
 
 /// Maps OIDC claims (email, groups) to a permit0 Role.
 ///
@@ -83,10 +83,7 @@ mod tests {
                     "admin".into(),
                     vec!["security-team@acme.com".into(), "admin@acme.com".into()],
                 ),
-                (
-                    "approver".into(),
-                    vec!["engineering@acme.com".into()],
-                ),
+                ("approver".into(), vec!["engineering@acme.com".into()]),
             ]),
             vec!["acme.com".into()],
         )

@@ -164,10 +164,12 @@ fn sanitize_path_param(s: &str) -> Result<&str, String> {
 // ── Helpers ──
 
 fn resolve_packs_dir(state: &AppState) -> Result<PathBuf, (StatusCode, Json<ApiResponse<()>>)> {
-    state
-        .packs_dir
-        .clone()
-        .ok_or_else(|| err_response(StatusCode::INTERNAL_SERVER_ERROR, "packs_dir is not configured"))
+    state.packs_dir.clone().ok_or_else(|| {
+        err_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "packs_dir is not configured",
+        )
+    })
 }
 
 fn list_yaml_files(dir: &Path) -> Vec<String> {
@@ -195,7 +197,8 @@ fn list_yaml_files(dir: &Path) -> Vec<String> {
 /// GET /api/v1/packs
 pub async fn list_packs(
     State(state): State<AppState>,
-) -> Result<Json<ApiResponse<Vec<PackSummary>>>, (StatusCode, Json<ApiResponse<Vec<PackSummary>>>)> {
+) -> Result<Json<ApiResponse<Vec<PackSummary>>>, (StatusCode, Json<ApiResponse<Vec<PackSummary>>>)>
+{
     let packs_dir = resolve_packs_dir(&state).map_err(|(_status, _body)| {
         err_response::<Vec<PackSummary>>(
             StatusCode::INTERNAL_SERVER_ERROR,
@@ -246,9 +249,8 @@ pub async fn get_pack(
     State(state): State<AppState>,
     AxumPath(pack_name): AxumPath<String>,
 ) -> Result<Json<ApiResponse<PackDetail>>, (StatusCode, Json<ApiResponse<PackDetail>>)> {
-    let pack_name = sanitize_pack_name(&pack_name).map_err(|e| {
-        err_response::<PackDetail>(StatusCode::BAD_REQUEST, &e)
-    })?;
+    let pack_name = sanitize_pack_name(&pack_name)
+        .map_err(|e| err_response::<PackDetail>(StatusCode::BAD_REQUEST, &e))?;
 
     let packs_dir = resolve_packs_dir(&state).map_err(|(_status, _body)| {
         err_response::<PackDetail>(
@@ -261,10 +263,7 @@ pub async fn get_pack(
     let manifest_path = pack_path.join("pack.yaml");
 
     let content = std::fs::read_to_string(&manifest_path).map_err(|e| {
-        err_response::<PackDetail>(
-            StatusCode::NOT_FOUND,
-            &format!("pack not found: {e}"),
-        )
+        err_response::<PackDetail>(StatusCode::NOT_FOUND, &format!("pack not found: {e}"))
     })?;
 
     let manifest: PackManifest = serde_yaml::from_str(&content).map_err(|e| {
@@ -295,12 +294,10 @@ pub async fn get_normalizer(
     Json<ApiResponse<FileDetail<NormalizerMeta>>>,
     (StatusCode, Json<ApiResponse<FileDetail<NormalizerMeta>>>),
 > {
-    let pack_name = sanitize_pack_name(&pack_name).map_err(|e| {
-        err_response::<FileDetail<NormalizerMeta>>(StatusCode::BAD_REQUEST, &e)
-    })?;
-    let filename = sanitize_filename(&filename).map_err(|e| {
-        err_response::<FileDetail<NormalizerMeta>>(StatusCode::BAD_REQUEST, &e)
-    })?;
+    let pack_name = sanitize_pack_name(&pack_name)
+        .map_err(|e| err_response::<FileDetail<NormalizerMeta>>(StatusCode::BAD_REQUEST, &e))?;
+    let filename = sanitize_filename(&filename)
+        .map_err(|e| err_response::<FileDetail<NormalizerMeta>>(StatusCode::BAD_REQUEST, &e))?;
 
     let packs_dir = resolve_packs_dir(&state).map_err(|(_status, _body)| {
         err_response::<FileDetail<NormalizerMeta>>(
@@ -309,10 +306,7 @@ pub async fn get_normalizer(
         )
     })?;
 
-    let file_path = packs_dir
-        .join(pack_name)
-        .join("normalizers")
-        .join(filename);
+    let file_path = packs_dir.join(pack_name).join("normalizers").join(filename);
 
     let yaml = std::fs::read_to_string(&file_path).map_err(|e| {
         err_response::<FileDetail<NormalizerMeta>>(
@@ -345,12 +339,10 @@ pub async fn get_risk_rule(
     Json<ApiResponse<FileDetail<RiskRuleMeta>>>,
     (StatusCode, Json<ApiResponse<FileDetail<RiskRuleMeta>>>),
 > {
-    let pack_name = sanitize_pack_name(&pack_name).map_err(|e| {
-        err_response::<FileDetail<RiskRuleMeta>>(StatusCode::BAD_REQUEST, &e)
-    })?;
-    let filename = sanitize_filename(&filename).map_err(|e| {
-        err_response::<FileDetail<RiskRuleMeta>>(StatusCode::BAD_REQUEST, &e)
-    })?;
+    let pack_name = sanitize_pack_name(&pack_name)
+        .map_err(|e| err_response::<FileDetail<RiskRuleMeta>>(StatusCode::BAD_REQUEST, &e))?;
+    let filename = sanitize_filename(&filename)
+        .map_err(|e| err_response::<FileDetail<RiskRuleMeta>>(StatusCode::BAD_REQUEST, &e))?;
 
     let packs_dir = resolve_packs_dir(&state).map_err(|(_status, _body)| {
         err_response::<FileDetail<RiskRuleMeta>>(
@@ -359,10 +351,7 @@ pub async fn get_risk_rule(
         )
     })?;
 
-    let file_path = packs_dir
-        .join(pack_name)
-        .join("risk_rules")
-        .join(filename);
+    let file_path = packs_dir.join(pack_name).join("risk_rules").join(filename);
 
     let yaml = std::fs::read_to_string(&file_path).map_err(|e| {
         err_response::<FileDetail<RiskRuleMeta>>(
@@ -392,12 +381,10 @@ pub async fn update_normalizer(
     AxumPath((pack_name, filename)): AxumPath<(String, String)>,
     Json(req): Json<UpdateRequest>,
 ) -> Result<Json<ApiResponse<String>>, (StatusCode, Json<ApiResponse<String>>)> {
-    let pack_name = sanitize_pack_name(&pack_name).map_err(|e| {
-        err_response::<String>(StatusCode::BAD_REQUEST, &e)
-    })?;
-    let filename = sanitize_filename(&filename).map_err(|e| {
-        err_response::<String>(StatusCode::BAD_REQUEST, &e)
-    })?;
+    let pack_name = sanitize_pack_name(&pack_name)
+        .map_err(|e| err_response::<String>(StatusCode::BAD_REQUEST, &e))?;
+    let filename = sanitize_filename(&filename)
+        .map_err(|e| err_response::<String>(StatusCode::BAD_REQUEST, &e))?;
 
     let packs_dir = resolve_packs_dir(&state).map_err(|(_status, _body)| {
         err_response::<String>(
@@ -407,10 +394,7 @@ pub async fn update_normalizer(
     })?;
 
     let def: NormalizerDef = serde_yaml::from_str(&req.yaml).map_err(|e| {
-        err_response::<String>(
-            StatusCode::BAD_REQUEST,
-            &format!("invalid YAML: {e}"),
-        )
+        err_response::<String>(StatusCode::BAD_REQUEST, &format!("invalid YAML: {e}"))
     })?;
 
     let validation_errors = validate_normalizer(&def);
@@ -422,10 +406,7 @@ pub async fn update_normalizer(
         ));
     }
 
-    let file_path = packs_dir
-        .join(pack_name)
-        .join("normalizers")
-        .join(filename);
+    let file_path = packs_dir.join(pack_name).join("normalizers").join(filename);
 
     std::fs::write(&file_path, &req.yaml).map_err(|e| {
         err_response::<String>(
@@ -443,12 +424,10 @@ pub async fn update_risk_rule(
     AxumPath((pack_name, filename)): AxumPath<(String, String)>,
     Json(req): Json<UpdateRequest>,
 ) -> Result<Json<ApiResponse<String>>, (StatusCode, Json<ApiResponse<String>>)> {
-    let pack_name = sanitize_pack_name(&pack_name).map_err(|e| {
-        err_response::<String>(StatusCode::BAD_REQUEST, &e)
-    })?;
-    let filename = sanitize_filename(&filename).map_err(|e| {
-        err_response::<String>(StatusCode::BAD_REQUEST, &e)
-    })?;
+    let pack_name = sanitize_pack_name(&pack_name)
+        .map_err(|e| err_response::<String>(StatusCode::BAD_REQUEST, &e))?;
+    let filename = sanitize_filename(&filename)
+        .map_err(|e| err_response::<String>(StatusCode::BAD_REQUEST, &e))?;
 
     let packs_dir = resolve_packs_dir(&state).map_err(|(_status, _body)| {
         err_response::<String>(
@@ -458,10 +437,7 @@ pub async fn update_risk_rule(
     })?;
 
     let def: RiskRuleDef = serde_yaml::from_str(&req.yaml).map_err(|e| {
-        err_response::<String>(
-            StatusCode::BAD_REQUEST,
-            &format!("invalid YAML: {e}"),
-        )
+        err_response::<String>(StatusCode::BAD_REQUEST, &format!("invalid YAML: {e}"))
     })?;
 
     let validation_errors = validate_risk_rule(&def);
@@ -473,10 +449,7 @@ pub async fn update_risk_rule(
         ));
     }
 
-    let file_path = packs_dir
-        .join(pack_name)
-        .join("risk_rules")
-        .join(filename);
+    let file_path = packs_dir.join(pack_name).join("risk_rules").join(filename);
 
     std::fs::write(&file_path, &req.yaml).map_err(|e| {
         err_response::<String>(

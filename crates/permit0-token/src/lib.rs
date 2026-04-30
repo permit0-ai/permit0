@@ -8,6 +8,6 @@ pub mod types;
 pub use error::TokenError;
 pub use provider::{BiscuitTokenProvider, build_claims};
 pub use types::{
-    IssuedBy, Safeguard, TokenClaims, TokenScope, VerificationResult, HUMAN_TTL_SECS,
-    SCORER_TTL_SECS, safeguards_for_tier,
+    HUMAN_TTL_SECS, IssuedBy, SCORER_TTL_SECS, Safeguard, TokenClaims, TokenScope,
+    VerificationResult, safeguards_for_tier,
 };

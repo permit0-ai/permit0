@@ -149,8 +149,7 @@ pub enum FieldType {
 /// The "spec keys" that distinguish a `FieldSpec` mapping from a nested
 /// literal object. Kept centralized so `eval.rs` and any future helper
 /// agree on the detection rule.
-pub const FIELD_SPEC_KEYS: &[&str] =
-    &["from", "value", "type", "default", "join", "first"];
+pub const FIELD_SPEC_KEYS: &[&str] = &["from", "value", "type", "default", "join", "first"];
 
 #[cfg(test)]
 mod tests {

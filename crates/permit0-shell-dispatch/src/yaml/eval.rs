@@ -16,7 +16,7 @@ use serde_yaml::Value as YamlValue;
 
 use crate::parsed::{FlagValue, ParsedCommand};
 
-use super::schema::{FieldSpec, FieldType, FIELD_SPEC_KEYS};
+use super::schema::{FIELD_SPEC_KEYS, FieldSpec, FieldType};
 
 /// Resolve a dotted source path against a parsed command.
 ///
@@ -116,10 +116,8 @@ pub fn eval_field_spec(spec: &FieldSpec, parsed: &ParsedCommand) -> Option<JsonV
     // 1. Resolve source: `from:` beats `value:` beats nothing.
     let mut current: Option<JsonValue> = if let Some(ref path) = spec.from {
         resolve_source_path(path, parsed)
-    } else if let Some(ref lit) = spec.value {
-        Some(yaml_to_json(lit))
     } else {
-        None
+        spec.value.as_ref().map(yaml_to_json)
     };
 
     // 2. join / first — only meaningful for array values.
@@ -128,9 +126,9 @@ pub fn eval_field_spec(spec: &FieldSpec, parsed: &ParsedCommand) -> Option<JsonV
             JsonValue::Array(xs) => {
                 let joined = xs
                     .iter()
-                    .filter_map(|x| match x {
-                        JsonValue::String(s) => Some(s.clone()),
-                        other => Some(other.to_string()),
+                    .map(|x| match x {
+                        JsonValue::String(s) => s.clone(),
+                        other => other.to_string(),
                     })
                     .collect::<Vec<_>>()
                     .join(sep);
@@ -284,7 +282,7 @@ fn render_placeholder(key: &str, parsed: &ParsedCommand) -> String {
 fn is_field_spec(m: &serde_yaml::Mapping) -> bool {
     FIELD_SPEC_KEYS
         .iter()
-        .any(|k| m.contains_key(&YamlValue::String((*k).into())))
+        .any(|k| m.contains_key(YamlValue::String((*k).into())))
 }
 
 fn yaml_to_json(v: &YamlValue) -> JsonValue {
@@ -335,14 +333,16 @@ fn coerce(ty: &FieldType, v: JsonValue) -> JsonValue {
                     v
                 } else if let Some(f) = n.as_f64() {
                     serde_json::Number::from_f64(f.trunc())
-                        .and_then(|n| n.as_f64().and_then(|fx| {
-                            let as_i = fx as i64;
-                            if (as_i as f64 - fx).abs() < f64::EPSILON {
-                                Some(JsonValue::Number(as_i.into()))
-                            } else {
-                                None
-                            }
-                        }))
+                        .and_then(|n| {
+                            n.as_f64().and_then(|fx| {
+                                let as_i = fx as i64;
+                                if (as_i as f64 - fx).abs() < f64::EPSILON {
+                                    Some(JsonValue::Number(as_i.into()))
+                                } else {
+                                    None
+                                }
+                            })
+                        })
                         .unwrap_or(v)
                 } else {
                     v
@@ -553,7 +553,10 @@ mod tests {
             join: None,
             first: None,
         };
-        assert_eq!(eval_field_spec(&spec, &p).unwrap(), serde_json::json!("POST"));
+        assert_eq!(
+            eval_field_spec(&spec, &p).unwrap(),
+            serde_json::json!("POST")
+        );
     }
 
     #[test]
@@ -665,7 +668,10 @@ subject: { from: flags.nonexistent }
         let p = fixture();
         let rendered = eval_parameters(&tree, &p);
         assert_eq!(rendered["to"], "alice@acme.com");
-        assert!(rendered.get("subject").is_none(), "missing fields are dropped");
+        assert!(
+            rendered.get("subject").is_none(),
+            "missing fields are dropped"
+        );
     }
 
     #[test]
@@ -681,8 +687,7 @@ subject: { from: flags.nonexistent }
     #[test]
     fn template_substitutes_subcommand() {
         let p = fixture();
-        let out =
-            render_tool_name_template("gog_{subcommand.0}_{subcommand.1}", &p);
+        let out = render_tool_name_template("gog_{subcommand.0}_{subcommand.1}", &p);
         assert_eq!(out, "gog_gmail_send");
     }
 

@@ -5,8 +5,7 @@ use sha2::{Digest, Sha256};
 use crate::audit::types::AuditEntry;
 
 /// The genesis hash for the first entry in the chain.
-pub const GENESIS_HASH: &str =
-    "0000000000000000000000000000000000000000000000000000000000000000";
+pub const GENESIS_HASH: &str = "0000000000000000000000000000000000000000000000000000000000000000";
 
 /// Compute the content hash for an audit entry.
 /// Hashes all fields except `entry_hash` and `signature`.
@@ -75,6 +74,15 @@ pub fn compute_entry_hash(entry: &AuditEntry) -> String {
         hasher.update(cid.as_bytes());
     }
 
+    // Failed-open replay context (Lane A step 1b)
+    if let Some(ref foc) = entry.failed_open_context {
+        let foc_json = serde_json::to_string(foc).unwrap_or_default();
+        hasher.update(foc_json.as_bytes());
+    }
+    if let Some(ref rd) = entry.retroactive_decision {
+        hasher.update(format!("{rd:?}").as_bytes());
+    }
+
     hex::encode(hasher.finalize())
 }
 
@@ -96,7 +104,7 @@ pub fn verify_chain_link(prev: &AuditEntry, current: &AuditEntry) -> bool {
 mod tests {
     use super::*;
     use crate::audit::types::AuditEntry;
-    use permit0_types::{NormAction, ActionType, ExecutionMeta, Permission};
+    use permit0_types::{ActionType, ExecutionMeta, NormAction, Permission};
     use serde_json::json;
 
     fn make_entry(seq: u64, prev_hash: &str) -> AuditEntry {
@@ -134,6 +142,8 @@ mod tests {
             entry_hash: String::new(),
             signature: String::new(),
             correction_of: None,
+            failed_open_context: None,
+            retroactive_decision: None,
         };
         entry.entry_hash = compute_entry_hash(&entry);
         entry

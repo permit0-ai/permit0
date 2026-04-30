@@ -62,16 +62,16 @@ impl BuiltinRedactor {
 
     /// Add domain-specific field name patterns (e.g. `body.patient_id` for HIPAA).
     pub fn with_extra_patterns(mut self, patterns: Vec<String>) -> Self {
-        self.extra_field_patterns = patterns
-            .iter()
-            .filter_map(|p| Regex::new(p).ok())
-            .collect();
+        self.extra_field_patterns = patterns.iter().filter_map(|p| Regex::new(p).ok()).collect();
         self
     }
 
     fn should_redact_field(&self, field_name: &str) -> bool {
         FIELD_PATTERNS.iter().any(|p| p.is_match(field_name))
-            || self.extra_field_patterns.iter().any(|p| p.is_match(field_name))
+            || self
+                .extra_field_patterns
+                .iter()
+                .any(|p| p.is_match(field_name))
     }
 
     fn should_redact_value(value: &str) -> bool {
@@ -215,8 +215,7 @@ mod tests {
 
     #[test]
     fn extra_patterns_work() {
-        let redactor = BuiltinRedactor::new()
-            .with_extra_patterns(vec!["patient_id".into()]);
+        let redactor = BuiltinRedactor::new().with_extra_patterns(vec!["patient_id".into()]);
         let input = json!({"patient_id": "P12345", "diagnosis": "healthy"});
         let output = redactor.redact(&input);
         assert_eq!(output["patient_id"], REDACTED);

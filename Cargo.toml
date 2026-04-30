@@ -73,21 +73,24 @@ anyhow = "1"
 # Testing
 proptest = "1"
 
-# Internal crates
-permit0-types = { path = "crates/permit0-types" }
-permit0-scoring = { path = "crates/permit0-scoring" }
-permit0-normalize = { path = "crates/permit0-normalize" }
-permit0-dsl = { path = "crates/permit0-dsl" }
-permit0-engine = { path = "crates/permit0-engine" }
-permit0-token = { path = "crates/permit0-token" }
-permit0-session = { path = "crates/permit0-session" }
-permit0-store = { path = "crates/permit0-store" }
-permit0-agent = { path = "crates/permit0-agent" }
-permit0-ui = { path = "crates/permit0-ui" }
-permit0-cli = { path = "crates/permit0-cli" }
-permit0-py = { path = "crates/permit0-py" }
-permit0-node = { path = "crates/permit0-node" }
-permit0-shell-dispatch = { path = "crates/permit0-shell-dispatch" }
+# Internal crates. Each carries an explicit `version` matching the
+# workspace package version so publishable crates (those with
+# `version.workspace = true`) don't trip cargo-deny's wildcard check —
+# crates.io rejects path-only deps, and cargo-deny enforces that.
+permit0-types = { path = "crates/permit0-types", version = "0.1.0" }
+permit0-scoring = { path = "crates/permit0-scoring", version = "0.1.0" }
+permit0-normalize = { path = "crates/permit0-normalize", version = "0.1.0" }
+permit0-dsl = { path = "crates/permit0-dsl", version = "0.1.0" }
+permit0-engine = { path = "crates/permit0-engine", version = "0.1.0" }
+permit0-token = { path = "crates/permit0-token", version = "0.1.0" }
+permit0-session = { path = "crates/permit0-session", version = "0.1.0" }
+permit0-store = { path = "crates/permit0-store", version = "0.1.0" }
+permit0-agent = { path = "crates/permit0-agent", version = "0.1.0" }
+permit0-ui = { path = "crates/permit0-ui", version = "0.1.0" }
+permit0-cli = { path = "crates/permit0-cli", version = "0.1.0" }
+permit0-py = { path = "crates/permit0-py", version = "0.1.0" }
+permit0-node = { path = "crates/permit0-node", version = "0.1.0" }
+permit0-shell-dispatch = { path = "crates/permit0-shell-dispatch", version = "0.1.0" }
 
 # Shell parsing
 shlex = "1"

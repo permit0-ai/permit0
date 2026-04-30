@@ -122,7 +122,12 @@ fn hook_with_safe_email() {
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
-    child.stdin.take().unwrap().write_all(input.as_bytes()).unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(input.as_bytes())
+        .unwrap();
     let output = child.wait_with_output().unwrap();
     assert!(
         output.status.success(),
@@ -131,9 +136,13 @@ fn hook_with_safe_email() {
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
     let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    // Claude Code PreToolUse hook output (post 7de8a2d) uses the nested
+    // `hookSpecificOutput.permissionDecision` shape with values
+    // "allow" | "deny" | "ask" | "defer".
+    let decision = &parsed["hookSpecificOutput"]["permissionDecision"];
     assert!(
-        parsed["decision"] == "allow" || parsed["decision"] == "ask_user",
-        "expected allow or ask_user, got: {stdout}"
+        decision == "allow" || decision == "ask",
+        "expected allow or ask, got: {stdout}"
     );
 }
 
@@ -147,7 +156,12 @@ fn gateway_processes_jsonl() {
         .stderr(Stdio::piped())
         .spawn()
         .unwrap();
-    child.stdin.take().unwrap().write_all(input.as_bytes()).unwrap();
+    child
+        .stdin
+        .take()
+        .unwrap()
+        .write_all(input.as_bytes())
+        .unwrap();
     let output = child.wait_with_output().unwrap();
     assert!(
         output.status.success(),
@@ -179,9 +193,18 @@ fn pack_new_creates_scaffold() {
     );
 
     // Verify scaffold files exist
-    assert!(tmp.join("packs/test_service/normalizers/test_service.normalizer.yaml").exists());
-    assert!(tmp.join("packs/test_service/risk_rules/test_service.risk_rule.yaml").exists());
-    assert!(tmp.join("packs/test_service/fixtures/test_service_basic.fixture.yaml").exists());
+    assert!(
+        tmp.join("packs/test_service/normalizers/test_service.normalizer.yaml")
+            .exists()
+    );
+    assert!(
+        tmp.join("packs/test_service/risk_rules/test_service.risk_rule.yaml")
+            .exists()
+    );
+    assert!(
+        tmp.join("packs/test_service/fixtures/test_service_basic.fixture.yaml")
+            .exists()
+    );
     assert!(tmp.join("packs/test_service/README.md").exists());
 
     // Cleanup
@@ -190,10 +213,7 @@ fn pack_new_creates_scaffold() {
 
 #[test]
 fn serve_help() {
-    let output = permit0_bin()
-        .args(["serve", "--help"])
-        .output()
-        .unwrap();
+    let output = permit0_bin().args(["serve", "--help"]).output().unwrap();
     assert!(output.status.success());
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("--port"));

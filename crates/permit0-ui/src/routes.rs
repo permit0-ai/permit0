@@ -53,7 +53,10 @@ fn err_response<T: Serialize>(status: StatusCode, msg: &str) -> (StatusCode, Jso
 pub async fn list_audit(
     State(state): State<AppState>,
     Query(q): Query<AuditQuery>,
-) -> Result<Json<ApiResponse<Vec<serde_json::Value>>>, (StatusCode, Json<ApiResponse<Vec<serde_json::Value>>>)> {
+) -> Result<
+    Json<ApiResponse<Vec<serde_json::Value>>>,
+    (StatusCode, Json<ApiResponse<Vec<serde_json::Value>>>),
+> {
     if let Some(ref sink) = state.audit_sink {
         let filter = AuditFilter {
             action_type: q.action_type,
@@ -169,17 +172,19 @@ pub async fn denylist_add(
 ) -> Result<Json<ApiResponse<String>>, (StatusCode, Json<ApiResponse<String>>)> {
     let hash = match hex_to_norm_hash(&req.norm_hash_hex) {
         Some(h) => h,
-        None => return Err(err_response(StatusCode::BAD_REQUEST, "invalid norm_hash hex")),
+        None => {
+            return Err(err_response(
+                StatusCode::BAD_REQUEST,
+                "invalid norm_hash hex",
+            ));
+        }
     };
-    state
-        .store
-        .denylist_add(hash, req.reason)
-        .map_err(|e| {
-            err_response(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                &format!("store error: {e}"),
-            )
-        })?;
+    state.store.denylist_add(hash, req.reason).map_err(|e| {
+        err_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &format!("store error: {e}"),
+        )
+    })?;
     Ok(ok_response("added to denylist".to_string()))
 }
 
@@ -190,17 +195,19 @@ pub async fn allowlist_add(
 ) -> Result<Json<ApiResponse<String>>, (StatusCode, Json<ApiResponse<String>>)> {
     let hash = match hex_to_norm_hash(&req.norm_hash_hex) {
         Some(h) => h,
-        None => return Err(err_response(StatusCode::BAD_REQUEST, "invalid norm_hash hex")),
+        None => {
+            return Err(err_response(
+                StatusCode::BAD_REQUEST,
+                "invalid norm_hash hex",
+            ));
+        }
     };
-    state
-        .store
-        .allowlist_add(hash, req.reason)
-        .map_err(|e| {
-            err_response(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                &format!("store error: {e}"),
-            )
-        })?;
+    state.store.allowlist_add(hash, req.reason).map_err(|e| {
+        err_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &format!("store error: {e}"),
+        )
+    })?;
     Ok(ok_response("added to allowlist".to_string()))
 }
 

@@ -28,4 +28,3 @@ pub trait Normalizer: Send + Sync {
         ctx: &NormalizeCtx,
     ) -> Result<NormAction, NormalizeError>;
 }
-

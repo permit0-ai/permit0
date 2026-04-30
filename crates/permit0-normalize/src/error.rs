@@ -25,12 +25,6 @@ pub enum NormalizeError {
 /// Errors that can occur during normalizer registration.
 #[derive(Debug, Error)]
 pub enum RegistryError {
-    #[error(
-        "priority conflict: normalizers '{a}' and '{b}' both have priority {priority}"
-    )]
-    PriorityConflict {
-        a: String,
-        b: String,
-        priority: i32,
-    },
+    #[error("priority conflict: normalizers '{a}' and '{b}' both have priority {priority}")]
+    PriorityConflict { a: String, b: String, priority: i32 },
 }

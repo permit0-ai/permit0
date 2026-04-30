@@ -1,0 +1,11 @@
+{
+  "permission": "human",
+  "action_type": "net.fetch",
+  "channel": "http",
+  "norm_hash": "abcdef0123456789",
+  "score": 78,
+  "tier": "HIGH",
+  "blocked": true,
+  "block_reason": "human approval required",
+  "source": "engine"
+}

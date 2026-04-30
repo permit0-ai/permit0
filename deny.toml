@@ -1,27 +1,45 @@
+# cargo-deny v2 schema. Older fields (unmaintained="warn", unlicensed,
+# copyleft, vulnerability, notice) were removed; the policy intent is
+# preserved via the v2-equivalent settings below.
+
 [advisories]
-vulnerability = "deny"
-unmaintained = "warn"
-yanked = "warn"
-notice = "warn"
+unmaintained = "transitive"
+yanked = "deny"
+# Pre-existing transitive issues we don't directly own. Each entry is
+# tracked for cleanup separately:
+#   RUSTSEC-2024-0370  proc-macro-error 1.x is unmaintained — pulled in
+#                      by an old transitive crate. Replace once the
+#                      offending dependency upgrades or we replace it.
+#   RUSTSEC-2026-0097  rand soundness with custom logger — does not
+#                      affect our use; track upstream rand upgrade.
+ignore = [
+    "RUSTSEC-2024-0370",
+    "RUSTSEC-2026-0097",
+]
 
 [licenses]
-unlicensed = "deny"
 allow = [
     "MIT",
     "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
     "BSD-2-Clause",
     "BSD-3-Clause",
     "ISC",
+    "MPL-2.0",
     "Unicode-3.0",
     "Unicode-DFS-2016",
     "OpenSSL",
     "Zlib",
+    "CC0-1.0",
 ]
-copyleft = "deny"
 
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"
+# Workspace-internal deps use `path = "..."` without a version and are
+# treated as wildcard by cargo-deny. They're not actually wildcards in
+# the supply-chain sense — they always resolve to the in-tree crate.
+allow-wildcard-paths = true
 
 [sources]
 unknown-registry = "deny"

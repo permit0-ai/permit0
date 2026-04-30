@@ -13,8 +13,8 @@ pub use config::{
     check_guardrails,
 };
 pub use constants::{
-    AMP_MAXES, BASE_AMP_WEIGHTS, BASE_RISK_WEIGHTS, CATEGORIES, CategoryConfig,
-    DEFAULT_TANH_K, MULTIPLICATIVE_DIMS,
+    AMP_MAXES, BASE_AMP_WEIGHTS, BASE_RISK_WEIGHTS, CATEGORIES, CategoryConfig, DEFAULT_TANH_K,
+    MULTIPLICATIVE_DIMS,
 };
 pub use scorer::{compute_hybrid, normalise_amps};
 pub use template::RiskTemplate;
