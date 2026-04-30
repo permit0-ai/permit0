@@ -153,7 +153,7 @@ impl From<&RiskScore> for PyRiskScore {
 #[pyclass(name = "NormAction")]
 #[derive(Clone, Debug)]
 pub struct PyNormAction {
-    /// Action type string, e.g. "payments.charge".
+    /// Action type string, e.g. "payment.charge".
     #[pyo3(get)]
     pub action_type: String,
     /// Channel/vendor, e.g. "stripe".

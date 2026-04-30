@@ -256,6 +256,9 @@ mod tests {
             timestamp: format!("2025-01-{:02}T00:00:00Z", (idx % 28) + 1),
             surface_tool: "test".into(),
             surface_command: "test cmd".into(),
+            engine_permission: None,
+            reviewer: None,
+            reason: None,
         }
     }
 

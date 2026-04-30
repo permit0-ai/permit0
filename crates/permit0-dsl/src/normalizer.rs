@@ -143,8 +143,8 @@ match:
           host: api.stripe.com
           path: /v1/charges
 normalize:
-  action_type: "payments.charge"
-  domain: "payments"
+  action_type: "payment.charge"
+  domain: "payment"
   verb: "charge"
   channel: "stripe"
   entities:
@@ -214,7 +214,7 @@ normalize:
         let ctx = NormalizeCtx::new().with_org_domain("acme.com");
         let norm = normalizer.normalize(&raw, &ctx).unwrap();
 
-        assert_eq!(norm.action_type.as_action_str(), "payments.charge");
+        assert_eq!(norm.action_type.as_action_str(), "payment.charge");
         assert_eq!(norm.channel, "stripe");
         assert_eq!(norm.entities["amount"], json!(5000));
         assert_eq!(norm.entities["currency"], json!("usd"));

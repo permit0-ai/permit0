@@ -317,7 +317,7 @@ mod tests {
     fn always_human_type_skips_reviewer() {
         let client = MockLlmClient::deny("Should not see this");
         let reviewer = AgentReviewer::new(Box::new(client));
-        let input = make_review_input("payments.charge", 40);
+        let input = make_review_input("payment.charge", 40);
 
         let result = reviewer.handle_medium(&input, None);
         assert_eq!(result.verdict, ReviewVerdict::HumanInTheLoop);
@@ -343,7 +343,7 @@ mod tests {
 
         let mut session = SessionContext::new("test");
         session.push(ActionRecord {
-            action_type: "payments.transfer".into(),
+            action_type: "payment.transfer".into(),
             tier: Tier::Critical,
             flags: vec![],
             timestamp: 1_700_000_000.0,

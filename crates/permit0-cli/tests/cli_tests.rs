@@ -131,9 +131,13 @@ fn hook_with_safe_email() {
     );
     let stdout = String::from_utf8_lossy(&output.stdout);
     let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
+    // Claude Code PreToolUse hook output (post 7de8a2d) uses the nested
+    // `hookSpecificOutput.permissionDecision` shape with values
+    // "allow" | "deny" | "ask" | "defer".
+    let decision = &parsed["hookSpecificOutput"]["permissionDecision"];
     assert!(
-        parsed["decision"] == "allow" || parsed["decision"] == "ask_user",
-        "expected allow or ask_user, got: {stdout}"
+        decision == "allow" || decision == "ask",
+        "expected allow or ask, got: {stdout}"
     );
 }
 

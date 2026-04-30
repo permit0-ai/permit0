@@ -90,7 +90,7 @@ impl From<&RiskScore> for JsRiskScore {
 /// Normalized action — the tool-agnostic representation.
 #[napi(object)]
 pub struct JsNormAction {
-    /// Action type string, e.g. "payments.charge".
+    /// Action type string, e.g. "payment.charge".
     pub action_type: String,
     /// Channel/vendor, e.g. "stripe".
     pub channel: String,

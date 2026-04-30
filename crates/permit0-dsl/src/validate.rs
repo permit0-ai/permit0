@@ -192,7 +192,7 @@ mod tests {
             match_expr: serde_yaml::from_str("tool: http").unwrap(),
             normalize: NormalizeDef {
                 action_type: action_type.into(),
-                domain: "payments".into(),
+                domain: "payment".into(),
                 verb: "charge".into(),
                 channel: "test".into(),
                 entities: HashMap::new(),
@@ -202,7 +202,7 @@ mod tests {
 
     #[test]
     fn valid_normalizer_passes() {
-        let def = minimal_normalizer("payments.charge");
+        let def = minimal_normalizer("payment.charge");
         let errors = validate_normalizer(&def);
         assert!(errors.is_empty(), "unexpected errors: {errors:?}");
     }
@@ -216,7 +216,7 @@ mod tests {
 
     #[test]
     fn unknown_helper() {
-        let mut def = minimal_normalizer("payments.charge");
+        let mut def = minimal_normalizer("payment.charge");
         def.normalize.entities.insert(
             "test".into(),
             EntityDef {
@@ -238,7 +238,7 @@ mod tests {
 
     #[test]
     fn wrong_arity() {
-        let mut def = minimal_normalizer("payments.charge");
+        let mut def = minimal_normalizer("payment.charge");
         def.normalize.entities.insert(
             "test".into(),
             EntityDef {
@@ -260,7 +260,7 @@ mod tests {
 
     #[test]
     fn unknown_entity_type() {
-        let mut def = minimal_normalizer("payments.charge");
+        let mut def = minimal_normalizer("payment.charge");
         def.normalize.entities.insert(
             "test".into(),
             EntityDef {
@@ -282,7 +282,7 @@ mod tests {
 
     #[test]
     fn conflicting_required_optional() {
-        let mut def = minimal_normalizer("payments.charge");
+        let mut def = minimal_normalizer("payment.charge");
         def.normalize.entities.insert(
             "test".into(),
             EntityDef {
@@ -304,7 +304,7 @@ mod tests {
 
     #[test]
     fn required_with_default() {
-        let mut def = minimal_normalizer("payments.charge");
+        let mut def = minimal_normalizer("payment.charge");
         def.normalize.entities.insert(
             "test".into(),
             EntityDef {
@@ -329,7 +329,7 @@ mod tests {
         let def: RiskRuleDef = serde_yaml::from_str(
             r#"
 permit0_pack: "v1"
-action_type: "payments.charge"
+action_type: "payment.charge"
 base:
   flags:
     financial_write: primary
@@ -349,7 +349,7 @@ session_rules: []
         let def: RiskRuleDef = serde_yaml::from_str(
             r#"
 permit0_pack: "v1"
-action_type: "payments.charge"
+action_type: "payment.charge"
 base:
   flags:
     financial_write: invalid_role
@@ -374,8 +374,8 @@ session_rules: []
 
     #[test]
     fn duplicate_normalizer_ids() {
-        let n1 = minimal_normalizer("payments.charge");
-        let n2 = minimal_normalizer("payments.charge");
+        let n1 = minimal_normalizer("payment.charge");
+        let n2 = minimal_normalizer("payment.charge");
         let errors = check_duplicate_ids(&[n1, n2]);
         assert_eq!(errors.len(), 1);
         assert!(matches!(&errors[0], ValidationError::DuplicateNormalizerId(id) if id == "test:norm"));

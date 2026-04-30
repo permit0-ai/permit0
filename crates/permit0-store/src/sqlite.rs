@@ -484,6 +484,9 @@ mod tests {
             timestamp: ts.into(),
             surface_tool: "test".into(),
             surface_command: "test cmd".into(),
+            engine_permission: None,
+            reviewer: None,
+            reason: None,
         }
     }
 
