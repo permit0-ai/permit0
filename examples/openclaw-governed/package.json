@@ -7,6 +7,11 @@
     "start": "tsx index.ts"
   },
   "dependencies": {
+    "@permit0/openclaw": "file:../../integrations/permit0-openclaw",
     "tsx": "^4.19.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.0",
+    "typescript": "^6.0.3"
   }
 }
