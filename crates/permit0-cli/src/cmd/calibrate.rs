@@ -9,90 +9,129 @@ use permit0_types::RawToolCall;
 
 use crate::engine_factory;
 
-/// Run golden calibration corpus: each case specifies a tool call and expected tier.
+/// Run golden calibration corpus from one explicit path PLUS every
+/// per-pack `tests/shared/` directory found via pack discovery.
+///
+/// Each case specifies a tool call and an expected tier/permission.
+///
+/// PR 5 of the pack taxonomy refactor introduced the per-pack split:
+/// cross-pack integration goldens stay at the workspace-level
+/// `corpora/calibration/` (the default `corpus_path`), while
+/// pack-local goldens live at `packs/<owner>/<pack>/tests/shared/`
+/// so community contributors can ship calibration alongside their
+/// pack. Both run by default.
 pub fn test_corpus(corpus_path: &str) -> Result<()> {
-    let corpus_dir = Path::new(corpus_path);
-    if !corpus_dir.exists() {
-        anyhow::bail!("corpus directory not found: {corpus_path}");
-    }
-
     // Build engine with all packs (no profile — base config)
     let engine = engine_factory::build_engine_from_packs(None, None)?;
     let ctx = PermissionCtx::new(NormalizeCtx::new().with_org_domain("calibration.test"));
+
+    // Discover every corpus directory: the explicit `corpus_path`
+    // (cross-pack) plus every per-pack tests/shared/ found via
+    // `discover_packs`. `tests/shared/` may not exist for every pack
+    // — skip those quietly.
+    let mut corpus_dirs: Vec<std::path::PathBuf> = Vec::new();
+    let explicit = Path::new(corpus_path);
+    if explicit.is_dir() {
+        corpus_dirs.push(explicit.to_path_buf());
+    } else {
+        anyhow::bail!("corpus directory not found: {corpus_path}");
+    }
+    if let Some(packs_dir) = engine_factory::resolve_packs_dir(None) {
+        match permit0_dsl::discover_packs(&packs_dir) {
+            Ok(pack_dirs) => {
+                for pack_dir in pack_dirs {
+                    let shared = pack_dir.join("tests").join("shared");
+                    if shared.is_dir() {
+                        corpus_dirs.push(shared);
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!(
+                    "warning: failed to discover per-pack corpora in {}: {e}",
+                    packs_dir.display()
+                );
+            }
+        }
+    }
 
     let mut passed = 0;
     let mut failed = 0;
     let mut errors = Vec::new();
 
-    let mut entries: Vec<_> = std::fs::read_dir(corpus_dir)?
-        .filter_map(|e| e.ok())
-        .collect();
-    entries.sort_by_key(|e| e.file_name());
+    for corpus_dir in &corpus_dirs {
+        println!("── Corpus: {} ──", corpus_dir.display());
+        let mut entries: Vec<_> = std::fs::read_dir(corpus_dir)?
+            .filter_map(|e| e.ok())
+            .collect();
+        entries.sort_by_key(|e| e.file_name());
 
-    for entry in entries {
-        let path = entry.path();
-        if !path.extension().is_some_and(|e| e == "yaml" || e == "yml") {
-            continue;
-        }
-        let yaml = std::fs::read_to_string(&path)
-            .with_context(|| format!("reading {}", path.display()))?;
-        let case: CorpusCase =
-            serde_yaml::from_str(&yaml).with_context(|| format!("parsing {}", path.display()))?;
+        for entry in entries {
+            let path = entry.path();
+            if !path.extension().is_some_and(|e| e == "yaml" || e == "yml") {
+                continue;
+            }
+            let yaml = std::fs::read_to_string(&path)
+                .with_context(|| format!("reading {}", path.display()))?;
+            let case: CorpusCase = serde_yaml::from_str(&yaml)
+                .with_context(|| format!("parsing {}", path.display()))?;
 
-        let tool_call = RawToolCall {
-            tool_name: case.tool_name,
-            parameters: case.parameters,
-            metadata: Default::default(),
-        };
+            let tool_call = RawToolCall {
+                tool_name: case.tool_name,
+                parameters: case.parameters,
+                metadata: Default::default(),
+            };
 
-        match engine.get_permission(&tool_call, &ctx) {
-            Ok(result) => {
-                let actual_tier = result
-                    .risk_score
-                    .as_ref()
-                    .map(|s| s.tier.to_string())
-                    .unwrap_or_else(|| "NONE".to_string());
-                let actual_perm = format!("{}", result.permission);
-
-                let tier_ok = case.expected_tier.is_none()
-                    || case
-                        .expected_tier
+            match engine.get_permission(&tool_call, &ctx) {
+                Ok(result) => {
+                    let actual_tier = result
+                        .risk_score
                         .as_ref()
-                        .is_some_and(|t| t.to_uppercase() == actual_tier);
-                let perm_ok = case.expected_permission.is_none()
-                    || case
-                        .expected_permission
-                        .as_ref()
-                        .is_some_and(|p| p.to_uppercase() == actual_perm);
+                        .map(|s| s.tier.to_string())
+                        .unwrap_or_else(|| "NONE".to_string());
+                    let actual_perm = format!("{}", result.permission);
 
-                if tier_ok && perm_ok {
-                    println!("  ✓ {}: tier={actual_tier} perm={actual_perm}", case.name);
-                    passed += 1;
-                } else {
-                    let msg = format!(
-                        "{}: expected tier={} perm={}, got tier={actual_tier} perm={actual_perm}",
-                        case.name,
-                        case.expected_tier.as_deref().unwrap_or("any"),
-                        case.expected_permission.as_deref().unwrap_or("any"),
-                    );
+                    let tier_ok = case.expected_tier.is_none()
+                        || case
+                            .expected_tier
+                            .as_ref()
+                            .is_some_and(|t| t.to_uppercase() == actual_tier);
+                    let perm_ok = case.expected_permission.is_none()
+                        || case
+                            .expected_permission
+                            .as_ref()
+                            .is_some_and(|p| p.to_uppercase() == actual_perm);
+
+                    if tier_ok && perm_ok {
+                        println!("  ✓ {}: tier={actual_tier} perm={actual_perm}", case.name);
+                        passed += 1;
+                    } else {
+                        let msg = format!(
+                            "{}: expected tier={} perm={}, got tier={actual_tier} perm={actual_perm}",
+                            case.name,
+                            case.expected_tier.as_deref().unwrap_or("any"),
+                            case.expected_permission.as_deref().unwrap_or("any"),
+                        );
+                        println!("  ✗ {msg}");
+                        errors.push(msg);
+                        failed += 1;
+                    }
+                }
+                Err(e) => {
+                    let msg = format!("{}: error: {e}", case.name);
                     println!("  ✗ {msg}");
                     errors.push(msg);
                     failed += 1;
                 }
-            }
-            Err(e) => {
-                let msg = format!("{}: error: {e}", case.name);
-                println!("  ✗ {msg}");
-                errors.push(msg);
-                failed += 1;
             }
         }
     }
 
     println!("\n── Calibration Results ──");
     println!(
-        "{passed} passed, {failed} failed, {} total",
-        passed + failed
+        "{passed} passed, {failed} failed, {} total ({} corpora scanned)",
+        passed + failed,
+        corpus_dirs.len(),
     );
 
     if failed > 0 {

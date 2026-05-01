@@ -4,5 +4,5 @@ parameters:
   to: "bob@external.com"
   subject: "Hello"
   body: "Quick note"
-expected_tier: "Minimal"
+expected_tier: "Low"
 expected_permission: "Allow"
