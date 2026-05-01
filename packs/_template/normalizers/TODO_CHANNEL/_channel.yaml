@@ -1,0 +1,18 @@
+# Channel metadata for the TODO_CHANNEL backend.
+#
+# `tool_pattern` is enforced by `permit0 pack validate`: every YAML
+# in this directory must have a `match.tool` matching the pattern.
+# This guards against cross-channel poisoning (a normalizer in
+# normalizers/TODO_CHANNEL/ trying to claim a tool from another vendor).
+#
+# `mcp_server` points at the MCP adapter this channel was designed
+# against. Reference, not bundling — packs and MCP servers are
+# separate concerns.
+
+channel: TODO_CHANNEL
+display_name: "TODO Display Name"
+mcp_server: "TODO/path/to/mcp"
+auth: oauth_user        # or: api_key, mtls, none
+api_docs: "TODO_URL"
+tool_pattern: "TODO_CHANNEL_*"
+maintainers: [TODO_OWNER]
