@@ -1,13 +1,18 @@
 #![forbid(unsafe_code)]
 
+use std::collections::BTreeSet;
 use std::path::Path;
 
 use anyhow::{Context, Result};
 use permit0_dsl::normalizer::DslNormalizer;
+use permit0_dsl::pack_validate::{ViolationCode, validate_pack};
+use permit0_dsl::schema::PackManifest;
 use permit0_dsl::schema::risk_rule::RiskRuleDef;
 use permit0_dsl::validate;
 
-/// Validate all normalizer and risk rule YAML files in a pack directory.
+/// Validate all normalizer and risk rule YAML files in a pack directory,
+/// then run manifest-level checks (schema version, trust tier consistency,
+/// action-type coverage, orphans, security lint).
 pub fn validate(pack_path: &str) -> Result<()> {
     let pack_dir = Path::new(pack_path);
     if !pack_dir.exists() {
@@ -17,7 +22,9 @@ pub fn validate(pack_path: &str) -> Result<()> {
     let mut total_errors = 0;
     let mut total_files = 0;
 
-    // Validate normalizers
+    // Validate normalizers (also collect produced action types for the
+    // manifest-level coverage / orphan checks below).
+    let mut normalizer_action_types = BTreeSet::new();
     let normalizers_dir = pack_dir.join("normalizers");
     if normalizers_dir.exists() {
         let mut normalizer_defs = Vec::new();
@@ -42,6 +49,7 @@ pub fn validate(pack_path: &str) -> Result<()> {
                         }
                         total_errors += errors.len();
                     }
+                    normalizer_action_types.insert(n.def().normalize.action_type.clone());
                     normalizer_defs.push(n.def().clone());
                 }
                 Err(e) => {
@@ -59,7 +67,9 @@ pub fn validate(pack_path: &str) -> Result<()> {
         total_errors += dup_errors.len();
     }
 
-    // Validate risk rules
+    // Validate risk rules (collect (action_type, def) pairs for the
+    // manifest-level checks below).
+    let mut risk_rule_targets: Vec<(String, RiskRuleDef)> = Vec::new();
     let rules_dir = pack_dir.join("risk_rules");
     if rules_dir.exists() {
         for entry in std::fs::read_dir(&rules_dir)? {
@@ -83,11 +93,50 @@ pub fn validate(pack_path: &str) -> Result<()> {
                         }
                         total_errors += errors.len();
                     }
+                    risk_rule_targets.push((rule.action_type.clone(), rule));
                 }
                 Err(e) => {
                     println!("  ✗ {}: parse error: {e}", path.display());
                     total_errors += 1;
                 }
+            }
+        }
+    }
+
+    // ── Manifest-level checks (PR 2) ──
+    let manifest_path = pack_dir.join("pack.yaml");
+    if manifest_path.exists() {
+        let manifest_yaml = std::fs::read_to_string(&manifest_path)
+            .with_context(|| format!("reading {}", manifest_path.display()))?;
+        match serde_yaml::from_str::<PackManifest>(&manifest_yaml) {
+            Ok(manifest) => {
+                let violations =
+                    validate_pack(&manifest, &normalizer_action_types, &risk_rule_targets);
+                if !violations.is_empty() {
+                    println!("\n── Manifest-level checks ──");
+                }
+                for v in &violations {
+                    let icon = match v.code {
+                        // The orphan / coverage codes are surfacing pack.yaml
+                        // hygiene issues, but PR 3 closes the existing email
+                        // gaps (outlook list_drafts, list_drafts risk rule).
+                        // Until then, surface them as warnings rather than
+                        // hard errors so existing CI keeps passing.
+                        ViolationCode::MissingNormalizer
+                        | ViolationCode::MissingRiskRule
+                        | ViolationCode::OrphanNormalizer
+                        | ViolationCode::OrphanRiskRule => "⚠",
+                        _ => "✗",
+                    };
+                    println!("  {icon} pack.yaml: {} ({:?})", v.message, v.code);
+                    if icon == "✗" {
+                        total_errors += 1;
+                    }
+                }
+            }
+            Err(e) => {
+                println!("  ✗ {}: parse error: {e}", manifest_path.display());
+                total_errors += 1;
             }
         }
     }

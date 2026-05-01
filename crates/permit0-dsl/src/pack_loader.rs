@@ -129,11 +129,8 @@ mod tests {
     /// Make a tempdir-like scratch root inside CARGO_TARGET_TMPDIR so the
     /// test is hermetic and doesn't depend on `tempfile`.
     fn scratch(name: &str) -> PathBuf {
-        let base = std::env::temp_dir().join(format!(
-            "permit0-discover-{}-{}",
-            name,
-            std::process::id()
-        ));
+        let base =
+            std::env::temp_dir().join(format!("permit0-discover-{}-{}", name, std::process::id()));
         let _ = fs::remove_dir_all(&base);
         fs::create_dir_all(&base).unwrap();
         base
@@ -180,12 +177,12 @@ mod tests {
         // and signing infrastructure ship. Test pinned so the limit
         // is intentional, not accidental.
         let root = scratch("phase-two");
-        write(
-            &root.join("community/alice/jira/pack.yaml"),
-            "name: jira",
-        );
+        write(&root.join("community/alice/jira/pack.yaml"), "name: jira");
         let packs = discover_packs(&root).unwrap();
-        assert!(packs.is_empty(), "phase-2 community packs not yet discoverable");
+        assert!(
+            packs.is_empty(),
+            "phase-2 community packs not yet discoverable"
+        );
     }
 
     #[test]
@@ -213,10 +210,7 @@ mod tests {
     fn caps_depth_at_two() {
         let root = scratch("deep");
         // Depth 3: ignored.
-        write(
-            &root.join("a/b/c/pack.yaml"),
-            "name: too-deep",
-        );
+        write(&root.join("a/b/c/pack.yaml"), "name: too-deep");
         let packs = discover_packs(&root).unwrap();
         assert!(packs.is_empty());
     }

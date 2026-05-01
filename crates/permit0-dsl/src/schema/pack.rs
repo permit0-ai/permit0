@@ -217,7 +217,9 @@ content_hash: ""
         assert_eq!(m.trust_tier, Some(TrustTier::BuiltIn));
         assert_eq!(m.channels.len(), 2);
         assert_eq!(
-            m.channels.get("gmail").and_then(|c| c.mcp_server.as_deref()),
+            m.channels
+                .get("gmail")
+                .and_then(|c| c.mcp_server.as_deref()),
             Some("clients/gmail-mcp")
         );
         assert_eq!(m.action_types, vec!["email.send", "email.archive"]);
