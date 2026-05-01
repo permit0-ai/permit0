@@ -188,6 +188,7 @@ mod tests {
             pack_version: "1.0".into(),
             dsl_version: "1.0".into(),
             human_review: None,
+            engine_decision: None,
             token_id: None,
             prev_hash: prev_hash.into(),
             entry_hash: String::new(),

@@ -62,6 +62,13 @@ pub struct AuditEntry {
     // ── Human review chain ───────────────────────────────
     /// Human review data, if applicable.
     pub human_review: Option<HumanReview>,
+    /// What the engine would have decided before any human review,
+    /// captured at decision time. `Some` only on calibrated entries
+    /// where the human's verdict may differ from the engine's; `None`
+    /// for ordinary entries (engine's verdict equals `decision`) and
+    /// for failed-open replays.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub engine_decision: Option<Permission>,
 
     // ── Token ────────────────────────────────────────────
     /// Token ID if a scoped token was issued.

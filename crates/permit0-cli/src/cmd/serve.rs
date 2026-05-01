@@ -127,10 +127,13 @@ async fn check_handler(
         .chars()
         .take(200)
         .collect();
+    let surface_tool = tool_call.tool_name.clone();
     record_and_respond(
         &state,
         &result,
-        tool_call.tool_name.clone(),
+        &tool_call,
+        &ctx,
+        surface_tool,
         surface_command,
         meta,
     )
@@ -329,7 +332,7 @@ async fn check_action_handler(
     let norm = NormAction {
         action_type,
         channel: req.channel,
-        entities: req.entities,
+        entities: req.entities.clone(),
         execution: ExecutionMeta {
             surface_tool: surface_tool.clone(),
             surface_command: String::new(),
@@ -338,6 +341,14 @@ async fn check_action_handler(
 
     let ctx = PermissionCtx::new(NormalizeCtx::new().with_org_domain(&state.org_domain))
         .with_skip_audit(state.calibrate);
+
+    // Synthesize a raw tool call mirroring what `check_norm_action` does
+    // internally, so the audit chain has something to record on calibration.
+    let synthetic_tool_call = RawToolCall {
+        tool_name: surface_tool.clone(),
+        parameters: serde_json::Value::Object(req.entities),
+        metadata: Default::default(),
+    };
 
     let result = state.engine.check_norm_action(norm, &ctx).map_err(|e| {
         (
@@ -348,7 +359,15 @@ async fn check_action_handler(
 
     let (result, meta) = apply_calibration(&state, result).await?;
 
-    record_and_respond(&state, &result, surface_tool, String::new(), meta)
+    record_and_respond(
+        &state,
+        &result,
+        &synthetic_tool_call,
+        &ctx,
+        surface_tool,
+        String::new(),
+        meta,
+    )
 }
 
 /// In calibration mode, escalate every fresh decision (engine-produced —
@@ -466,6 +485,8 @@ struct CalibrationMeta {
 fn record_and_respond(
     state: &ServerState,
     result: &permit0_engine::PermissionResult,
+    tool_call: &RawToolCall,
+    ctx: &PermissionCtx,
     surface_tool: String,
     surface_command: String,
     calibration: CalibrationMeta,
@@ -489,10 +510,33 @@ fn record_and_respond(
             surface_tool,
             surface_command,
             engine_permission: calibration.engine_permission,
-            reviewer: calibration.reviewer,
-            reason: calibration.reason,
+            reviewer: calibration.reviewer.clone(),
+            reason: calibration.reason.clone(),
         };
         let _ = store.save_decision(record);
+    }
+
+    // When a human calibrated this decision, the engine's normal audit
+    // write was suppressed via `ctx.skip_audit`. Append the composite
+    // entry now so the dashboard's audit log and recent-decisions list
+    // see it. `engine_permission` is the pre-calibration verdict — the
+    // chain stores it in `engine_decision` so the dashboard can show
+    // override information ("permit0 said vs human said vs match?").
+    if let (Some(engine_permission), Some(reviewer), Some(reason)) = (
+        calibration.engine_permission,
+        calibration.reviewer,
+        calibration.reason,
+    ) {
+        if let Err(e) = state.engine.log_calibrated_audit(
+            result,
+            tool_call,
+            ctx,
+            engine_permission,
+            reviewer,
+            reason,
+        ) {
+            tracing::warn!("failed to append calibrated audit entry: {e}");
+        }
     }
 
     Ok(Json(CheckResponse {

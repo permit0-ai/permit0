@@ -60,6 +60,9 @@ pub fn compute_entry_hash(entry: &AuditEntry) -> String {
         let hr_json = serde_json::to_string(hr).unwrap_or_default();
         hasher.update(hr_json.as_bytes());
     }
+    if let Some(ref ed) = entry.engine_decision {
+        hasher.update(format!("{ed:?}").as_bytes());
+    }
 
     // Token
     if let Some(ref tid) = entry.token_id {
@@ -137,6 +140,7 @@ mod tests {
             pack_version: "1.0".into(),
             dsl_version: "1.0".into(),
             human_review: None,
+            engine_decision: None,
             token_id: None,
             prev_hash: prev_hash.into(),
             entry_hash: String::new(),
