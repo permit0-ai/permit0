@@ -156,6 +156,10 @@ export class Permit0Client {
       tool_name: toolName,
       parameters,
       metadata: buildMetadata(ctx),
+      // Tells the daemon to strip mcporter's `<server>.<tool>` prefix
+      // before normalizer dispatch. See ClientKind::OpenClaw in
+      // crates/permit0-cli/src/cmd/hook.rs.
+      client_kind: "openclaw",
     };
 
     let lastError: Permit0Error | undefined;

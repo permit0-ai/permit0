@@ -52,11 +52,17 @@ export interface Decision {
  * `metadata` is reserved for caller-supplied context (e.g. `session_id`,
  * `task_goal`). It is currently dropped server-side; Lane A step 1 wires it
  * into the audit entry. Sending it now is forward-compatible.
+ *
+ * `client_kind` selects host-specific tool-name prefix stripping on the
+ * daemon. For OpenClaw, set this to `"openclaw"` so mcporter's
+ * `<server>.<tool>` shape gets stripped to the bare tool name before
+ * normalizer dispatch. Omit to leave the name untouched (passthrough).
  */
 export interface CheckRequest {
   tool_name: string;
   parameters: unknown;
   metadata?: Record<string, unknown>;
+  client_kind?: string;
 }
 
 /**

@@ -840,6 +840,18 @@ impl EngineBuilder {
         self.install_risk_rule(rule_def)
     }
 
+    /// Install a tool-name alias YAML document. Aliases let foreign tool
+    /// names (e.g. Google's official Gmail MCP `create_label`) be
+    /// rewritten to the canonical names normalizers match
+    /// (`gmail_create_mailbox`). See [`permit0_normalize::AliasResolver`]
+    /// for the YAML schema.
+    pub fn install_aliases_yaml(mut self, yaml: &str) -> Result<Self, EngineError> {
+        self.registry
+            .install_aliases_yaml(yaml)
+            .map_err(|e| EngineError::Build(e.to_string()))?;
+        Ok(self)
+    }
+
     /// Build the engine. Uses `InMemoryStore` if no store was provided.
     pub fn build(self) -> Result<Engine, EngineError> {
         let store = self.store.unwrap_or_else(|| Arc::new(InMemoryStore::new()));

@@ -9,7 +9,12 @@ normalize:
   verb: "read_thread"
   channel: "gmail"
   entities:
+    # Optional rather than required because aliased calls from
+    # Google's official Gmail MCP arrive as `get_thread(id=...)` —
+    # alias rewrites the tool name only, so `thread_id` is empty in
+    # that flow. The canonical permit0-gmail wrapper still passes
+    # `thread_id` and gets the entity populated.
     thread_id:
       from: "thread_id"
       type: "string"
-      required: true
+      optional: true

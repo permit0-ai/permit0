@@ -32,7 +32,9 @@ use permit0_types::{
 use permit0_ui::{AppState, ApprovalManager, TokenStore};
 use tower_http::services::ServeDir;
 
+use crate::cmd::hook::ClientKind;
 use crate::engine_factory;
+use std::str::FromStr;
 
 /// Shared state for the server.
 #[derive(Clone)]
@@ -56,6 +58,13 @@ struct ServerState {
 /// `AuditEntry.task_goal`. Unknown keys round-trip into the engine as
 /// part of `RawToolCall.metadata` and are available to normalizers/risk
 /// rules that opt in to consuming them.
+///
+/// `client_kind` selects host-specific tool-name prefix stripping. See
+/// [`ClientKind`] for the supported values. When omitted (or invalid),
+/// the handler falls back to no stripping (`Raw`) — clients that already
+/// pass bare tool names work without setting it. As a backwards-compat
+/// fallback, the handler also reads `metadata.client_kind` (where older
+/// clients stamped it) before defaulting to `Raw`.
 #[derive(Debug, Deserialize, Default)]
 struct CheckRequest {
     #[serde(alias = "tool")]
@@ -64,6 +73,8 @@ struct CheckRequest {
     parameters: serde_json::Value,
     #[serde(default)]
     metadata: serde_json::Map<String, serde_json::Value>,
+    #[serde(default)]
+    client_kind: Option<String>,
 }
 
 /// Response for POST /api/v1/check.
@@ -95,8 +106,23 @@ async fn check_handler(
     let session_id = extract_string_field(&req.metadata, "session_id");
     let task_goal = extract_string_field(&req.metadata, "task_goal");
 
+    // Resolve client_kind. Default is Raw (passthrough) — clients that
+    // already pass bare tool names work without sending the field.
+    // Unknown values silently fall back to Raw rather than 400-ing, since
+    // a strict deserializer on a host hint creates a deployment coupling
+    // we'd rather not enforce at the wire boundary.
+    let client_kind = req
+        .client_kind
+        .as_deref()
+        .and_then(|s| ClientKind::from_str(s).ok())
+        .unwrap_or(ClientKind::Raw);
+
+    // Strip host-specific tool-name prefix so YAML normalizers can match
+    // the bare name. Mirrors the stdin-hook adapter (see hook.rs).
+    let stripped_tool_name = client_kind.strip_prefix(&req.tool_name).to_string();
+
     let tool_call = RawToolCall {
-        tool_name: req.tool_name,
+        tool_name: stripped_tool_name,
         parameters: req.parameters,
         metadata: req.metadata,
     };
@@ -726,6 +752,24 @@ mod tests {
         assert_eq!(req.metadata.get("session_id").unwrap(), "conv-42");
         assert_eq!(req.metadata.get("task_goal").unwrap(), "list files");
         assert_eq!(req.metadata.get("trace_id").unwrap(), "abc-123");
+    }
+
+    #[test]
+    fn check_request_accepts_client_kind() {
+        let json = r#"{
+            "tool_name": "gmail.create_label",
+            "parameters": {},
+            "client_kind": "openclaw"
+        }"#;
+        let req: CheckRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.client_kind.as_deref(), Some("openclaw"));
+    }
+
+    #[test]
+    fn check_request_client_kind_defaults_to_none() {
+        let json = r#"{"tool_name": "Bash", "parameters": {}}"#;
+        let req: CheckRequest = serde_json::from_str(json).unwrap();
+        assert!(req.client_kind.is_none());
     }
 
     #[test]

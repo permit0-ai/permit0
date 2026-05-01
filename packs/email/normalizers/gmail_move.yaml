@@ -13,7 +13,13 @@ normalize:
       from: "id"
       type: "string"
       required: true
+    # Optional rather than required: the canonical permit0 wrapper
+    # always provides this, but aliased calls (Google's
+    # label_thread/label_message default branch routes here) carry
+    # the destination as a `labelIds` array on the original tool
+    # call. The alias mechanism rewrites the tool name only, not
+    # parameter names, so this entity stays empty for those calls.
     destination:
       from: "label_id"
       type: "string"
-      required: true
+      optional: true
