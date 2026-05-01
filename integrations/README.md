@@ -9,7 +9,11 @@ Reusable, framework-native packages that integrate permit0 with specific agent f
 | Package | Framework | Language | Install | Pattern |
 |---------|-----------|----------|---------|---------|
 | [`permit0-langgraph/`](./permit0-langgraph/) | [LangGraph](https://langchain-ai.github.io/langgraph/) + [LangChain](https://python.langchain.com/) | Python | `pip install -e integrations/permit0-langgraph` | `@permit0_tool(...)` decorator returns a `StructuredTool` LangGraph consumes natively |
-| [`permit0-openclaw/`](./permit0-openclaw/) | [OpenClaw](https://github.com/openclaw/openclaw) | TypeScript | `npm install @permit0/openclaw` | `permit0Skill(...)` HOF or `permit0Middleware(...)` over the gateway dispatch |
+| [`permit0-openclaw/`](./permit0-openclaw/) | [OpenClaw](https://github.com/openclaw/openclaw) | TypeScript | `npm install @permit0/openclaw` | `permit0Middleware(...)` over the gateway dispatch (recommended); `permit0Skill(...)` HOF for advanced cases |
+
+### Also supported, different shape
+
+- **[Claude Code](https://docs.claude.com/en/docs/claude-code/overview)** — gated via `permit0 hook`, a CLI subcommand of the `permit0` binary that's invoked from Claude Code's `PreToolUse` hook in `~/.claude/settings.json`. No separate package; the integration ships with the workspace. See [`../docs/claude-code-integration.md`](../docs/claude-code-integration.md) for setup.
 
 ## The wrapper pattern in one sentence
 
@@ -22,7 +26,8 @@ Every integration follows the same three-step pattern, regardless of language:
 What changes between integrations is *how* you hook in:
 
 - **LangGraph / LangChain (Python)** → wrap with `@tool` after the permit0 check. See [`permit0-langgraph/`](./permit0-langgraph/).
-- **OpenClaw (TypeScript)** → wrap each skill with `permit0Skill(...)`, or compose `permit0Middleware(...)` over the gateway dispatch. See [`permit0-openclaw/`](./permit0-openclaw/).
+- **OpenClaw (TypeScript)** → compose `permit0Middleware(...)` over the gateway dispatch — OpenClaw routes every skill through that chain, so one composition gates all of them. The per-skill `permit0Skill(...)` HOF is the underlying primitive, available for advanced cases. See [`permit0-openclaw/`](./permit0-openclaw/).
+- **Claude Code (CLI)** → wire `permit0 hook` as a `PreToolUse` hook in `~/.claude/settings.json`; the hook adjudicates every built-in and MCP tool call before Claude Code runs it. See [`../docs/claude-code-integration.md`](../docs/claude-code-integration.md).
 - **CrewAI** → subclass `crewai.tools.BaseTool` and override `_run`.
 - **OpenAI Agents SDK** → wrap around the `@function_tool` decorator.
 - **MCP** → sit as a JSON-RPC proxy in front of the upstream MCP server.

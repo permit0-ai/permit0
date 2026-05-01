@@ -3,27 +3,13 @@
 **One line of code to put a deterministic policy gate in front of every OpenClaw skill.**
 
 ```ts
-import { permit0Skill, Permit0Client, isBlocked } from "@permit0/openclaw";
-import { execSync } from "node:child_process";
+import { permit0Middleware, Permit0Client } from "@permit0/openclaw";
 
 const client = new Permit0Client();
-
-const safeShell = permit0Skill(
-  "Bash",
-  client,
-  async ({ command }: { command: string }) => execSync(command).toString(),
-);
-
-const result = await safeShell({ command: "ls /tmp" });
-if (isBlocked(result)) {
-  // result.reason — string the LLM should see
-  // result.decision.tier / .score — for your logger
-} else {
-  // result is the inner skill's return value, untouched
-}
+gateway.dispatch = permit0Middleware(client, gateway.dispatch);
 ```
 
-Every call to `safeShell` first hits the local permit0 daemon. Allow → the inner skill runs. Deny / human-in-the-loop → the inner skill is short-circuited and you get a structured `Blocked` value back.
+That's the integration. Every skill the gateway dispatches now hits the local permit0 daemon first. Allow → the inner skill runs and its result flows back unchanged. Deny / human-in-the-loop → the dispatch throws `Permit0DenyError`, which the gateway can render to the LLM (or, with `{ onBlock: "return" }`, you get a structured `Blocked` value to handle inline).
 
 ## What is OpenClaw
 
@@ -51,6 +37,35 @@ What surfaces to your gateway / LLM:
   ```
 
   `error.decision` carries the full payload.
+
+### Score, tier, and what they mean
+
+A `Decision` carries a `score` (0–100, display) and a `tier`. The engine's mapping from raw risk to tier is fixed, and from tier to verdict is fixed:
+
+| tier | score range | verdict the client sees |
+|---|---|---|
+| MINIMAL / LOW | 0–35 | allow |
+| MEDIUM | 36–55 | human, or deny if the daemon's agent reviewer rejects it |
+| HIGH | 56–75 | human |
+| CRITICAL | 76–100 | deny |
+
+What changes between profiles (`fintech`, `healthtech`, `default`, …) is which actions land in which tier — that's the **calibration**, governed by the active pack's risk rules and weight files. Tooling lives in two places:
+
+- `permit0 calibrate test|diff|validate` — offline CLI for testing, diffing, and validating profiles against the golden corpus under `corpora/calibration/`. Run before shipping a custom profile.
+- `permit0 serve --calibrate` — a daemon mode that **escalates every fresh engine decision to human approval in the dashboard, regardless of tier**, so an operator can audit and override recommendations to build a calibration corpus. Allowlist/denylist/policy-cache hits skip the escalation. Used during onboarding or profile training; never in production. Default is off — production daemons return the engine's recommendation directly.
+
+See [docs/permit.md](../../docs/permit.md) for the full scoring pipeline.
+
+#### Agent review (MEDIUM tier)
+
+Medium-tier actions don't go straight to a verdict. The daemon hands them to a configured **agent reviewer** — a second-pass LLM that reads `task_goal`, the session's prior decisions, and the action itself, then returns one of two outcomes:
+
+- **Deny** when the reviewer is highly confident the action is wrong (≥ 0.90).
+- **Human** when the action is uncertain or plausible.
+
+The reviewer never returns Allow. Allow comes from the scorer (Minimal/Low) or after a human approval. If no reviewer is wired up on the daemon side, Medium routes straight to Human.
+
+This is why threading `session_id` and `task_goal` through `ctx` matters: they're the only signals the reviewer has beyond the action itself. A blank `ctx` on a Medium-tier call gives you a less-informed reviewer. The reviewer's reasoning lands on the audit entry under `decision_source: "agent_reviewer"`.
 
 ## Why this package exists — the audit gap
 
@@ -135,13 +150,30 @@ For local development against this repo, point your project at the workspace cop
 }
 ```
 
-## Two integration shapes
+## How to integrate
 
-Pick one. They're not mutually exclusive but you usually want one or the other.
+Compose a single middleware in front of the gateway's dispatch function and let OpenClaw do the wrapping. You don't manually wrap every skill — the gateway already runs each registered skill through `dispatch`, so one composition gates all of them.
 
-### (a) Per-skill HOF — explicit, opt-in
+```ts
+import { permit0Middleware, Permit0Client } from "@permit0/openclaw";
 
-Wrap each skill at registration time. Best when you want different gating for different skills, or when you want to roll out gradually.
+const client = new Permit0Client();
+gateway.dispatch = permit0Middleware(client, gateway.dispatch);
+```
+
+That's the integration. Every skill OpenClaw dispatches now goes through permit0 first.
+
+The middleware reads `session_id` and `task_goal` off the gateway's per-call `ctx` automatically. If your gateway already passes a context object through `dispatch(toolName, args, ctx)`, those fields land on the audit entry — and reach the agent reviewer for Medium-tier calls (see [Agent review](#agent-review-medium-tier) above) — without any extra work.
+
+Switch the deny behavior if your gateway prefers value-returns over exceptions:
+
+```ts
+gateway.dispatch = permit0Middleware(client, gateway.dispatch, { onBlock: "return" });
+```
+
+### Manual per-skill wrapping (advanced)
+
+If you need different gating per skill, or your gateway doesn't expose a clean dispatch seam, the underlying HOF is available. The middleware is a thin composer over this primitive — same `Permit0Client.check()` call, just at a different seam — so most users won't reach for the HOF directly.
 
 ```ts
 import { permit0Skill, Permit0Client, isBlocked } from "@permit0/openclaw";
@@ -158,7 +190,7 @@ const safeShell = permit0Skill(
 gateway.register("Bash", safeShell);
 ```
 
-Threading session/task context for the audit trail (per call):
+The HOF takes the same per-call `ctx` knob:
 
 ```ts
 const result = await safeShell(
@@ -166,30 +198,6 @@ const result = await safeShell(
   { ctx: { session_id: "agent-run-7f3a", task_goal: "list temp files" } },
 );
 ```
-
-### (b) Gateway middleware — uniform coverage
-
-Compose permit0 in front of the gateway's dispatch function. One change, every skill is gated.
-
-```ts
-import { permit0Middleware, Permit0Client } from "@permit0/openclaw";
-
-const client = new Permit0Client();
-gateway.dispatch = permit0Middleware(client, gateway.dispatch);
-```
-
-The middleware reads `session_id` and `task_goal` off the gateway's per-call `ctx` automatically. If your gateway already passes a context object through `dispatch(toolName, args, ctx)`, those fields land on the audit entry without any extra work.
-
-Switch the deny behavior if your gateway prefers value-returns over exceptions:
-
-```ts
-gateway.dispatch = permit0Middleware(client, gateway.dispatch, { onBlock: "return" });
-```
-
-### When to pick which
-
-- **HOF** if you're rolling out gradually, want different gating per skill, or your gateway doesn't have a clean middleware seam.
-- **Middleware** if you want one place to enforce policy and you want to forget about it. This is the production default.
 
 ## API reference
 
