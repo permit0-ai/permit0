@@ -151,11 +151,7 @@ impl AliasResolver {
     ///
     /// `params` is the tool call's parameter object (`raw.parameters`),
     /// used to evaluate conditional `when:` clauses.
-    pub fn resolve<'a>(
-        &'a self,
-        tool_name: &str,
-        params: &serde_json::Value,
-    ) -> Option<&'a str> {
+    pub fn resolve<'a>(&'a self, tool_name: &str, params: &serde_json::Value) -> Option<&'a str> {
         match self.map.get(tool_name)? {
             AliasAction::Flat(target) => Some(target.as_str()),
             AliasAction::Conditional(branches) => {
@@ -222,10 +218,8 @@ impl AliasEntry {
                         self.tool
                     )));
                 }
-                let compiled: Result<Vec<_>, _> = branches
-                    .iter()
-                    .map(|b| b.compile(&self.tool))
-                    .collect();
+                let compiled: Result<Vec<_>, _> =
+                    branches.iter().map(|b| b.compile(&self.tool)).collect();
                 Ok(AliasAction::Conditional(compiled?))
             }
             (Some(_), Some(_)) => Err(RegistryError::AliasParse(format!(

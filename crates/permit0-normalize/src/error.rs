@@ -28,7 +28,9 @@ pub enum RegistryError {
     #[error("priority conflict: normalizers '{a}' and '{b}' both have priority {priority}")]
     PriorityConflict { a: String, b: String, priority: i32 },
 
-    #[error("alias conflict: tool '{tool}' is aliased twice (existing: '{existing}', new: '{new}')")]
+    #[error(
+        "alias conflict: tool '{tool}' is aliased twice (existing: '{existing}', new: '{new}')"
+    )]
     AliasConflict {
         tool: String,
         existing: String,
