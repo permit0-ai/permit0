@@ -6,7 +6,7 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use permit0_dsl::discover_normalizer_yamls;
 use permit0_dsl::normalizer::DslNormalizer;
-use permit0_dsl::pack_validate::{ViolationCode, validate_pack};
+use permit0_dsl::pack_validate::{ViolationCode, validate_channel_directories, validate_pack};
 use permit0_dsl::schema::PackManifest;
 use permit0_dsl::schema::risk_rule::RiskRuleDef;
 use permit0_dsl::validate;
@@ -139,6 +139,32 @@ pub fn validate(pack_path: &str) -> Result<()> {
                 println!("  ✗ {}: parse error: {e}", manifest_path.display());
                 total_errors += 1;
             }
+        }
+    }
+
+    // ── Per-channel tool_pattern enforcement (PR 8) ──
+    match validate_channel_directories(pack_dir) {
+        Ok(channel_violations) if !channel_violations.is_empty() => {
+            println!("\n── Channel manifest checks ──");
+            for v in &channel_violations {
+                let icon = match v.code {
+                    // Missing _channel.yaml in a per-channel directory
+                    // is a warning during the migration window;
+                    // tool-pattern mismatches are hard errors because
+                    // they signal active cross-channel poisoning.
+                    ViolationCode::MissingChannelManifest => "⚠",
+                    ViolationCode::ToolPatternMismatch => "✗",
+                    _ => "✗",
+                };
+                println!("  {icon} {} ({:?})", v.message, v.code);
+                if icon == "✗" {
+                    total_errors += 1;
+                }
+            }
+        }
+        Ok(_) => {}
+        Err(e) => {
+            println!("  ⚠ channel manifest check failed: {e}");
         }
     }
 
