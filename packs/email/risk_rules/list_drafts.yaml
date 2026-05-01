@@ -1,0 +1,21 @@
+permit0_pack: "permit0/email"
+action_type: "email.list_drafts"
+# default tier: MINIMAL — listing drafts is metadata-only, no outbound
+# action and no content exposure beyond the user's own outbox.
+# Modeled after risk_rules/search.yaml since the data shape is similar
+# (paginated metadata listing with an optional query filter).
+base:
+  flags: {}
+  amplifiers:
+    scope: 1
+rules: []
+session_rules:
+  # Bulk-listing drafts in one session can be reconnaissance preparing
+  # to bulk-send. Same threshold as search.yaml.
+  - when:
+      record_count:
+        gt: 100
+    then:
+      - upgrade:
+          dim: scope
+          delta: 4
