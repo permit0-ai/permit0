@@ -51,11 +51,12 @@ pub struct PackManifest {
     pub channels: std::collections::BTreeMap<String, ChannelMeta>,
 
     /// Self-declared trust tier. **Informational only** — the engine
-    /// derives the authoritative tier from path (and, in Phase 2, signature).
-    /// A community pack declaring `trust_tier: built-in` does not become
-    /// built-in; the validator flags the mismatch.
+    /// derives the authoritative tier from `permit0_pack`'s owner prefix
+    /// (and, in Phase 2, signature). A community pack declaring
+    /// `trust_tier: built-in` does not become built-in; the validator
+    /// flags the mismatch.
     #[serde(default)]
-    pub trust_tier: Option<TrustTierDecl>,
+    pub trust_tier: Option<TrustTier>,
 
     /// Phase 2 forward-compat: signature over the pack's lockfile + manifest.
     /// Reserved; empty in Phase 1.
@@ -113,15 +114,54 @@ pub struct ChannelMeta {
     pub display_name: Option<String>,
 }
 
-/// Self-declared trust tier values accepted in `pack.yaml`. Engine derives
-/// the *authoritative* tier independently; this declaration is informational.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+/// Authoritative pack trust tier.
+///
+/// Distinct from `permit0_types::Tier` (the per-decision risk tier) — that
+/// classifies *requests* on a confidence scale, this classifies *packs* on
+/// a trust scale.
+///
+/// Used in two roles:
+/// - As an `Option<TrustTier>` in `PackManifest::trust_tier`: the *declared*
+///   value, informational only.
+/// - As the return value of [`derive_trust_tier`]: the *authoritative* value
+///   the engine uses for trust decisions.
+///
+/// Validators compare the declared and derived values and flag mismatches.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, serde::Serialize)]
 #[serde(rename_all = "kebab-case")]
-pub enum TrustTierDecl {
+pub enum TrustTier {
+    /// Maintained by the permit0 core team. Path: `packs/permit0/*`.
     BuiltIn,
+    /// Community-maintained, permit0-co-signed. Phase 2 (requires signing infra).
     Verified,
+    /// Community-maintained, no co-sign. Default for non-permit0 owners in Phase 1.
     Community,
+    /// Hidden by default; opt-in to install. Phase 2.
     Experimental,
+}
+
+/// Derive the authoritative trust tier from a pack's owner.
+///
+/// Phase 1 implementation:
+/// - `owner == "permit0"` → `TrustTier::BuiltIn`
+/// - everything else → `TrustTier::Community`
+///
+/// Phase 2 will extend this to consult the lockfile signature and the
+/// federated registry. Until then, `Verified` and `Experimental` are
+/// unreachable via derivation — packs declaring them are flagged by the
+/// validator.
+pub fn derive_trust_tier(owner: &str) -> TrustTier {
+    if owner == "permit0" {
+        TrustTier::BuiltIn
+    } else {
+        TrustTier::Community
+    }
+}
+
+/// Owner extracted from a `permit0_pack` manifest field (`<owner>/<name>`).
+/// Returns `None` if the field is missing the slash separator.
+pub fn extract_owner(permit0_pack: &str) -> Option<&str> {
+    permit0_pack.split_once('/').map(|(o, _)| o)
 }
 
 /// Current pack manifest schema version. Bump on breaking schema changes.
@@ -174,7 +214,7 @@ content_hash: ""
 "#;
         let m: PackManifest = serde_yaml::from_str(yaml).unwrap();
         assert_eq!(m.pack_format, Some(2));
-        assert_eq!(m.trust_tier, Some(TrustTierDecl::BuiltIn));
+        assert_eq!(m.trust_tier, Some(TrustTier::BuiltIn));
         assert_eq!(m.channels.len(), 2);
         assert_eq!(
             m.channels.get("gmail").and_then(|c| c.mcp_server.as_deref()),
@@ -215,5 +255,41 @@ trust_tier: gold-plated
         let err = serde_yaml::from_str::<PackManifest>(yaml).unwrap_err();
         let msg = err.to_string();
         assert!(msg.contains("gold-plated") || msg.contains("variant"));
+    }
+
+    #[test]
+    fn extracts_owner_from_permit0_pack() {
+        assert_eq!(extract_owner("permit0/email"), Some("permit0"));
+        assert_eq!(extract_owner("anthropic/audit"), Some("anthropic"));
+        assert_eq!(extract_owner("bad-no-slash"), None);
+        assert_eq!(extract_owner(""), None);
+    }
+
+    #[test]
+    fn derive_trust_tier_classifies_owners() {
+        assert_eq!(derive_trust_tier("permit0"), TrustTier::BuiltIn);
+        assert_eq!(derive_trust_tier("anthropic"), TrustTier::Community);
+        assert_eq!(derive_trust_tier("alice"), TrustTier::Community);
+        assert_eq!(derive_trust_tier(""), TrustTier::Community);
+    }
+
+    #[test]
+    fn declared_tier_can_disagree_with_derived() {
+        // Manifest declares built-in but owner is "alice" → derived is community.
+        // The validator (separate module) will flag this as a self-attestation
+        // mismatch. The derive function always returns the authoritative value.
+        let yaml = r#"
+pack_format: 2
+name: jira
+version: "0.1.0"
+permit0_pack: "alice/jira"
+trust_tier: built-in
+"#;
+        let m: PackManifest = serde_yaml::from_str(yaml).unwrap();
+        let owner = extract_owner(&m.permit0_pack).unwrap();
+        let derived = derive_trust_tier(owner);
+        assert_eq!(m.trust_tier, Some(TrustTier::BuiltIn));
+        assert_eq!(derived, TrustTier::Community);
+        assert_ne!(m.trust_tier.unwrap(), derived);
     }
 }
