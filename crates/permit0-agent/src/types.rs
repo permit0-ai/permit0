@@ -61,7 +61,7 @@ pub const MEDIUM_SCORE_SKIP_THRESHOLD: u32 = 52;
 /// Action types that always skip the reviewer and go straight to HUMAN.
 ///
 /// Strings here must match the canonical `Domain.Verb` form from
-/// permit0-types/catalog.rs (singular domain). `secret.get` covers the
+/// permit0-types/taxonomy.rs (singular domain). `secret.get` covers the
 /// retrieval path since the Secret domain does not expose a dedicated
 /// "read" verb.
 pub const ALWAYS_HUMAN_TYPES: &[&str] = &[

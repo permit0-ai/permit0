@@ -1,16 +1,16 @@
 #![forbid(unsafe_code)]
 
-//! The action catalog — the authoritative `domain.verb` taxonomy that all
-//! norm actions must conform to.
+//! The action taxonomy — the authoritative `domain.verb` classification that
+//! all norm actions must conform to.
 //!
 //! ## Domains
 //!
-//! Two tiers of detail in this catalog:
+//! Two tiers of detail in this taxonomy:
 //!
 //! - **`email`**: fully fleshed out (15 verbs), backed by real normalizers
 //!   and risk rules in `packs/email/`.
 //! - **All other domains**: declared as **placeholders** with a clean verb
-//!   list. They have no normalizers or risk rules yet — the catalog defines
+//!   list. They have no normalizers or risk rules yet — the taxonomy defines
 //!   the schema, future packs implement it.
 //!
 //! ## Verb design
@@ -29,7 +29,7 @@
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
-/// Domains in the action catalog.
+/// Domains in the action taxonomy.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Domain {
@@ -300,7 +300,7 @@ impl fmt::Display for Domain {
     }
 }
 
-/// Verbs in the action catalog.
+/// Verbs in the action taxonomy.
 ///
 /// Generic verbs (`Get`, `List`, `Create`, `Update`, `Delete`, `Search`,
 /// `Move`, `Copy`, `Export`, `Send`, `Post`, `Schedule`, `Draft`) are
@@ -563,7 +563,7 @@ impl fmt::Display for Verb {
     }
 }
 
-/// A validated `domain.verb` pair from the action catalog.
+/// A validated `domain.verb` pair from the action taxonomy.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ActionType {
     pub domain: Domain,
@@ -622,7 +622,7 @@ pub enum CatalogError {
     ParseError(String),
 }
 
-/// All domains in the catalog.
+/// All domains in the taxonomy.
 pub const ALL_DOMAINS: &[Domain] = &[
     Domain::Email,
     Domain::Message,
@@ -648,7 +648,7 @@ pub const ALL_DOMAINS: &[Domain] = &[
     Domain::Unknown,
 ];
 
-/// All verbs in the catalog (flat list, deduplicated).
+/// All verbs in the taxonomy (flat list, deduplicated).
 const ALL_VERBS: &[Verb] = &[
     // Generic CRUD + read
     Verb::Get,
@@ -769,7 +769,7 @@ const ALL_VERBS: &[Verb] = &[
     Verb::Unclassified,
 ];
 
-/// All valid `ActionType` entries in the catalog.
+/// All valid `ActionType` entries in the taxonomy.
 pub fn all_action_types() -> Vec<ActionType> {
     ALL_DOMAINS
         .iter()
@@ -861,7 +861,7 @@ mod tests {
         assert_eq!(all.len(), expected);
         assert!(
             all.len() > 100,
-            "catalog should have >100 entries, got {}",
+            "taxonomy should have >100 entries, got {}",
             all.len()
         );
     }
