@@ -112,6 +112,15 @@ enum PackCmd {
         /// Pack name (e.g. "slack", "jira")
         name: String,
     },
+    /// Generate or refresh `pack.lock.yaml` for a pack directory
+    Lock {
+        /// Path to the pack directory (e.g. packs/permit0/email)
+        path: String,
+        /// Verify the existing lockfile against current contents
+        /// without writing changes. Exits non-zero on drift.
+        #[arg(long)]
+        check: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -219,6 +228,7 @@ fn main() -> anyhow::Result<()> {
             PackCmd::Validate { path } => cmd::pack::validate(&path),
             PackCmd::Test { path } => cmd::pack::test(&path),
             PackCmd::New { name } => cmd::pack::new_pack(&name),
+            PackCmd::Lock { path, check } => cmd::pack::lock(&path, check),
         },
         Commands::Audit(audit_cmd) => match audit_cmd {
             AuditCmd::Verify { path, public_key } => cmd::audit::verify(&path, &public_key),
