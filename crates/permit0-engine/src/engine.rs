@@ -1368,4 +1368,130 @@ mod tests {
             )
             .unwrap();
     }
+
+    // ── HITL is not cached (regression: calibrate-overwrite race) ─────
+
+    #[test]
+    fn hitl_not_cached_for_unknown_action() {
+        // Step 5 path: a tool that normalizes but has no risk rule returns
+        // HITL. The cache must NOT be populated, otherwise a request future
+        // cancelled before calibrate completes would pin the cache and step 4
+        // would short-circuit forever.
+        let engine = build_test_engine();
+        let ctx = default_ctx();
+
+        let raw = RawToolCall {
+            tool_name: "unknown_tool".into(),
+            parameters: json!({"some": "data"}),
+            metadata: Default::default(),
+        };
+        let result = engine.get_permission(&raw, &ctx).unwrap();
+        assert_eq!(result.permission, Permission::HumanInTheLoop);
+
+        let hash = result.norm_action.norm_hash();
+        assert_eq!(
+            engine.store().policy_cache_get(&hash).unwrap(),
+            None,
+            "HITL verdict from unknown-action path must not be cached"
+        );
+    }
+
+    #[test]
+    fn hitl_not_cached_after_scorer() {
+        // Step 7 path: a known action whose scorer routes to HITL (Medium/High
+        // tier). Same invariant — cache stays empty until a definitive
+        // Allow/Deny is reached.
+        let engine = build_test_engine();
+        let ctx = default_ctx();
+
+        // body containing "password" pushes the email risk rule into HIGH
+        // tier (see packs/email/risk_rules/send.yaml), which routes to HITL.
+        let result = engine
+            .get_permission(&gmail_send("update", "your password is hunter2"), &ctx)
+            .unwrap();
+        assert_eq!(result.permission, Permission::HumanInTheLoop);
+        assert_eq!(result.source, DecisionSource::Scorer);
+
+        let hash = result.norm_action.norm_hash();
+        assert_eq!(
+            engine.store().policy_cache_get(&hash).unwrap(),
+            None,
+            "HITL verdict from scorer path must not be cached"
+        );
+    }
+
+    #[test]
+    fn allow_is_still_cached() {
+        // Sanity counterpart to the HITL tests: definitive Allow verdicts
+        // must still land in the cache so subsequent identical calls hit
+        // step 4 and skip re-scoring. Guards against an over-eager fix that
+        // disables caching entirely.
+        let engine = build_test_engine();
+        let ctx = default_ctx();
+
+        let result = engine
+            .get_permission(&gmail_send("Hello", "body"), &ctx)
+            .unwrap();
+        assert_eq!(result.permission, Permission::Allow);
+
+        let hash = result.norm_action.norm_hash();
+        assert_eq!(
+            engine.store().policy_cache_get(&hash).unwrap(),
+            Some(Permission::Allow),
+        );
+    }
+
+    #[test]
+    fn calibration_can_overwrite_hitl_for_unknown_action() {
+        // End-to-end of the fix: caller hits HITL → no cache entry → daemon's
+        // apply_calibration writes the human's verdict via policy_cache_set →
+        // next call short-circuits at step 4 with the calibrated answer.
+        // Without the fix, step 4 would already be returning HITL on call #2.
+        let engine = build_test_engine();
+        let ctx = default_ctx();
+
+        let raw = RawToolCall {
+            tool_name: "unknown_tool".into(),
+            parameters: json!({"some": "data"}),
+            metadata: Default::default(),
+        };
+
+        let first = engine.get_permission(&raw, &ctx).unwrap();
+        assert_eq!(first.permission, Permission::HumanInTheLoop);
+        let hash = first.norm_action.norm_hash();
+
+        // Mirror what apply_calibration does once the human approves.
+        engine
+            .store()
+            .policy_cache_set(hash, Permission::Allow)
+            .unwrap();
+
+        let second = engine.get_permission(&raw, &ctx).unwrap();
+        assert_eq!(second.permission, Permission::Allow);
+        assert_eq!(second.source, DecisionSource::PolicyCache);
+    }
+
+    #[test]
+    fn calibration_can_overwrite_hitl_after_scorer() {
+        // Same end-to-end as above, but for the post-scorer HITL path —
+        // confirms a HIGH-tier scoring outcome doesn't leave the cache pinned
+        // either, and the human's verdict still lands.
+        let engine = build_test_engine();
+        let ctx = default_ctx();
+
+        let tool_call = gmail_send("update", "your password is hunter2");
+        let first = engine.get_permission(&tool_call, &ctx).unwrap();
+        assert_eq!(first.permission, Permission::HumanInTheLoop);
+        assert_eq!(first.source, DecisionSource::Scorer);
+        let hash = first.norm_action.norm_hash();
+
+        engine
+            .store()
+            .policy_cache_set(hash, Permission::Deny)
+            .unwrap();
+
+        let second = engine.get_permission(&tool_call, &ctx).unwrap();
+        assert_eq!(second.permission, Permission::Deny);
+        assert_eq!(second.source, DecisionSource::PolicyCache);
+    }
 }
