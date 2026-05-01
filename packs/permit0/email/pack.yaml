@@ -11,8 +11,8 @@
 pack_format: 2
 permit0_pack: "permit0/email"
 name: email
-version: "0.3.0"
-description: "Unified email actions across Gmail and Outlook (16 verbs, 31 normalizers)."
+version: "0.4.0"
+description: "Unified email actions across Gmail and Outlook (16 verbs, 32 normalizers)."
 license: Apache-2.0
 
 # Engine + taxonomy compatibility. The engine refuses to load packs
@@ -49,9 +49,10 @@ action_types:
   - email.set_forwarding
   - email.add_delegate
 
-# Channel metadata. PR 3 will move normalizers into per-channel
-# subdirectories under normalizers/{gmail,outlook}/. For now the
-# normalizer YAMLs are still flat with prefix-based naming.
+# Channel metadata. Each channel maps to a self-contained subdirectory
+# under normalizers/<channel>/ that holds its own _channel.yaml,
+# aliases.yaml, and per-verb normalizer files. Adding a vendor =
+# create one directory + drop in 16 verbs.
 channels:
   gmail:
     mcp_server: clients/gmail-mcp
