@@ -33,7 +33,7 @@ pub fn workspace_root() -> PathBuf {
 ///
 /// ```ignore
 /// use permit0_test_utils::load_test_fixture;
-/// let yaml = load_test_fixture("packs/email/normalizers/gmail_send.yaml");
+/// let yaml = load_test_fixture("packs/permit0/email/normalizers/gmail_send.yaml");
 /// ```
 pub fn load_test_fixture(rel_path: &str) -> String {
     let full = workspace_root().join(rel_path);

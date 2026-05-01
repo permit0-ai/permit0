@@ -20,15 +20,15 @@ fn load_risk_rule(yaml: &str) -> RiskRuleDef {
 // ── Email Pack ──
 
 fn gmail_normalizer_yaml() -> String {
-    load_test_fixture("packs/email/normalizers/gmail_send.yaml")
+    load_test_fixture("packs/permit0/email/normalizers/gmail_send.yaml")
 }
 
 fn outlook_normalizer_yaml() -> String {
-    load_test_fixture("packs/email/normalizers/outlook_send.yaml")
+    load_test_fixture("packs/permit0/email/normalizers/outlook_send.yaml")
 }
 
 fn email_risk_yaml() -> String {
-    load_test_fixture("packs/email/risk_rules/send.yaml")
+    load_test_fixture("packs/permit0/email/risk_rules/send.yaml")
 }
 
 #[test]

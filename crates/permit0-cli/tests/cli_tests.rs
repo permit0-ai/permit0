@@ -68,8 +68,22 @@ fn check_unknown_tool_human() {
 
 #[test]
 fn pack_validate_email() {
+    // Email pack moved to packs/permit0/email/ in PR 3 of the pack
+    // taxonomy refactor. Try the owner-namespaced location first; fall
+    // back to the legacy flat path for back-compat with checkouts that
+    // haven't merged the move yet.
+    let pack_path = if std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(std::path::Path::parent)
+        .map(|root| root.join("packs/permit0/email").is_dir())
+        .unwrap_or(false)
+    {
+        "packs/permit0/email"
+    } else {
+        "packs/email"
+    };
     let output = permit0_bin()
-        .args(["pack", "validate", "packs/email"])
+        .args(["pack", "validate", pack_path])
         .output()
         .unwrap();
     assert!(

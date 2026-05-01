@@ -16,11 +16,23 @@ use permit0_types::{NormAction, RawToolCall};
 use serde_json::json;
 use std::path::Path;
 
-/// Build a `NormalizerRegistry` populated from `packs/email/`. Mirrors
+/// Build a `NormalizerRegistry` populated from the email pack. Mirrors
 /// the production load path but stays in the test process so we don't
 /// shell out to the CLI and bring scoring/audit/etc. into the picture.
+///
+/// Looks for the pack at the schema v2 owner-namespaced location first
+/// (`packs/permit0/email/`), then falls back to the legacy flat path
+/// (`packs/email/`). Same fixture survives PR 3's file move.
 fn build_email_registry() -> NormalizerRegistry {
-    let pack_dir = workspace_root().join("packs").join("email");
+    let root = workspace_root();
+    let pack_dir = {
+        let owner_ns = root.join("packs").join("permit0").join("email");
+        if owner_ns.is_dir() {
+            owner_ns
+        } else {
+            root.join("packs").join("email")
+        }
+    };
     let mut reg = NormalizerRegistry::new();
 
     // Walk normalizers/ at depth 1 AND depth 2 to handle both the
