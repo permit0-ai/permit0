@@ -6,6 +6,7 @@ use axum::response::Json;
 use serde::{Deserialize, Serialize};
 
 use permit0_store::AuditFilter;
+use permit0_store::audit::AuditEntry;
 use permit0_types::{DecisionFilter, Permission};
 
 use crate::approval::HumanDecision;
@@ -69,10 +70,14 @@ pub async fn list_audit(
         };
         match sink.query(&filter) {
             Ok(entries) => {
-                let json_entries: Vec<serde_json::Value> = entries
-                    .iter()
-                    .filter_map(|e| serde_json::to_value(e).ok())
-                    .collect();
+                // The frontend's audit table and dashboard "Recent Decisions"
+                // both read flat fields (action_type, permission, tier,
+                // risk_raw, ...) shaped like DecisionRecord. AuditEntry has a
+                // nested shape (norm_action.action_type, decision,
+                // risk_score.tier). Project to the flat shape so both views
+                // render correctly without reaching into nested objects.
+                let json_entries: Vec<serde_json::Value> =
+                    entries.iter().map(flatten_audit_entry).collect();
                 Ok(ok_response(json_entries))
             }
             Err(e) => Err(err_response(
@@ -227,6 +232,55 @@ fn parse_permission(s: &str) -> Option<Permission> {
         "human" | "humanintheloop" => Some(Permission::HumanInTheLoop),
         _ => None,
     }
+}
+
+/// Project an `AuditEntry` to the flat JSON shape the frontend reads.
+///
+/// Mirrors `DecisionRecord` field names so the audit-log table and
+/// dashboard "Recent Decisions" can render without nested-field
+/// destructuring. Audit-only fields (entry_id, sequence, prev_hash,
+/// human_review, failed_open_context) are preserved alongside, so detail
+/// expansion still has the chain metadata to show.
+fn flatten_audit_entry(e: &AuditEntry) -> serde_json::Value {
+    let risk_raw = e.risk_score.as_ref().map(|s| s.raw);
+    let risk_score = e.risk_score.as_ref().map(|s| s.score);
+    let tier = e.risk_score.as_ref().map(|s| s.tier.to_string());
+    let blocked = e.risk_score.as_ref().map(|s| s.blocked);
+    let flags: Vec<String> = e
+        .risk_score
+        .as_ref()
+        .map(|s| s.flags.clone())
+        .unwrap_or_default();
+    let reviewer = e.human_review.as_ref().map(|hr| hr.reviewer.clone());
+    let reason = e.human_review.as_ref().map(|hr| hr.reason.clone());
+
+    serde_json::json!({
+        "id": e.entry_id,
+        "timestamp": e.timestamp,
+        "action_type": e.norm_action.action_type.as_action_str(),
+        "channel": e.norm_action.channel,
+        "permission": e.decision,
+        "source": e.decision_source,
+        "tier": tier,
+        "risk_raw": risk_raw,
+        "score": risk_score,
+        "blocked": blocked,
+        "flags": flags,
+        "surface_tool": e.norm_action.execution.surface_tool,
+        "surface_command": e.norm_action.execution.surface_command,
+        "reviewer": reviewer,
+        "reason": reason,
+        "engine_permission": e.engine_decision,
+        "norm_hash": hex::encode(e.norm_hash),
+        "session_id": e.session_id,
+        "task_goal": e.task_goal,
+        "sequence": e.sequence,
+        "entry_id": e.entry_id,
+        "prev_hash": e.prev_hash,
+        "human_review": e.human_review,
+        "failed_open_context": e.failed_open_context,
+        "retroactive_decision": e.retroactive_decision,
+    })
 }
 
 fn hex_to_norm_hash(hex_str: &str) -> Option<permit0_types::NormHash> {

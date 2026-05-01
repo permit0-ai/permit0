@@ -12,7 +12,7 @@ use permit0_normalize::{Normalizer, NormalizerRegistry};
 use permit0_scoring::{ScoringConfig, compute_hybrid};
 use permit0_session::{SessionContext, evaluate_session_block_rules, session_amplifier_score};
 use permit0_store::audit::{
-    AuditEntry, AuditPolicy, AuditSigner, AuditSink, FailedOpenContext, Redactor,
+    AuditEntry, AuditPolicy, AuditSigner, AuditSink, FailedOpenContext, HumanReview, Redactor,
     chain::{GENESIS_HASH, compute_entry_hash},
 };
 use permit0_store::{InMemoryStore, Store};
@@ -383,6 +383,7 @@ impl Engine {
                 pack_version: String::new(),
                 dsl_version: "1.0".into(),
                 human_review: None,
+                engine_decision: None,
                 token_id: None,
                 prev_hash,
                 entry_hash: String::new(),
@@ -417,6 +418,108 @@ impl Engine {
         }
 
         Ok(())
+    }
+
+    /// Append a calibrated audit entry to the audit chain.
+    ///
+    /// Used by the calibration daemon after a human submits a decision via
+    /// the dashboard. The normal `log_decision` path is suppressed during
+    /// calibration via `ctx.skip_audit` (so the chain never sees the
+    /// engine's pre-calibration recommendation); this writes the composite
+    /// record with the human's verdict in `human_review`, `decision` set
+    /// to the post-calibration permission, and `engine_decision` set to
+    /// what the engine would have decided (for override visibility in the
+    /// dashboard).
+    ///
+    /// No-op if no audit sink is configured.
+    pub fn log_calibrated_audit(
+        &self,
+        result: &PermissionResult,
+        tool_call: &RawToolCall,
+        ctx: &PermissionCtx,
+        engine_permission: Permission,
+        reviewer: String,
+        reason: String,
+    ) -> Result<(), EngineError> {
+        let (sink, signer) = match (&self.audit_sink, &self.audit_signer) {
+            (Some(sink), Some(signer)) => (sink, signer),
+            _ => return Ok(()),
+        };
+
+        let now = chrono::Utc::now().to_rfc3339();
+        let entry_id = ulid::Ulid::new().to_string();
+
+        let raw_tool_call = if let Some(ref redactor) = self.audit_redactor {
+            redactor.redact(&serde_json::to_value(tool_call).unwrap_or_default())
+        } else {
+            serde_json::to_value(tool_call).unwrap_or_default()
+        };
+
+        let sequence = self
+            .audit_sequence
+            .fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+            + 1;
+        let prev_hash = {
+            let guard = self.audit_prev_hash.lock().unwrap();
+            guard.clone()
+        };
+
+        let mut entry = AuditEntry {
+            entry_id,
+            timestamp: now.clone(),
+            sequence,
+            decision: result.permission,
+            decision_source: result.source.as_str().into(),
+            norm_action: result.norm_action.clone(),
+            norm_hash: result.norm_action.norm_hash(),
+            raw_tool_call,
+            risk_score: result.risk_score.clone(),
+            scoring_detail: None,
+            agent_id: String::new(),
+            session_id: ctx.session.as_ref().map(|s| s.session_id.clone()),
+            task_goal: ctx.task_goal.clone(),
+            org_id: ctx.normalize_ctx.org_domain.clone().unwrap_or_default(),
+            environment: String::new(),
+            engine_version: env!("CARGO_PKG_VERSION").into(),
+            pack_id: String::new(),
+            pack_version: String::new(),
+            dsl_version: "1.0".into(),
+            human_review: Some(HumanReview {
+                reviewer,
+                decision: result.permission,
+                reason,
+                reviewed_at: now,
+            }),
+            engine_decision: Some(engine_permission),
+            token_id: None,
+            prev_hash,
+            entry_hash: String::new(),
+            signature: String::new(),
+            correction_of: None,
+            failed_open_context: None,
+            retroactive_decision: None,
+        };
+
+        entry.entry_hash = compute_entry_hash(&entry);
+        entry.signature = signer.sign(&entry.entry_hash);
+
+        {
+            let mut guard = self.audit_prev_hash.lock().unwrap();
+            *guard = entry.entry_hash.clone();
+        }
+
+        match sink.append(&entry) {
+            Ok(()) => Ok(()),
+            Err(e) => match self.audit_policy {
+                AuditPolicy::Strict => Err(EngineError::AuditFailure(format!(
+                    "audit sink failed (strict policy): {e}"
+                ))),
+                AuditPolicy::BestEffort => {
+                    tracing::warn!("audit sink failed (best_effort): {e}");
+                    Ok(())
+                }
+            },
+        }
     }
 
     /// Reconstruct an audit entry from a client-side `FailOpenBuffer` event.
@@ -485,6 +588,7 @@ impl Engine {
                 pack_version: String::new(),
                 dsl_version: "1.0".into(),
                 human_review: None,
+                engine_decision: None,
                 token_id: None,
                 prev_hash,
                 entry_hash: String::new(),
@@ -1130,5 +1234,114 @@ mod tests {
             .log_failed_open_replay(&tool_call, &ctx, &retro, sample_failed_open_context())
             .unwrap();
         assert!(!entry_id.is_empty()); // ULID returned even without sink
+    }
+
+    // ── Calibration audit path ────────────────────────────────────────
+
+    #[test]
+    fn calibrated_audit_writes_entry_with_human_review() {
+        // Mirrors the daemon's calibration flow: get_permission with
+        // skip_audit=true (suppressed engine write) → human approves →
+        // log_calibrated_audit(...) appends the composite entry. The
+        // dashboard's audit log reads from this sink, so without the
+        // composite write nothing surfaces.
+        let (engine, sink) = build_test_engine_with_audit();
+        let ctx = default_ctx().with_skip_audit(true);
+        let tool_call = gmail_send("Hello", "body");
+
+        // Engine pass — its own log_decision early-returns due to
+        // skip_audit, so the sink stays empty here.
+        let result = engine.get_permission(&tool_call, &ctx).unwrap();
+        assert!(sink.all_entries().is_empty());
+
+        // Now the human's verdict comes back; record it. Pretend the
+        // engine had said HumanInTheLoop and the human overrode to Allow
+        // (the actual `result.permission` is what the engine returned,
+        // since calibration daemon would mutate it post-hoc — for this
+        // test we just thread distinct values through).
+        engine
+            .log_calibrated_audit(
+                &result,
+                &tool_call,
+                &ctx,
+                Permission::HumanInTheLoop,
+                "su@example.com".into(),
+                "looks fine".into(),
+            )
+            .unwrap();
+
+        let entries = sink.all_entries();
+        assert_eq!(entries.len(), 1);
+        let e = &entries[0];
+        assert_eq!(e.decision, result.permission);
+        let hr = e.human_review.as_ref().expect("human_review populated");
+        assert_eq!(hr.reviewer, "su@example.com");
+        assert_eq!(hr.reason, "looks fine");
+        assert_eq!(hr.decision, result.permission);
+        assert!(!hr.reviewed_at.is_empty());
+        assert_eq!(e.engine_decision, Some(Permission::HumanInTheLoop));
+    }
+
+    #[test]
+    fn calibrated_audit_chain_links_with_normal_entries() {
+        // A calibrated entry must thread through the chain like any other —
+        // sequence monotonic, prev_hash linking back to the previous entry.
+        let (engine, sink) = build_test_engine_with_audit();
+
+        // One normal entry first.
+        let tc1 = gmail_send("first", "body");
+        engine.get_permission(&tc1, &default_ctx()).unwrap();
+
+        // Then a calibrated one.
+        let tc2 = gmail_send("second", "body");
+        let cal_ctx = default_ctx().with_skip_audit(true);
+        let result2 = engine.get_permission(&tc2, &cal_ctx).unwrap();
+        engine
+            .log_calibrated_audit(
+                &result2,
+                &tc2,
+                &cal_ctx,
+                Permission::HumanInTheLoop,
+                "su".into(),
+                "approve".into(),
+            )
+            .unwrap();
+
+        // Then another normal one.
+        let tc3 = gmail_send("third", "body");
+        engine.get_permission(&tc3, &default_ctx()).unwrap();
+
+        let entries = sink.all_entries();
+        assert_eq!(entries.len(), 3);
+        assert_eq!(entries[0].sequence, 1);
+        assert_eq!(entries[1].sequence, 2);
+        assert_eq!(entries[2].sequence, 3);
+        assert_eq!(entries[1].prev_hash, entries[0].entry_hash);
+        assert_eq!(entries[2].prev_hash, entries[1].entry_hash);
+
+        assert!(entries[0].human_review.is_none());
+        assert!(entries[1].human_review.is_some());
+        assert!(entries[2].human_review.is_none());
+    }
+
+    #[test]
+    fn calibrated_audit_no_op_without_sink() {
+        // If audit isn't wired up, the call is a no-op and returns Ok —
+        // callers don't have to branch on sink presence.
+        let engine = build_test_engine();
+        let ctx = default_ctx().with_skip_audit(true);
+        let tool_call = gmail_send("Hello", "body");
+        let result = engine.get_permission(&tool_call, &ctx).unwrap();
+
+        engine
+            .log_calibrated_audit(
+                &result,
+                &tool_call,
+                &ctx,
+                Permission::HumanInTheLoop,
+                "su".into(),
+                "ok".into(),
+            )
+            .unwrap();
     }
 }
