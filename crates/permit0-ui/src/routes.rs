@@ -76,10 +76,8 @@ pub async fn list_audit(
                 // nested shape (norm_action.action_type, decision,
                 // risk_score.tier). Project to the flat shape so both views
                 // render correctly without reaching into nested objects.
-                let json_entries: Vec<serde_json::Value> = entries
-                    .iter()
-                    .map(flatten_audit_entry)
-                    .collect();
+                let json_entries: Vec<serde_json::Value> =
+                    entries.iter().map(flatten_audit_entry).collect();
                 Ok(ok_response(json_entries))
             }
             Err(e) => Err(err_response(
