@@ -592,8 +592,8 @@ impl ActionType {
         })?;
         let domain = Domain::parse(domain_str)
             .ok_or_else(|| TaxonomyError::UnknownDomain(domain_str.to_string()))?;
-        let verb =
-            Verb::parse(verb_str).ok_or_else(|| TaxonomyError::UnknownVerb(verb_str.to_string()))?;
+        let verb = Verb::parse(verb_str)
+            .ok_or_else(|| TaxonomyError::UnknownVerb(verb_str.to_string()))?;
         Self::new(domain, verb)
     }
 
