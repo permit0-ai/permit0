@@ -262,118 +262,145 @@ struct FixtureDef {
     expected_permission: String,
 }
 
-/// Scaffold a new pack with normalizer, risk rule, and fixture stubs.
-pub fn new_pack(name: &str) -> Result<()> {
-    let pack_dir = Path::new("packs").join(name);
+/// Scaffold a new pack at `packs/<owner>/<name>/` by copying the
+/// in-tree template at `packs/_template/` and substituting TODO
+/// markers (`TODO_OWNER`, `TODO_NAME`, `TODO_CHANNEL`) with the
+/// caller-supplied values.
+///
+/// Argument shape: `<owner>/<name>` (e.g. `permit0/slack`,
+/// `alice/jira`). Missing slash → error with usage hint. The
+/// destination directory must not exist.
+///
+/// The output pack still has plenty of TODO markers (every
+/// per-verb stub, every action_type, every entity mapping). Those
+/// surface as hard validator errors so the contributor knows
+/// exactly what's left to fill in.
+pub fn new_pack(name_arg: &str) -> Result<()> {
+    let (owner, pack_name) = match name_arg.split_once('/') {
+        Some((o, n)) if !o.is_empty() && !n.is_empty() => (o, n),
+        _ => anyhow::bail!(
+            "expected `<owner>/<name>`, got \"{name_arg}\". Example: \
+             `permit0 pack new alice/jira`"
+        ),
+    };
+
+    let template_dir = Path::new("packs").join("_template");
+    if !template_dir.is_dir() {
+        anyhow::bail!(
+            "template not found at {} — make sure you're running from the workspace root",
+            template_dir.display()
+        );
+    }
+
+    let pack_dir = Path::new("packs").join(owner).join(pack_name);
     if pack_dir.exists() {
         anyhow::bail!("pack directory already exists: {}", pack_dir.display());
     }
+    if let Some(parent) = pack_dir.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
 
-    // Create directory structure
-    let normalizers_dir = pack_dir.join("normalizers");
-    let rules_dir = pack_dir.join("risk_rules");
-    let fixtures_dir = pack_dir.join("fixtures");
-    std::fs::create_dir_all(&normalizers_dir)?;
-    std::fs::create_dir_all(&rules_dir)?;
-    std::fs::create_dir_all(&fixtures_dir)?;
-
-    // Stub normalizer
-    let normalizer_stub = format!(
-        r#"id: {name}_default
-description: "Normalize {name} tool calls"
-priority: 100
-match:
-  tool: "{name}"
-action_type: "custom.{name}"
-channel: "{name}"
-entities:
-  - name: command
-    path: "$.parameters.command"
-    required: false
-    default: "unknown"
-"#
-    );
-    std::fs::write(
-        normalizers_dir.join(format!("{name}.normalizer.yaml")),
-        normalizer_stub,
-    )?;
-
-    // Stub risk rule
-    let risk_rule_stub = format!(
-        r#"id: {name}_base
-description: "Base risk rule for {name}"
-action_type: "custom.{name}"
-match:
-  tool: "{name}"
-flags:
-  - name: EXECUTION
-    role: secondary
-amplifiers: {{}}
-"#
-    );
-    std::fs::write(
-        rules_dir.join(format!("{name}.risk_rule.yaml")),
-        risk_rule_stub,
-    )?;
-
-    // Stub fixture
-    let fixture_stub = format!(
-        r#"tool_name: "{name}"
-parameters:
-  command: "test"
-expected_permission: "allow"
-"#
-    );
-    std::fs::write(
-        fixtures_dir.join(format!("{name}_basic.fixture.yaml")),
-        fixture_stub,
-    )?;
-
-    // README
-    let readme = format!(
-        r#"# {name} Pack
-
-A permit0 pack for `{name}` tool calls.
-
-## Structure
-
-```
-{name}/
-├── normalizers/
-│   └── {name}.normalizer.yaml
-├── risk_rules/
-│   └── {name}.risk_rule.yaml
-└── fixtures/
-    └── {name}_basic.fixture.yaml
-```
-
-## Usage
-
-```sh
-permit0 pack validate packs/{name}
-permit0 pack test packs/{name}
-```
-"#
-    );
-    std::fs::write(pack_dir.join("README.md"), readme)?;
+    // Recursive copy with substitution. We can't `cp -r` because we
+    // need to (a) rename TODO_CHANNEL directories and (b) substitute
+    // TODO markers inside YAML / Markdown contents.
+    let single_channel = pack_name; // sensible default; user renames later if multi-channel
+    copy_template_tree(&template_dir, &pack_dir, owner, pack_name, single_channel)?;
 
     println!("Created pack scaffold at {}", pack_dir.display());
-    println!("  normalizers/{name}.normalizer.yaml");
-    println!("  risk_rules/{name}.risk_rule.yaml");
-    println!("  fixtures/{name}_basic.fixture.yaml");
+    println!("  normalizers/{single_channel}/_channel.yaml");
+    println!("  normalizers/{single_channel}/aliases.yaml");
+    println!("  normalizers/{single_channel}/<verb>.yaml   ← rename TODO_VERB.yaml");
+    println!("  risk_rules/<verb>.yaml                    ← rename TODO_VERB.yaml");
+    println!("  pack.yaml");
     println!("  README.md");
+    println!("  CHANGELOG.md");
     println!();
     println!("Next steps:");
-    println!("  1. Edit the normalizer to match your tool's input format");
-    println!("  2. Add risk flags and amplifiers in the risk rule");
-    println!("  3. Add fixture test cases");
-    println!("  4. Run: permit0 pack validate packs/{name}");
+    println!("  1. Edit pack.yaml — fill in description, action_types, channels");
+    println!(
+        "  2. Rename normalizers/{single_channel}/TODO_VERB.yaml → <verb>.yaml; fill match.tool, action_type, entities"
+    );
+    println!(
+        "  3. Rename risk_rules/TODO_VERB.yaml → <verb>.yaml; fill flags / amplifiers / rules"
+    );
+    println!("  4. Add at least one fixture under tests/{single_channel}/");
+    println!("  5. Run: permit0 pack validate {}", pack_dir.display());
 
     Ok(())
 }
 
 fn is_yaml(path: &Path) -> bool {
     path.extension().is_some_and(|e| e == "yaml" || e == "yml")
+}
+
+/// Recursively copy `src` to `dst`, substituting template markers in
+/// path components AND file contents.
+///
+/// Substitutions:
+/// - `TODO_OWNER`   → `owner`
+/// - `TODO_NAME`    → `pack_name`
+/// - `TODO_CHANNEL` → `channel`
+///
+/// `.gitkeep` files in the template are dropped (they exist only to
+/// keep empty directories tracked by git in the source repo). Empty
+/// directories are still created.
+fn copy_template_tree(
+    src: &Path,
+    dst: &Path,
+    owner: &str,
+    pack_name: &str,
+    channel: &str,
+) -> Result<()> {
+    std::fs::create_dir_all(dst).with_context(|| format!("creating {}", dst.display()))?;
+
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let src_path = entry.path();
+        let basename = entry.file_name();
+        let basename_str = basename.to_string_lossy();
+
+        if basename_str == ".gitkeep" {
+            continue;
+        }
+
+        let dst_basename = substitute_markers(&basename_str, owner, pack_name, channel);
+        let dst_path = dst.join(&*dst_basename);
+
+        if entry.file_type()?.is_dir() {
+            copy_template_tree(&src_path, &dst_path, owner, pack_name, channel)?;
+        } else {
+            let bytes = std::fs::read(&src_path)
+                .with_context(|| format!("reading {}", src_path.display()))?;
+            // Substitute markers only in text-ish files. YAML and
+            // Markdown is what the template ships; non-utf8 bytes get
+            // copied through unchanged.
+            let out = match std::str::from_utf8(&bytes) {
+                Ok(text) => substitute_markers(text, owner, pack_name, channel)
+                    .into_owned()
+                    .into_bytes(),
+                Err(_) => bytes,
+            };
+            std::fs::write(&dst_path, &out)
+                .with_context(|| format!("writing {}", dst_path.display()))?;
+        }
+    }
+    Ok(())
+}
+
+fn substitute_markers<'a>(
+    s: &'a str,
+    owner: &str,
+    pack_name: &str,
+    channel: &str,
+) -> std::borrow::Cow<'a, str> {
+    if !s.contains("TODO_OWNER") && !s.contains("TODO_NAME") && !s.contains("TODO_CHANNEL") {
+        return std::borrow::Cow::Borrowed(s);
+    }
+    let out = s
+        .replace("TODO_OWNER", owner)
+        .replace("TODO_NAME", pack_name)
+        .replace("TODO_CHANNEL", channel);
+    std::borrow::Cow::Owned(out)
 }
 
 /// Generate or refresh `pack.lock.yaml` for a pack directory.
