@@ -1,27 +1,27 @@
 permit0_pack: "permit0/email"
 
-# Maps foreign tool names onto canonical permit0 normalizer names so
-# policies and risk rules apply uniformly across:
+# Gmail-channel foreign-tool-name aliases.
+#
+# Maps Google's official Gmail MCP and community Gmail MCP server tool
+# names onto canonical permit0 normalizer names so policies and risk
+# rules apply uniformly. Sources:
 #
 #   - Google's official Gmail MCP (gmailmcp.googleapis.com)
 #       https://developers.google.com/workspace/gmail/api/reference/mcp
-#   - Microsoft's Work IQ Mail MCP
-#       https://learn.microsoft.com/en-us/microsoft-agent-365/mcp-server-reference/mail
 #
-# Aliasing happens AFTER ClientKind prefix stripping (e.g. mcporter's
-# `gmail.create_label` becomes `create_label` before this table is
-# consulted) and BEFORE normalizer dispatch. See:
+# Aliasing happens AFTER ClientKind prefix stripping (mcporter's
+# `gmail.create_label` becomes `create_label`) and BEFORE normalizer
+# dispatch. See:
 #   - crates/permit0-cli/src/cmd/hook.rs::ClientKind for prefix stripping
 #   - crates/permit0-normalize/src/alias.rs for the alias engine
 #
 # NOTE on parameter-name fidelity: the alias mechanism rewrites tool
 # names, not parameter names. Where a foreign tool uses a different
-# parameter name than the target permit0 normalizer expects (Google
-# uses `query`, our gmail_search expects `q`; Google uses `id` for
-# threadId, gmail_read_thread expects `thread_id`), the action_type is
-# routed correctly but some entities will be empty in the audit. Risk
-# rules that match on those entities will not see the value. A future
-# improvement is parameter remapping in the alias entry.
+# parameter name than the target normalizer expects (Google uses `id`
+# for threadId, gmail_read_thread expects `thread_id`), the action_type
+# is routed correctly but some entities will be empty in the audit.
+# Risk rules that match on those entities will not see the value. A
+# future improvement is parameter remapping in the alias entry.
 
 aliases:
   # ── Google official Gmail MCP (10 tools) ───────────────────────────
@@ -110,28 +110,3 @@ aliases:
       - if: { param: labelIds, contains: STARRED }
         rewrite_as: gmail_flag
       - default: gmail_move
-
-  # ── Microsoft Work IQ Mail MCP ─────────────────────────────────────
-  # Tool names arrive bare (no mcp_MailTools_graph_mail_ prefix) once
-  # ClientKind stripping has run, OR they may arrive prefixed depending
-  # on the host. Add canonical short names here; if real traffic shows
-  # the full prefixed names, extend the strip rule for that ClientKind
-  # rather than aliasing every prefix variant.
-
-  - tool: searchMessages
-    rewrite_as: outlook_search
-
-  - tool: getMessage
-    rewrite_as: outlook_read
-
-  - tool: createMessage
-    rewrite_as: outlook_draft
-
-  - tool: sendMail
-    rewrite_as: outlook_send
-
-  - tool: sendDraft
-    rewrite_as: outlook_send
-
-  - tool: deleteMessage
-    rewrite_as: outlook_delete
