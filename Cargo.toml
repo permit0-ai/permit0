@@ -92,6 +92,7 @@ permit0-cli = { path = "crates/permit0-cli", version = "0.1.0" }
 permit0-py = { path = "crates/permit0-py", version = "0.1.0" }
 permit0-node = { path = "crates/permit0-node", version = "0.1.0" }
 permit0-shell-dispatch = { path = "crates/permit0-shell-dispatch", version = "0.1.0" }
+permit0-test-utils = { path = "crates/permit0-test-utils", version = "0.1.0" }
 
 # Shell parsing
 shlex = "1"
