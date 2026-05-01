@@ -172,12 +172,19 @@ impl Engine {
             return Ok(result);
         }
 
-        // Step 5: Unknown action type → deny with explanation
+        // Step 5: Unknown action type → human-in-the-loop (conservative default).
+        //
+        // Deliberately do NOT cache HumanInTheLoop here. If the daemon is in
+        // calibrate mode, apply_calibration will overwrite the cache with the
+        // human's decision (Allow/Deny) once they review. If we cached the
+        // pre-review HumanInTheLoop verdict, a request future cancelled before
+        // calibrate completes (e.g. client HTTP timeout while the human is
+        // still thinking) would leave the cache pinned at HumanInTheLoop —
+        // step 4 then short-circuits future calls and the human never gets
+        // another chance to approve.
         let action_key = norm.action_type.as_action_str();
         if !self.risk_rules.contains_key(&action_key) {
-            // No risk rule for this action type → Human-in-the-loop (conservative default)
             let permission = Permission::HumanInTheLoop;
-            self.store.policy_cache_set(norm_hash, permission)?;
             let result = PermissionResult {
                 permission,
                 norm_action: norm,
@@ -218,8 +225,13 @@ impl Engine {
             (base_permission, DecisionSource::Scorer)
         };
 
-        // Cache the result
-        self.store.policy_cache_set(norm_hash, permission)?;
+        // Cache only definitive verdicts (Allow / Deny). Caching HumanInTheLoop
+        // here would race with calibrate's overwrite: a request cancelled mid-
+        // wait would pin the cache at HumanInTheLoop and step 4 would then
+        // short-circuit future calls, never re-prompting the reviewer.
+        if permission != Permission::HumanInTheLoop {
+            self.store.policy_cache_set(norm_hash, permission)?;
+        }
 
         let result = PermissionResult {
             permission,
