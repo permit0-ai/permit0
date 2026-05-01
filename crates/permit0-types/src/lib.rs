@@ -8,7 +8,7 @@ mod risk;
 mod taxonomy;
 mod tool_call;
 
-pub use taxonomy::{ALL_DOMAINS, ActionType, CatalogError, Domain, Verb, all_action_types};
+pub use taxonomy::{ALL_DOMAINS, ActionType, Domain, TaxonomyError, Verb, all_action_types};
 pub use decision::{DecisionFilter, DecisionRecord};
 pub use norm_action::{Entities, ExecutionMeta, NormAction, NormHash};
 pub use permission::Permission;

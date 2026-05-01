@@ -572,11 +572,11 @@ pub struct ActionType {
 
 impl ActionType {
     /// Create a new ActionType, validating that the verb belongs to the domain.
-    pub fn new(domain: Domain, verb: Verb) -> Result<Self, CatalogError> {
+    pub fn new(domain: Domain, verb: Verb) -> Result<Self, TaxonomyError> {
         if domain.verbs().contains(&verb) {
             Ok(Self { domain, verb })
         } else {
-            Err(CatalogError::InvalidCombination { domain, verb })
+            Err(TaxonomyError::InvalidCombination { domain, verb })
         }
     }
 
@@ -586,14 +586,14 @@ impl ActionType {
     }
 
     /// Parse from a `domain.verb` string (e.g. "payment.charge").
-    pub fn parse(s: &str) -> Result<Self, CatalogError> {
+    pub fn parse(s: &str) -> Result<Self, TaxonomyError> {
         let (domain_str, verb_str) = s.split_once('.').ok_or_else(|| {
-            CatalogError::ParseError(format!("expected 'domain.verb', got '{s}'"))
+            TaxonomyError::ParseError(format!("expected 'domain.verb', got '{s}'"))
         })?;
         let domain = Domain::parse(domain_str)
-            .ok_or_else(|| CatalogError::UnknownDomain(domain_str.to_string()))?;
+            .ok_or_else(|| TaxonomyError::UnknownDomain(domain_str.to_string()))?;
         let verb =
-            Verb::parse(verb_str).ok_or_else(|| CatalogError::UnknownVerb(verb_str.to_string()))?;
+            Verb::parse(verb_str).ok_or_else(|| TaxonomyError::UnknownVerb(verb_str.to_string()))?;
         Self::new(domain, verb)
     }
 
@@ -611,7 +611,7 @@ impl fmt::Display for ActionType {
 }
 
 #[derive(Debug, Clone, thiserror::Error)]
-pub enum CatalogError {
+pub enum TaxonomyError {
     #[error("invalid combination: verb '{verb}' is not valid for domain '{domain}'")]
     InvalidCombination { domain: Domain, verb: Verb },
     #[error("unknown domain: '{0}'")]
@@ -810,7 +810,7 @@ mod tests {
         assert!(err.is_err());
         assert!(matches!(
             err.unwrap_err(),
-            CatalogError::InvalidCombination { .. }
+            TaxonomyError::InvalidCombination { .. }
         ));
     }
 
@@ -818,21 +818,21 @@ mod tests {
     fn parse_unknown_domain() {
         let err = ActionType::parse("foobar.send");
         assert!(err.is_err());
-        assert!(matches!(err.unwrap_err(), CatalogError::UnknownDomain(_)));
+        assert!(matches!(err.unwrap_err(), TaxonomyError::UnknownDomain(_)));
     }
 
     #[test]
     fn parse_unknown_verb() {
         let err = ActionType::parse("email.explode");
         assert!(err.is_err());
-        assert!(matches!(err.unwrap_err(), CatalogError::UnknownVerb(_)));
+        assert!(matches!(err.unwrap_err(), TaxonomyError::UnknownVerb(_)));
     }
 
     #[test]
     fn parse_no_dot() {
         let err = ActionType::parse("nodot");
         assert!(err.is_err());
-        assert!(matches!(err.unwrap_err(), CatalogError::ParseError(_)));
+        assert!(matches!(err.unwrap_err(), TaxonomyError::ParseError(_)));
     }
 
     #[test]
