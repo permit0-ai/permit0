@@ -3,7 +3,7 @@
 use std::path::Path;
 
 use anyhow::{Context, Result};
-use permit0_dsl::discover_packs;
+use permit0_dsl::{discover_alias_yamls, discover_normalizer_yamls, discover_packs};
 use permit0_engine::EngineBuilder;
 use permit0_scoring::{Guardrails, ProfileOverrides, ScoringConfig};
 
@@ -92,21 +92,21 @@ pub fn load_scoring_config(profile: Option<&str>) -> Result<ScoringConfig> {
         .map_err(|e| anyhow::anyhow!("guardrail violation: {e}"))
 }
 
-/// Install all normalizers and risk rules from a single pack directory.
+/// Install all normalizers, risk rules, and aliases from a single pack directory.
+///
+/// Normalizer enumeration via `discover_normalizer_yamls` walks both the
+/// flat legacy layout and the per-channel layout introduced in PR 4 of
+/// the pack taxonomy refactor. Aliases are loaded from every per-channel
+/// `aliases.yaml` plus the legacy pack-root `aliases.yaml`.
 fn install_pack(mut builder: EngineBuilder, pack_dir: &Path) -> Result<EngineBuilder> {
-    let normalizers_dir = pack_dir.join("normalizers");
-    if normalizers_dir.exists() {
-        for entry in std::fs::read_dir(&normalizers_dir)? {
-            let entry = entry?;
-            let path = entry.path();
-            if path.extension().is_some_and(|e| e == "yaml" || e == "yml") {
-                let yaml = std::fs::read_to_string(&path)
-                    .with_context(|| format!("reading {}", path.display()))?;
-                builder = builder
-                    .install_normalizer_yaml(&yaml)
-                    .with_context(|| format!("installing normalizer {}", path.display()))?;
-            }
-        }
+    for path in discover_normalizer_yamls(pack_dir)
+        .with_context(|| format!("discovering normalizers in {}", pack_dir.display()))?
+    {
+        let yaml = std::fs::read_to_string(&path)
+            .with_context(|| format!("reading {}", path.display()))?;
+        builder = builder
+            .install_normalizer_yaml(&yaml)
+            .with_context(|| format!("installing normalizer {}", path.display()))?;
     }
 
     let rules_dir = pack_dir.join("risk_rules");
@@ -124,17 +124,16 @@ fn install_pack(mut builder: EngineBuilder, pack_dir: &Path) -> Result<EngineBui
         }
     }
 
-    // Optional aliases file at the pack root. Lets foreign tool names
-    // (e.g. Google's official Gmail MCP) be rewritten to the canonical
-    // names the pack's normalizers match. Single file rather than a
-    // directory because aliases naturally form one table per pack.
-    let aliases_path = pack_dir.join("aliases.yaml");
-    if aliases_path.exists() {
-        let yaml = std::fs::read_to_string(&aliases_path)
-            .with_context(|| format!("reading {}", aliases_path.display()))?;
+    // Aliases — pack-root for legacy packs, per-channel for the schema
+    // v2 layout. Each channel's table is merged into one resolver.
+    for path in discover_alias_yamls(pack_dir)
+        .with_context(|| format!("discovering aliases in {}", pack_dir.display()))?
+    {
+        let yaml = std::fs::read_to_string(&path)
+            .with_context(|| format!("reading {}", path.display()))?;
         builder = builder
             .install_aliases_yaml(&yaml)
-            .with_context(|| format!("installing aliases {}", aliases_path.display()))?;
+            .with_context(|| format!("installing aliases {}", path.display()))?;
     }
 
     Ok(builder)

@@ -303,31 +303,27 @@ fn load_config(profile_path: Option<&str>) -> Result<permit0_scoring::ScoringCon
 
 /// Install all packs from a directory into the builder.
 ///
-/// Uses `permit0_dsl::discover_packs` to find every pack manifest under
-/// `packs_dir`, including the owner-namespaced layout introduced in PR 3
-/// of the pack taxonomy refactor.
+/// Uses `permit0_dsl::discover_packs` (1- and 2-level layouts),
+/// `discover_normalizer_yamls` (flat + per-channel normalizer layouts),
+/// and `discover_alias_yamls` (pack-root + per-channel alias tables).
 fn install_packs_from_dir(mut builder: EngineBuilder, packs_dir: &Path) -> Result<EngineBuilder> {
     let pack_dirs = permit0_dsl::discover_packs(packs_dir)
         .map_err(|e| Error::from_reason(format!("discovering packs: {e}")))?;
 
     for pack_dir in pack_dirs {
         // Install normalizers
-        let norm_dir = pack_dir.join("normalizers");
-        if norm_dir.exists() {
-            for f in std::fs::read_dir(&norm_dir)
-                .map_err(|e| Error::from_reason(format!("reading normalizers: {e}")))?
-            {
-                let f = f.map_err(|e| Error::from_reason(e.to_string()))?;
-                let path = f.path();
-                if path.extension().is_some_and(|e| e == "yaml" || e == "yml") {
-                    let yaml = std::fs::read_to_string(&path).map_err(|e| {
-                        Error::from_reason(format!("reading {}: {e}", path.display()))
-                    })?;
-                    builder = builder.install_normalizer_yaml(&yaml).map_err(|e| {
-                        Error::from_reason(format!("normalizer {}: {e}", path.display()))
-                    })?;
-                }
-            }
+        let normalizers = permit0_dsl::discover_normalizer_yamls(&pack_dir).map_err(|e| {
+            Error::from_reason(format!(
+                "discovering normalizers in {}: {e}",
+                pack_dir.display()
+            ))
+        })?;
+        for path in normalizers {
+            let yaml = std::fs::read_to_string(&path)
+                .map_err(|e| Error::from_reason(format!("reading {}: {e}", path.display())))?;
+            builder = builder
+                .install_normalizer_yaml(&yaml)
+                .map_err(|e| Error::from_reason(format!("normalizer {}: {e}", path.display())))?;
         }
 
         // Install risk rules
@@ -347,6 +343,21 @@ fn install_packs_from_dir(mut builder: EngineBuilder, packs_dir: &Path) -> Resul
                     })?;
                 }
             }
+        }
+
+        // Install aliases (pack-root + per-channel)
+        let aliases = permit0_dsl::discover_alias_yamls(&pack_dir).map_err(|e| {
+            Error::from_reason(format!(
+                "discovering aliases in {}: {e}",
+                pack_dir.display()
+            ))
+        })?;
+        for path in aliases {
+            let yaml = std::fs::read_to_string(&path)
+                .map_err(|e| Error::from_reason(format!("reading {}: {e}", path.display())))?;
+            builder = builder
+                .install_aliases_yaml(&yaml)
+                .map_err(|e| Error::from_reason(format!("aliases {}: {e}", path.display())))?;
         }
     }
 

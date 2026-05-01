@@ -18,6 +18,15 @@ use std::path::{Path, PathBuf};
 /// Filename the discovery routine looks for at each candidate level.
 pub const PACK_MANIFEST_FILENAME: &str = "pack.yaml";
 
+/// Filename for per-channel metadata. Excluded from normalizer-file
+/// enumeration since it contains channel config, not a normalizer.
+pub const CHANNEL_MANIFEST_FILENAME: &str = "_channel.yaml";
+
+/// Filename for per-pack or per-channel alias tables. Excluded from
+/// normalizer-file enumeration; loaded via a separate path (see the
+/// alias resolver).
+pub const ALIASES_FILENAME: &str = "aliases.yaml";
+
 /// Errors discovery can surface. Only `Io` is fatal at the call site;
 /// `MalformedRoot` is informational.
 #[derive(Debug, thiserror::Error)]
@@ -115,6 +124,103 @@ fn walk_level(
         // (flat) or depth 2 (owner-namespaced); anything deeper is ignored.
         if depth == 0 {
             walk_level(&path, depth + 1, out, seen)?;
+        }
+    }
+    Ok(())
+}
+
+/// Enumerate every normalizer YAML inside a pack's `normalizers/` directory.
+///
+/// Walks at depth 1 (legacy flat: `normalizers/<verb>.yaml` or
+/// `normalizers/<channel>_<verb>.yaml`) AND depth 2 (per-channel:
+/// `normalizers/<channel>/<verb>.yaml`). The two layouts can coexist
+/// during the PR 4 migration window.
+///
+/// Skips `_channel.yaml` (channel metadata) and `aliases.yaml` (alias
+/// table) since neither is a normalizer.
+pub fn discover_normalizer_yamls(
+    pack_dir: impl AsRef<Path>,
+) -> Result<Vec<PathBuf>, DiscoveryError> {
+    let normalizers_dir = pack_dir.as_ref().join("normalizers");
+    if !normalizers_dir.exists() {
+        return Ok(Vec::new());
+    }
+    let mut yamls = Vec::new();
+    walk_normalizers(&normalizers_dir, 0, &mut yamls)?;
+    yamls.sort();
+    Ok(yamls)
+}
+
+/// Enumerate every per-channel `aliases.yaml` plus the legacy pack-root
+/// `aliases.yaml`, in stable order. Used by the alias resolver to build
+/// one merged routing table from the channel-split layout.
+pub fn discover_alias_yamls(
+    pack_dir: impl AsRef<Path>,
+) -> Result<Vec<PathBuf>, DiscoveryError> {
+    let pack_dir = pack_dir.as_ref();
+    let mut paths = Vec::new();
+
+    // Pack-root aliases (legacy / pre-PR-4 layout).
+    let root_aliases = pack_dir.join(ALIASES_FILENAME);
+    if root_aliases.is_file() {
+        paths.push(root_aliases);
+    }
+
+    // Per-channel aliases (PR 4 layout).
+    let normalizers_dir = pack_dir.join("normalizers");
+    if normalizers_dir.is_dir() {
+        let entries = std::fs::read_dir(&normalizers_dir).map_err(|e| DiscoveryError::Io {
+            path: normalizers_dir.clone(),
+            source: e,
+        })?;
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if !path.is_dir() {
+                continue;
+            }
+            let candidate = path.join(ALIASES_FILENAME);
+            if candidate.is_file() {
+                paths.push(candidate);
+            }
+        }
+    }
+
+    paths.sort();
+    Ok(paths)
+}
+
+fn walk_normalizers(
+    dir: &Path,
+    depth: u8,
+    out: &mut Vec<PathBuf>,
+) -> Result<(), DiscoveryError> {
+    if depth > 1 {
+        return Ok(());
+    }
+    let entries = std::fs::read_dir(dir).map_err(|e| DiscoveryError::Io {
+        path: dir.to_path_buf(),
+        source: e,
+    })?;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let basename = match path.file_name().and_then(|s| s.to_str()) {
+            Some(s) => s,
+            None => continue,
+        };
+        if basename == CHANNEL_MANIFEST_FILENAME || basename == ALIASES_FILENAME {
+            continue;
+        }
+        let is_dir = path.is_dir();
+        if is_dir && depth == 0 {
+            // Skip dotfile and underscore-prefixed dirs (reserved metadata).
+            if basename.starts_with('.') || basename.starts_with('_') {
+                continue;
+            }
+            walk_normalizers(&path, depth + 1, out)?;
+            continue;
+        }
+        if path.extension().is_some_and(|e| e == "yaml" || e == "yml") && path.is_file() {
+            out.push(path);
         }
     }
     Ok(())
@@ -226,6 +332,55 @@ mod tests {
         let root = scratch("empty");
         let packs = discover_packs(&root).unwrap();
         assert!(packs.is_empty());
+    }
+
+    #[test]
+    fn discover_normalizer_yamls_walks_flat_layout() {
+        let root = scratch("norm-flat");
+        write(&root.join("normalizers/gmail_send.yaml"), "");
+        write(&root.join("normalizers/outlook_send.yaml"), "");
+        let yamls = discover_normalizer_yamls(&root).unwrap();
+        assert_eq!(yamls.len(), 2);
+    }
+
+    #[test]
+    fn discover_normalizer_yamls_walks_per_channel() {
+        let root = scratch("norm-per-ch");
+        write(&root.join("normalizers/gmail/send.yaml"), "");
+        write(&root.join("normalizers/gmail/archive.yaml"), "");
+        write(&root.join("normalizers/outlook/send.yaml"), "");
+        // _channel.yaml is metadata; aliases.yaml is alias table —
+        // both must be excluded from normalizer enumeration.
+        write(&root.join("normalizers/gmail/_channel.yaml"), "channel: gmail");
+        write(&root.join("normalizers/gmail/aliases.yaml"), "aliases: []");
+
+        let yamls = discover_normalizer_yamls(&root).unwrap();
+        assert_eq!(yamls.len(), 3);
+        assert!(yamls.iter().all(|p| {
+            let bn = p.file_name().unwrap().to_str().unwrap();
+            bn != "_channel.yaml" && bn != "aliases.yaml"
+        }));
+    }
+
+    #[test]
+    fn discover_normalizer_yamls_handles_mixed_layout() {
+        // During PR 4's migration window flat and per-channel can coexist.
+        let root = scratch("norm-mixed");
+        write(&root.join("normalizers/gmail_send.yaml"), "");
+        write(&root.join("normalizers/outlook/send.yaml"), "");
+        let yamls = discover_normalizer_yamls(&root).unwrap();
+        assert_eq!(yamls.len(), 2);
+    }
+
+    #[test]
+    fn discover_alias_yamls_finds_pack_root_and_per_channel() {
+        let root = scratch("aliases");
+        write(&root.join("aliases.yaml"), "aliases: []");
+        write(&root.join("normalizers/gmail/aliases.yaml"), "aliases: []");
+        write(&root.join("normalizers/outlook/aliases.yaml"), "aliases: []");
+
+        let aliases = discover_alias_yamls(&root).unwrap();
+        assert_eq!(aliases.len(), 3);
     }
 
     #[test]

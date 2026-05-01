@@ -4,6 +4,7 @@ use std::collections::BTreeSet;
 use std::path::Path;
 
 use anyhow::{Context, Result};
+use permit0_dsl::discover_normalizer_yamls;
 use permit0_dsl::normalizer::DslNormalizer;
 use permit0_dsl::pack_validate::{ViolationCode, validate_pack};
 use permit0_dsl::schema::PackManifest;
@@ -24,16 +25,16 @@ pub fn validate(pack_path: &str) -> Result<()> {
 
     // Validate normalizers (also collect produced action types for the
     // manifest-level coverage / orphan checks below).
+    //
+    // Uses `discover_normalizer_yamls` so both the flat legacy layout
+    // and the per-channel layout (PR 4 of the pack taxonomy refactor)
+    // are walked transparently.
     let mut normalizer_action_types = BTreeSet::new();
-    let normalizers_dir = pack_dir.join("normalizers");
-    if normalizers_dir.exists() {
+    let normalizer_paths = discover_normalizer_yamls(pack_dir)
+        .with_context(|| format!("discovering normalizers in {}", pack_dir.display()))?;
+    if !normalizer_paths.is_empty() {
         let mut normalizer_defs = Vec::new();
-        for entry in std::fs::read_dir(&normalizers_dir)? {
-            let entry = entry?;
-            let path = entry.path();
-            if !is_yaml(&path) {
-                continue;
-            }
+        for path in normalizer_paths {
             total_files += 1;
             let yaml = std::fs::read_to_string(&path)
                 .with_context(|| format!("reading {}", path.display()))?;

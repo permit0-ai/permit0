@@ -1,0 +1,18 @@
+# Channel metadata for the gmail backend.
+#
+# CI uses `tool_pattern` to verify every YAML in this directory has a
+# `match.tool` starting with the right prefix — guards against
+# cross-channel poisoning where (e.g.) a malicious normalizer in
+# normalizers/gmail/ tries to claim outlook_send. PR 4 wires the check.
+#
+# `aliases.yaml` in this directory holds foreign-MCP name rewrites
+# (Google's official Gmail MCP, etc.) that route to gmail_* normalizer
+# names. See alias.rs for the resolver semantics.
+
+channel: gmail
+display_name: "Gmail (Google)"
+mcp_server: clients/gmail-mcp
+auth: oauth_user
+api_docs: https://developers.google.com/gmail/api
+tool_pattern: "gmail_*"
+maintainers: [permit0]

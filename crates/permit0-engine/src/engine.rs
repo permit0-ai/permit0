@@ -898,8 +898,8 @@ mod tests {
     use serde_json::json;
 
     fn build_test_engine() -> Engine {
-        let gmail_norm = load_test_fixture("packs/permit0/email/normalizers/gmail_send.yaml");
-        let outlook_norm = load_test_fixture("packs/permit0/email/normalizers/outlook_send.yaml");
+        let gmail_norm = load_test_fixture("packs/permit0/email/normalizers/gmail/send.yaml");
+        let outlook_norm = load_test_fixture("packs/permit0/email/normalizers/outlook/send.yaml");
         let email_risk = load_test_fixture("packs/permit0/email/risk_rules/send.yaml");
         EngineBuilder::new()
             .install_normalizer_yaml(&gmail_norm)
@@ -1133,8 +1133,8 @@ mod tests {
     fn build_test_engine_with_audit() -> (Engine, Arc<permit0_store::audit::InMemoryAuditSink>) {
         let signer = Arc::new(permit0_store::audit::Ed25519Signer::generate());
         let sink = Arc::new(permit0_store::audit::InMemoryAuditSink::new());
-        let gmail_norm = load_test_fixture("packs/permit0/email/normalizers/gmail_send.yaml");
-        let outlook_norm = load_test_fixture("packs/permit0/email/normalizers/outlook_send.yaml");
+        let gmail_norm = load_test_fixture("packs/permit0/email/normalizers/gmail/send.yaml");
+        let outlook_norm = load_test_fixture("packs/permit0/email/normalizers/outlook/send.yaml");
         let email_risk = load_test_fixture("packs/permit0/email/risk_rules/send.yaml");
         let engine = EngineBuilder::new()
             .install_normalizer_yaml(&gmail_norm)
