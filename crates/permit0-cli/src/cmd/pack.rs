@@ -419,8 +419,7 @@ pub fn lock(pack_path: &str, check: bool) -> Result<()> {
             // Forward-slash separators on every platform so lockfiles
             // produced on Linux and Windows agree.
             .replace('\\', "/");
-        let bytes = std::fs::read(abs)
-            .with_context(|| format!("reading {}", abs.display()))?;
+        let bytes = std::fs::read(abs).with_context(|| format!("reading {}", abs.display()))?;
         files.push(LockedFile {
             path: rel,
             sha256: sha256_hex(&bytes),
@@ -520,12 +519,18 @@ pub fn lock(pack_path: &str, check: bool) -> Result<()> {
                     "  ✗ {}: lockfile sha256={} size={}, on-disk sha256={} size={}",
                     f.path, e.sha256, e.size, f.sha256, f.size
                 )),
-                None => drift.push(format!("  ✗ {}: present on disk, missing from lockfile", f.path)),
+                None => drift.push(format!(
+                    "  ✗ {}: present on disk, missing from lockfile",
+                    f.path
+                )),
             }
         }
         for e in &existing.files {
             if !lockfile.files.iter().any(|f| f.path == e.path) {
-                drift.push(format!("  ✗ {}: listed in lockfile, missing on disk", e.path));
+                drift.push(format!(
+                    "  ✗ {}: listed in lockfile, missing on disk",
+                    e.path
+                ));
             }
         }
         if drift.is_empty() {

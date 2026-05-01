@@ -8,6 +8,14 @@ use clap::{Parser, Subcommand};
 #[derive(Parser)]
 #[command(name = "permit0", about = "Agent safety & permission framework")]
 struct Cli {
+    /// Require every loaded pack to ship a `pack.lock.yaml` and verify
+    /// every loaded file's sha256 against it. Refuses to start when
+    /// any pack is missing a lockfile or its on-disk content drifts.
+    /// Recommended for CI and production. Off by default (Phase 1
+    /// "lazy" policy) so older checkouts still work.
+    #[arg(long, global = true)]
+    strict_lockfile: bool,
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -179,6 +187,12 @@ fn main() -> anyhow::Result<()> {
         .init();
 
     let cli = Cli::parse();
+
+    // Propagate the global --strict-lockfile flag to engine_factory so
+    // every build_engine_* call (across check, hook, gateway,
+    // calibrate, serve) honors it without threading the flag through
+    // each call site.
+    engine_factory::set_strict_lockfile_override(cli.strict_lockfile);
 
     match cli.command {
         Commands::Check {

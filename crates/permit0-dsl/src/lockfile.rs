@@ -99,9 +99,7 @@ pub enum LockfileError {
     },
     #[error("yaml serialize error: {0}")]
     Serialize(#[from] serde_yaml::Error),
-    #[error(
-        "lockfile version mismatch: file declares {found}, this binary supports {supported}"
-    )]
+    #[error("lockfile version mismatch: file declares {found}, this binary supports {supported}")]
     UnsupportedVersion { found: u32, supported: u32 },
     #[error("lockfile drift: {0}")]
     Drift(String),
@@ -123,10 +121,11 @@ impl PackLockfile {
             path: path.to_path_buf(),
             source: e,
         })?;
-        let parsed: PackLockfile = serde_yaml::from_str(&yaml).map_err(|e| LockfileError::Parse {
-            path: path.to_path_buf(),
-            source: e,
-        })?;
+        let parsed: PackLockfile =
+            serde_yaml::from_str(&yaml).map_err(|e| LockfileError::Parse {
+                path: path.to_path_buf(),
+                source: e,
+            })?;
         if parsed.lockfile_version != PACK_LOCKFILE_VERSION {
             return Err(LockfileError::UnsupportedVersion {
                 found: parsed.lockfile_version,
@@ -152,9 +151,9 @@ impl PackLockfile {
     /// `Ok(true)` when the hash matches, `Ok(false)` when it diverges,
     /// and `Err` when the file isn't listed in the lockfile at all.
     pub fn verify(&self, rel_path: &str, bytes: &[u8]) -> Result<bool, LockfileError> {
-        let entry = self.find(rel_path).ok_or_else(|| {
-            LockfileError::Drift(format!("{rel_path} not listed in lockfile"))
-        })?;
+        let entry = self
+            .find(rel_path)
+            .ok_or_else(|| LockfileError::Drift(format!("{rel_path} not listed in lockfile")))?;
         if entry.size != bytes.len() as u64 {
             return Ok(false);
         }
@@ -176,12 +175,14 @@ mod tests {
             files: vec![
                 LockedFile {
                     path: "normalizers/gmail/send.yaml".into(),
-                    sha256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef".into(),
+                    sha256: "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+                        .into(),
                     size: 100,
                 },
                 LockedFile {
                     path: "risk_rules/send.yaml".into(),
-                    sha256: "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210".into(),
+                    sha256: "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210"
+                        .into(),
                     size: 50,
                 },
             ],
