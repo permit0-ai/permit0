@@ -4,6 +4,9 @@
 pub mod eval;
 pub mod helpers;
 pub mod normalizer;
+pub mod pack_loader;
 pub mod risk_executor;
 pub mod schema;
 pub mod validate;
+
+pub use pack_loader::{DiscoveryError, PACK_MANIFEST_FILENAME, discover_packs};
