@@ -101,7 +101,7 @@ You need two things running: the permit0 daemon (HTTP server on `:9090`) and you
 **1. Build and run the daemon** (once per machine):
 
 ```bash
-git clone https://github.com/AnissL93/permit0-core
+git clone https://github.com/permit0-ai/permit0-core
 cd permit0-core
 cargo build --release
 ./target/release/permit0 serve --ui --port 9090

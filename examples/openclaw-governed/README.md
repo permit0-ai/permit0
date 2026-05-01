@@ -1,6 +1,6 @@
 # OpenClaw + permit0 — single-file demo
 
-A self-contained TypeScript file demonstrating how to wrap [OpenClaw](https://github.com/openclaw/openclaw) skills with a [permit0](https://github.com/AnissL93/permit0-core) policy check.
+A self-contained TypeScript file demonstrating how to wrap [OpenClaw](https://github.com/openclaw/openclaw) skills with a [permit0](https://github.com/permit0-ai/permit0-core) policy check.
 
 Read this if you want to see the wrapper pattern in one place. **For production use, the same surface plus a failed-open replay buffer ships as a published package** — see [`integrations/permit0-openclaw/`](../../integrations/permit0-openclaw/).
 
