@@ -723,12 +723,14 @@ fn install_packs_from_dir(mut builder: EngineBuilder, packs_dir: &Path) -> PyRes
     for pack_dir in pack_dirs {
         // Install normalizers
         let normalizers = permit0_dsl::discover_normalizer_yamls(&pack_dir).map_err(|e| {
-            PyRuntimeError::new_err(format!("discovering normalizers in {}: {e}", pack_dir.display()))
+            PyRuntimeError::new_err(format!(
+                "discovering normalizers in {}: {e}",
+                pack_dir.display()
+            ))
         })?;
         for path in normalizers {
-            let yaml = std::fs::read_to_string(&path).map_err(|e| {
-                PyRuntimeError::new_err(format!("reading {}: {e}", path.display()))
-            })?;
+            let yaml = std::fs::read_to_string(&path)
+                .map_err(|e| PyRuntimeError::new_err(format!("reading {}: {e}", path.display())))?;
             builder = builder.install_normalizer_yaml(&yaml).map_err(|e| {
                 PyRuntimeError::new_err(format!("normalizer {}: {e}", path.display()))
             })?;
@@ -755,15 +757,17 @@ fn install_packs_from_dir(mut builder: EngineBuilder, packs_dir: &Path) -> PyRes
 
         // Install aliases (pack-root + per-channel)
         let aliases = permit0_dsl::discover_alias_yamls(&pack_dir).map_err(|e| {
-            PyRuntimeError::new_err(format!("discovering aliases in {}: {e}", pack_dir.display()))
+            PyRuntimeError::new_err(format!(
+                "discovering aliases in {}: {e}",
+                pack_dir.display()
+            ))
         })?;
         for path in aliases {
-            let yaml = std::fs::read_to_string(&path).map_err(|e| {
-                PyRuntimeError::new_err(format!("reading {}: {e}", path.display()))
-            })?;
-            builder = builder.install_aliases_yaml(&yaml).map_err(|e| {
-                PyRuntimeError::new_err(format!("aliases {}: {e}", path.display()))
-            })?;
+            let yaml = std::fs::read_to_string(&path)
+                .map_err(|e| PyRuntimeError::new_err(format!("reading {}: {e}", path.display())))?;
+            builder = builder
+                .install_aliases_yaml(&yaml)
+                .map_err(|e| PyRuntimeError::new_err(format!("aliases {}: {e}", path.display())))?;
         }
     }
 

@@ -64,7 +64,11 @@ fn build_email_registry() -> NormalizerRegistry {
         let yaml = std::fs::read_to_string(&pack_root_aliases).unwrap();
         reg.install_aliases_yaml(&yaml).unwrap();
     }
-    for entry in std::fs::read_dir(&normalizers).into_iter().flatten().flatten() {
+    for entry in std::fs::read_dir(&normalizers)
+        .into_iter()
+        .flatten()
+        .flatten()
+    {
         let path = entry.path();
         if !path.is_dir() {
             continue;
@@ -123,8 +127,10 @@ fn workspace_root() -> std::path::PathBuf {
 fn fingerprint(n: &NormAction) -> String {
     let mut entities: Vec<(&String, &serde_json::Value)> = n.entities.iter().collect();
     entities.sort_by_key(|(k, _)| k.as_str());
-    let entities_obj: serde_json::Map<_, _> =
-        entities.into_iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+    let entities_obj: serde_json::Map<_, _> = entities
+        .into_iter()
+        .map(|(k, v)| (k.clone(), v.clone()))
+        .collect();
     let canonical = json!({
         "action_type": n.action_type.as_action_str(),
         "channel": n.channel,
@@ -205,10 +211,7 @@ fn snapshot_gmail_archive() {
 #[test]
 fn snapshot_outlook_search() {
     let reg = build_email_registry();
-    let n = normalize_or_panic(
-        &reg,
-        raw("outlook_search", json!({"query": "from:boss"})),
-    );
+    let n = normalize_or_panic(&reg, raw("outlook_search", json!({"query": "from:boss"})));
     insta_assert_eq(
         &fingerprint(&n),
         r#"{"action_type":"email.search","channel":"outlook","entities":{"query":"from:boss"},"execution":{"surface_command":"outlook_search","surface_tool":"outlook_search"}}"#,
@@ -220,10 +223,7 @@ fn snapshot_outlook_list_drafts() {
     let reg = build_email_registry();
     let n = normalize_or_panic(
         &reg,
-        raw(
-            "outlook_list_drafts",
-            json!({"filter": "isDraft eq true"}),
-        ),
+        raw("outlook_list_drafts", json!({"filter": "isDraft eq true"})),
     );
     insta_assert_eq(
         &fingerprint(&n),

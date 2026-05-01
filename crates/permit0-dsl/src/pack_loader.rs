@@ -154,9 +154,7 @@ pub fn discover_normalizer_yamls(
 /// Enumerate every per-channel `aliases.yaml` plus the legacy pack-root
 /// `aliases.yaml`, in stable order. Used by the alias resolver to build
 /// one merged routing table from the channel-split layout.
-pub fn discover_alias_yamls(
-    pack_dir: impl AsRef<Path>,
-) -> Result<Vec<PathBuf>, DiscoveryError> {
+pub fn discover_alias_yamls(pack_dir: impl AsRef<Path>) -> Result<Vec<PathBuf>, DiscoveryError> {
     let pack_dir = pack_dir.as_ref();
     let mut paths = Vec::new();
 
@@ -189,11 +187,7 @@ pub fn discover_alias_yamls(
     Ok(paths)
 }
 
-fn walk_normalizers(
-    dir: &Path,
-    depth: u8,
-    out: &mut Vec<PathBuf>,
-) -> Result<(), DiscoveryError> {
+fn walk_normalizers(dir: &Path, depth: u8, out: &mut Vec<PathBuf>) -> Result<(), DiscoveryError> {
     if depth > 1 {
         return Ok(());
     }
@@ -351,7 +345,10 @@ mod tests {
         write(&root.join("normalizers/outlook/send.yaml"), "");
         // _channel.yaml is metadata; aliases.yaml is alias table —
         // both must be excluded from normalizer enumeration.
-        write(&root.join("normalizers/gmail/_channel.yaml"), "channel: gmail");
+        write(
+            &root.join("normalizers/gmail/_channel.yaml"),
+            "channel: gmail",
+        );
         write(&root.join("normalizers/gmail/aliases.yaml"), "aliases: []");
 
         let yamls = discover_normalizer_yamls(&root).unwrap();
@@ -377,7 +374,10 @@ mod tests {
         let root = scratch("aliases");
         write(&root.join("aliases.yaml"), "aliases: []");
         write(&root.join("normalizers/gmail/aliases.yaml"), "aliases: []");
-        write(&root.join("normalizers/outlook/aliases.yaml"), "aliases: []");
+        write(
+            &root.join("normalizers/outlook/aliases.yaml"),
+            "aliases: []",
+        );
 
         let aliases = discover_alias_yamls(&root).unwrap();
         assert_eq!(aliases.len(), 3);
