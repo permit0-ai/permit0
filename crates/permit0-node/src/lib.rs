@@ -302,54 +302,49 @@ fn load_config(profile_path: Option<&str>) -> Result<permit0_scoring::ScoringCon
 }
 
 /// Install all packs from a directory into the builder.
+///
+/// Uses `permit0_dsl::discover_packs` to find every pack manifest under
+/// `packs_dir`, including the owner-namespaced layout introduced in PR 3
+/// of the pack taxonomy refactor.
 fn install_packs_from_dir(mut builder: EngineBuilder, packs_dir: &Path) -> Result<EngineBuilder> {
-    let entries = std::fs::read_dir(packs_dir)
-        .map_err(|e| Error::from_reason(format!("reading packs dir: {e}")))?;
+    let pack_dirs = permit0_dsl::discover_packs(packs_dir)
+        .map_err(|e| Error::from_reason(format!("discovering packs: {e}")))?;
 
-    for entry in entries {
-        let entry = entry.map_err(|e| Error::from_reason(format!("reading entry: {e}")))?;
-        if entry
-            .file_type()
-            .map_err(|e| Error::from_reason(format!("file type: {e}")))?
-            .is_dir()
-        {
-            let pack_dir = entry.path();
-
-            // Install normalizers
-            let norm_dir = pack_dir.join("normalizers");
-            if norm_dir.exists() {
-                for f in std::fs::read_dir(&norm_dir)
-                    .map_err(|e| Error::from_reason(format!("reading normalizers: {e}")))?
-                {
-                    let f = f.map_err(|e| Error::from_reason(e.to_string()))?;
-                    let path = f.path();
-                    if path.extension().is_some_and(|e| e == "yaml" || e == "yml") {
-                        let yaml = std::fs::read_to_string(&path).map_err(|e| {
-                            Error::from_reason(format!("reading {}: {e}", path.display()))
-                        })?;
-                        builder = builder.install_normalizer_yaml(&yaml).map_err(|e| {
-                            Error::from_reason(format!("normalizer {}: {e}", path.display()))
-                        })?;
-                    }
+    for pack_dir in pack_dirs {
+        // Install normalizers
+        let norm_dir = pack_dir.join("normalizers");
+        if norm_dir.exists() {
+            for f in std::fs::read_dir(&norm_dir)
+                .map_err(|e| Error::from_reason(format!("reading normalizers: {e}")))?
+            {
+                let f = f.map_err(|e| Error::from_reason(e.to_string()))?;
+                let path = f.path();
+                if path.extension().is_some_and(|e| e == "yaml" || e == "yml") {
+                    let yaml = std::fs::read_to_string(&path).map_err(|e| {
+                        Error::from_reason(format!("reading {}: {e}", path.display()))
+                    })?;
+                    builder = builder.install_normalizer_yaml(&yaml).map_err(|e| {
+                        Error::from_reason(format!("normalizer {}: {e}", path.display()))
+                    })?;
                 }
             }
+        }
 
-            // Install risk rules
-            let rules_dir = pack_dir.join("risk_rules");
-            if rules_dir.exists() {
-                for f in std::fs::read_dir(&rules_dir)
-                    .map_err(|e| Error::from_reason(format!("reading risk_rules: {e}")))?
-                {
-                    let f = f.map_err(|e| Error::from_reason(e.to_string()))?;
-                    let path = f.path();
-                    if path.extension().is_some_and(|e| e == "yaml" || e == "yml") {
-                        let yaml = std::fs::read_to_string(&path).map_err(|e| {
-                            Error::from_reason(format!("reading {}: {e}", path.display()))
-                        })?;
-                        builder = builder.install_risk_rule_yaml(&yaml).map_err(|e| {
-                            Error::from_reason(format!("risk rule {}: {e}", path.display()))
-                        })?;
-                    }
+        // Install risk rules
+        let rules_dir = pack_dir.join("risk_rules");
+        if rules_dir.exists() {
+            for f in std::fs::read_dir(&rules_dir)
+                .map_err(|e| Error::from_reason(format!("reading risk_rules: {e}")))?
+            {
+                let f = f.map_err(|e| Error::from_reason(e.to_string()))?;
+                let path = f.path();
+                if path.extension().is_some_and(|e| e == "yaml" || e == "yml") {
+                    let yaml = std::fs::read_to_string(&path).map_err(|e| {
+                        Error::from_reason(format!("reading {}: {e}", path.display()))
+                    })?;
+                    builder = builder.install_risk_rule_yaml(&yaml).map_err(|e| {
+                        Error::from_reason(format!("risk rule {}: {e}", path.display()))
+                    })?;
                 }
             }
         }

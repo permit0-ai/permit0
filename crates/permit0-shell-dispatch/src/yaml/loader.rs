@@ -49,21 +49,26 @@ pub fn load_yaml_dir<P: AsRef<Path>>(dir: P) -> Result<Vec<YamlCommandParser>, L
     load_files_merging_by_program(&yaml_files)
 }
 
-/// Scan `<packs_dir>/*/dispatchers/*.yaml` and produce one parser per
-/// program. Packs without a `dispatchers/` subdirectory are skipped.
+/// Scan every pack under `packs_dir` for a `dispatchers/` subdirectory and
+/// produce one parser per program. Packs without a `dispatchers/`
+/// subdirectory are skipped.
+///
+/// Pack discovery delegates to `permit0_dsl::discover_packs`, which finds
+/// packs at depth 1 (flat legacy layout) and depth 2 (owner-namespaced
+/// layout introduced in PR 3 of the pack taxonomy refactor).
 ///
 /// `packs_dir` is typically the repo-root `packs/` directory.
 pub fn load_pack_dispatchers<P: AsRef<Path>>(
     packs_dir: P,
 ) -> Result<Vec<YamlCommandParser>, LoadError> {
-    let base = packs_dir.as_ref().to_path_buf();
-    let packs = read_dir_sorted(&base)?;
+    let base = packs_dir.as_ref();
+    let packs = permit0_dsl::discover_packs(base).map_err(|e| LoadError::Io {
+        path: base.display().to_string(),
+        source: std::io::Error::other(e.to_string()),
+    })?;
 
     let mut all_files = Vec::new();
     for pack_dir in packs {
-        if !pack_dir.is_dir() {
-            continue;
-        }
         let dispatchers = pack_dir.join("dispatchers");
         if !dispatchers.is_dir() {
             continue;
@@ -213,8 +218,12 @@ dispatches:
     #[test]
     fn pack_layout_discovers_dispatchers() {
         let base = tmp_dir();
-        // packs/gmail/dispatchers/gog.yaml
+        // Each pack directory needs pack.yaml — that is what
+        // permit0_dsl::discover_packs uses to identify a pack.
+
+        // packs/gmail/{pack.yaml,dispatchers/gog.yaml}
         std::fs::create_dir_all(base.join("gmail/dispatchers")).unwrap();
+        write(&base.join("gmail"), "pack.yaml", "name: gmail");
         write(
             &base.join("gmail/dispatchers"),
             "gog.yaml",
@@ -226,8 +235,9 @@ dispatches:
     parameters: {}
 "#,
         );
-        // packs/stripe/dispatchers/gog.yaml — same program, different rules
+        // packs/stripe/{pack.yaml,dispatchers/gog.yaml} — same program, different rules
         std::fs::create_dir_all(base.join("stripe/dispatchers")).unwrap();
+        write(&base.join("stripe"), "pack.yaml", "name: stripe");
         write(
             &base.join("stripe/dispatchers"),
             "gog.yaml",
@@ -239,8 +249,9 @@ dispatches:
     parameters: {}
 "#,
         );
-        // packs/bash/no-dispatchers/ → ignored
+        // packs/bash/{pack.yaml,normalizers/...} — no dispatchers/ → ignored
         std::fs::create_dir_all(base.join("bash/normalizers")).unwrap();
+        write(&base.join("bash"), "pack.yaml", "name: bash");
         write(
             &base.join("bash/normalizers"),
             "shell.yaml",
@@ -250,6 +261,33 @@ dispatches:
         let parsers = load_pack_dispatchers(&base).unwrap();
         assert_eq!(parsers.len(), 1);
         assert_eq!(parsers[0].rule_count(), 2);
+
+        std::fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn pack_layout_supports_owner_namespaced() {
+        // PR 3 layout: packs/<owner>/<pack>/dispatchers/<file>.yaml.
+        // Verifies discover_packs's depth-2 walk reaches the
+        // dispatcher YAMLs.
+        let base = tmp_dir();
+        std::fs::create_dir_all(base.join("permit0/email/dispatchers")).unwrap();
+        write(&base.join("permit0/email"), "pack.yaml", "name: email");
+        write(
+            &base.join("permit0/email/dispatchers"),
+            "gog.yaml",
+            r#"
+program: gog
+dispatches:
+  - match: { subcommands: [gmail, send] }
+    tool_name: gmail_send
+    parameters: {}
+"#,
+        );
+
+        let parsers = load_pack_dispatchers(&base).unwrap();
+        assert_eq!(parsers.len(), 1);
+        assert_eq!(parsers[0].rule_count(), 1);
 
         std::fs::remove_dir_all(&base).unwrap();
     }

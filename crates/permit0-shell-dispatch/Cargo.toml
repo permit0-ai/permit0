@@ -9,6 +9,7 @@ rust-version.workspace = true
 
 [dependencies]
 permit0-types = { workspace = true }
+permit0-dsl = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 serde_yaml = { workspace = true }
@@ -16,5 +17,4 @@ shlex = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
-permit0-dsl = { workspace = true }
 permit0-normalize = { workspace = true }

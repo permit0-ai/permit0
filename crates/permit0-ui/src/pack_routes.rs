@@ -49,6 +49,9 @@ fn err_response<T: Serialize>(status: StatusCode, msg: &str) -> (StatusCode, Jso
 pub struct PackSummary {
     pub name: String,
     pub version: String,
+    /// Pack owner. Derived from `permit0_pack` ("<owner>/<name>") since
+    /// schema v2 drops the explicit `vendor` field. Falls back to the
+    /// legacy `vendor` value if `permit0_pack` is malformed.
     pub vendor: String,
     pub description: Option<String>,
     pub normalizer_count: usize,
@@ -63,6 +66,18 @@ pub struct PackDetail {
     pub description: Option<String>,
     pub normalizers: Vec<String>,
     pub risk_rules: Vec<String>,
+}
+
+/// Resolve the pack owner. Pulls from `permit0_pack` ("<owner>/<name>") in
+/// schema v2; falls back to the legacy `vendor` field for transitional
+/// safety.
+fn resolve_owner(manifest: &PackManifest) -> String {
+    manifest
+        .permit0_pack
+        .split_once('/')
+        .map(|(owner, _)| owner.to_string())
+        .or_else(|| manifest.vendor.clone())
+        .unwrap_or_default()
 }
 
 #[derive(Debug, Serialize)]
@@ -206,23 +221,16 @@ pub async fn list_packs(
         )
     })?;
 
-    let entries = std::fs::read_dir(&packs_dir).map_err(|e| {
+    let pack_dirs = permit0_dsl::discover_packs(&packs_dir).map_err(|e| {
         err_response::<Vec<PackSummary>>(
             StatusCode::INTERNAL_SERVER_ERROR,
-            &format!("failed to read packs directory: {e}"),
+            &format!("failed to discover packs: {e}"),
         )
     })?;
 
     let mut summaries = Vec::new();
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if !path.is_dir() {
-            continue;
-        }
+    for path in pack_dirs {
         let manifest_path = path.join("pack.yaml");
-        if !manifest_path.exists() {
-            continue;
-        }
         let content = match std::fs::read_to_string(&manifest_path) {
             Ok(c) => c,
             Err(_) => continue,
@@ -231,12 +239,13 @@ pub async fn list_packs(
             Ok(m) => m,
             Err(_) => continue,
         };
+        let vendor = resolve_owner(&manifest);
         summaries.push(PackSummary {
             normalizer_count: manifest.normalizers.len(),
             risk_rule_count: manifest.risk_rules.len(),
             name: manifest.name,
             version: manifest.version,
-            vendor: manifest.vendor,
+            vendor,
             description: manifest.description,
         });
     }
@@ -276,10 +285,11 @@ pub async fn get_pack(
     let normalizers = list_yaml_files(&pack_path.join("normalizers"));
     let risk_rules = list_yaml_files(&pack_path.join("risk_rules"));
 
+    let vendor = resolve_owner(&manifest);
     Ok(ok_response(PackDetail {
         name: manifest.name,
         version: manifest.version,
-        vendor: manifest.vendor,
+        vendor,
         description: manifest.description,
         normalizers,
         risk_rules,

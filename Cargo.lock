@@ -1250,6 +1250,7 @@ dependencies = [
  "napi",
  "napi-build",
  "napi-derive",
+ "permit0-dsl",
  "permit0-engine",
  "permit0-normalize",
  "permit0-scoring",
@@ -1276,6 +1277,7 @@ name = "permit0-py"
 version = "0.1.0"
 dependencies = [
  "permit0-agent",
+ "permit0-dsl",
  "permit0-engine",
  "permit0-normalize",
  "permit0-scoring",
