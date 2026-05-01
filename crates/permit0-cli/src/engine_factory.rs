@@ -3,6 +3,7 @@
 use std::path::Path;
 
 use anyhow::{Context, Result};
+use permit0_dsl::discover_packs;
 use permit0_engine::EngineBuilder;
 use permit0_scoring::{Guardrails, ProfileOverrides, ScoringConfig};
 
@@ -20,11 +21,10 @@ pub fn build_engine_builder_from_packs(
 
     let resolved_dir = resolve_packs_dir(packs_dir);
     if let Some(dir) = &resolved_dir {
-        for entry in std::fs::read_dir(dir)? {
-            let entry = entry?;
-            if entry.file_type()?.is_dir() {
-                builder = install_pack(builder, &entry.path())?;
-            }
+        let pack_dirs = discover_packs(dir)
+            .with_context(|| format!("discovering packs in {}", dir.display()))?;
+        for pack_dir in pack_dirs {
+            builder = install_pack(builder, &pack_dir)?;
         }
     }
 

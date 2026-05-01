@@ -221,23 +221,16 @@ pub async fn list_packs(
         )
     })?;
 
-    let entries = std::fs::read_dir(&packs_dir).map_err(|e| {
+    let pack_dirs = permit0_dsl::discover_packs(&packs_dir).map_err(|e| {
         err_response::<Vec<PackSummary>>(
             StatusCode::INTERNAL_SERVER_ERROR,
-            &format!("failed to read packs directory: {e}"),
+            &format!("failed to discover packs: {e}"),
         )
     })?;
 
     let mut summaries = Vec::new();
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if !path.is_dir() {
-            continue;
-        }
+    for path in pack_dirs {
         let manifest_path = path.join("pack.yaml");
-        if !manifest_path.exists() {
-            continue;
-        }
         let content = match std::fs::read_to_string(&manifest_path) {
             Ok(c) => c,
             Err(_) => continue,
