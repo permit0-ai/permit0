@@ -84,6 +84,6 @@ We will. For now everything is `pip install -e .` from this repo to make iterati
 ## Related docs
 
 - [`../README.md`](../README.md) — what permit0 is
-- [`../docs/norm_actions.md`](../docs/norm_actions.md) — the catalog of governed action types
+- [`../docs/taxonomy.md`](../docs/taxonomy.md) — the taxonomy of governed action types
 - [`../docs/dsl.md`](../docs/dsl.md) — pack / risk-rule authoring
 - [`../examples/`](../examples/) — single-file integration demos
