@@ -56,6 +56,11 @@ pub enum ClientKind {
     /// Claude Desktop (macOS/Windows GUI app). Passes MCP tool names
     /// as-is, no prefix.
     ClaudeDesktop,
+    /// OpenClaw. MCP tools resolved by `mcporter` arrive as
+    /// `<server>.<tool>` (single dot separator) at the gateway dispatch
+    /// boundary. Strip the leading `<server>.` so normalizers can match
+    /// the bare tool name.
+    OpenClaw,
     /// No prefix stripping at all. Use this when you're calling the hook
     /// directly (e.g. from tests or a custom integration that already
     /// hands you the bare tool name).
@@ -73,6 +78,14 @@ impl ClientKind {
                 .strip_prefix("mcp__")
                 .and_then(|rest| rest.split_once("__").map(|(_, tool)| tool))
                 .unwrap_or(tool_name),
+            // OpenClaw via mcporter: "<server>.<tool>". Strip everything
+            // up to and including the first dot. Names without a dot pass
+            // through (built-in tools like "exec" or plugin tools that
+            // register bare names).
+            Self::OpenClaw => tool_name
+                .split_once('.')
+                .map(|(_, tool)| tool)
+                .unwrap_or(tool_name),
             // Claude Desktop and Raw: passthrough.
             Self::ClaudeDesktop | Self::Raw => tool_name,
         }
@@ -85,9 +98,10 @@ impl FromStr for ClientKind {
         match s {
             "claude-code" | "claude_code" => Ok(Self::ClaudeCode),
             "claude-desktop" | "claude_desktop" => Ok(Self::ClaudeDesktop),
+            "openclaw" | "open-claw" | "open_claw" => Ok(Self::OpenClaw),
             "raw" | "none" => Ok(Self::Raw),
             other => Err(format!(
-                "unknown client '{other}' (supported: claude-code, claude-desktop, raw)"
+                "unknown client '{other}' (supported: claude-code, claude-desktop, openclaw, raw)"
             )),
         }
     }
@@ -465,6 +479,23 @@ mod tests {
     }
 
     #[test]
+    fn openclaw_strips_dot_prefix() {
+        let c = ClientKind::OpenClaw;
+        // mcporter shape: "<server>.<tool>"
+        assert_eq!(c.strip_prefix("gmail.create_label"), "create_label");
+        assert_eq!(c.strip_prefix("gmail.search_threads"), "search_threads");
+        assert_eq!(c.strip_prefix("linear.list_issues"), "list_issues");
+        // Bare names (built-in tools, plugin tools) pass through.
+        assert_eq!(c.strip_prefix("exec"), "exec");
+        assert_eq!(c.strip_prefix("Bash"), "Bash");
+        // Only the FIRST dot is consumed. Tool names containing dots
+        // after the server segment survive.
+        assert_eq!(c.strip_prefix("server.tool.with.dots"), "tool.with.dots");
+        // Edge: starts with "." → empty server, tool is the rest.
+        assert_eq!(c.strip_prefix(".tool"), "tool");
+    }
+
+    #[test]
     fn client_kind_parses_from_string() {
         assert_eq!(
             "claude-code".parse::<ClientKind>().unwrap(),
@@ -477,6 +508,18 @@ mod tests {
         assert_eq!(
             "claude-desktop".parse::<ClientKind>().unwrap(),
             ClientKind::ClaudeDesktop
+        );
+        assert_eq!(
+            "openclaw".parse::<ClientKind>().unwrap(),
+            ClientKind::OpenClaw
+        );
+        assert_eq!(
+            "open-claw".parse::<ClientKind>().unwrap(),
+            ClientKind::OpenClaw
+        );
+        assert_eq!(
+            "open_claw".parse::<ClientKind>().unwrap(),
+            ClientKind::OpenClaw
         );
         assert_eq!("raw".parse::<ClientKind>().unwrap(), ClientKind::Raw);
         assert_eq!("none".parse::<ClientKind>().unwrap(), ClientKind::Raw);

@@ -124,6 +124,19 @@ fn install_pack(mut builder: EngineBuilder, pack_dir: &Path) -> Result<EngineBui
         }
     }
 
+    // Optional aliases file at the pack root. Lets foreign tool names
+    // (e.g. Google's official Gmail MCP) be rewritten to the canonical
+    // names the pack's normalizers match. Single file rather than a
+    // directory because aliases naturally form one table per pack.
+    let aliases_path = pack_dir.join("aliases.yaml");
+    if aliases_path.exists() {
+        let yaml = std::fs::read_to_string(&aliases_path)
+            .with_context(|| format!("reading {}", aliases_path.display()))?;
+        builder = builder
+            .install_aliases_yaml(&yaml)
+            .with_context(|| format!("installing aliases {}", aliases_path.display()))?;
+    }
+
     Ok(builder)
 }
 

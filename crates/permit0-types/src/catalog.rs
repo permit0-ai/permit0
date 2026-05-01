@@ -68,6 +68,7 @@ impl Domain {
                 Verb::ReadThread,
                 Verb::ListMailboxes,
                 Verb::Draft,
+                Verb::ListDrafts,
                 Verb::Send,
                 Verb::MarkRead,
                 Verb::Flag,
@@ -323,6 +324,7 @@ pub enum Verb {
     ReadThread,
     ListMailboxes,
     Draft,
+    ListDrafts,
     Send,
     MarkRead,
     Flag,
@@ -463,6 +465,7 @@ impl Verb {
             Self::ReadThread => "read_thread",
             Self::ListMailboxes => "list_mailboxes",
             Self::Draft => "draft",
+            Self::ListDrafts => "list_drafts",
             Self::Send => "send",
             Self::MarkRead => "mark_read",
             Self::Flag => "flag",
@@ -660,6 +663,7 @@ const ALL_VERBS: &[Verb] = &[
     Verb::ReadThread,
     Verb::ListMailboxes,
     Verb::Draft,
+    Verb::ListDrafts,
     Verb::Send,
     Verb::MarkRead,
     Verb::Flag,
@@ -792,11 +796,12 @@ mod tests {
 
     #[test]
     fn email_full_set_intact() {
-        // Detailed email taxonomy preserved (15 verbs).
-        assert_eq!(Domain::Email.verbs().len(), 15);
+        // Detailed email taxonomy preserved (16 verbs).
+        assert_eq!(Domain::Email.verbs().len(), 16);
         assert!(ActionType::parse("email.send").is_ok());
         assert!(ActionType::parse("email.read_thread").is_ok());
         assert!(ActionType::parse("email.set_forwarding").is_ok());
+        assert!(ActionType::parse("email.list_drafts").is_ok());
     }
 
     #[test]

@@ -1,0 +1,19 @@
+permit0_pack: "permit0/email"
+id: "email:gmail_list_drafts"
+priority: 130
+match:
+  tool: gmail_list_drafts
+normalize:
+  action_type: "email.list_drafts"
+  domain: "email"
+  verb: "list_drafts"
+  channel: "gmail"
+  entities:
+    query:
+      from: "q"
+      type: "string"
+      optional: true
+    page_token:
+      from: "page_token"
+      type: "string"
+      optional: true

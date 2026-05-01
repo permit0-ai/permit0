@@ -165,6 +165,22 @@ describe("Permit0Client.check — request shape", () => {
     });
     await client.close();
   });
+
+  it("sets client_kind to openclaw so the daemon strips mcporter's <server>.<tool> shape", async () => {
+    const { dispatcher, pool } = setup();
+    let captured: { client_kind?: string } | undefined;
+    pool
+      .intercept({ path: "/api/v1/check", method: "POST" })
+      .reply(200, (opts) => {
+        captured = JSON.parse(String(opts.body));
+        return makeAllowDecision();
+      });
+
+    const client = new Permit0Client({ baseUrl: BASE_URL, dispatcher });
+    await client.check("gmail.create_label", { name: "TestLabel" });
+    expect(captured?.client_kind).toBe("openclaw");
+    await client.close();
+  });
 });
 
 describe("Permit0Client.check — retry semantics", () => {
