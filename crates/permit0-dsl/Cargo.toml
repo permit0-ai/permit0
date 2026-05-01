@@ -16,3 +16,6 @@ serde_json = { workspace = true }
 serde_yaml = { workspace = true }
 regex = { workspace = true }
 thiserror = { workspace = true }
+
+[dev-dependencies]
+permit0-test-utils = { workspace = true }

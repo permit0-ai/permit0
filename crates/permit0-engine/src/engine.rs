@@ -894,20 +894,19 @@ impl Default for EngineBuilder {
 mod tests {
     use super::*;
     use permit0_normalize::NormalizeCtx;
+    use permit0_test_utils::load_test_fixture;
     use serde_json::json;
 
-    const GMAIL_NORM_YAML: &str = include_str!("../../../packs/email/normalizers/gmail_send.yaml");
-    const OUTLOOK_NORM_YAML: &str =
-        include_str!("../../../packs/email/normalizers/outlook_send.yaml");
-    const EMAIL_RISK_YAML: &str = include_str!("../../../packs/email/risk_rules/send.yaml");
-
     fn build_test_engine() -> Engine {
+        let gmail_norm = load_test_fixture("packs/email/normalizers/gmail_send.yaml");
+        let outlook_norm = load_test_fixture("packs/email/normalizers/outlook_send.yaml");
+        let email_risk = load_test_fixture("packs/email/risk_rules/send.yaml");
         EngineBuilder::new()
-            .install_normalizer_yaml(GMAIL_NORM_YAML)
+            .install_normalizer_yaml(&gmail_norm)
             .unwrap()
-            .install_normalizer_yaml(OUTLOOK_NORM_YAML)
+            .install_normalizer_yaml(&outlook_norm)
             .unwrap()
-            .install_risk_rule_yaml(EMAIL_RISK_YAML)
+            .install_risk_rule_yaml(&email_risk)
             .unwrap()
             .build()
             .unwrap()
@@ -1134,12 +1133,15 @@ mod tests {
     fn build_test_engine_with_audit() -> (Engine, Arc<permit0_store::audit::InMemoryAuditSink>) {
         let signer = Arc::new(permit0_store::audit::Ed25519Signer::generate());
         let sink = Arc::new(permit0_store::audit::InMemoryAuditSink::new());
+        let gmail_norm = load_test_fixture("packs/email/normalizers/gmail_send.yaml");
+        let outlook_norm = load_test_fixture("packs/email/normalizers/outlook_send.yaml");
+        let email_risk = load_test_fixture("packs/email/risk_rules/send.yaml");
         let engine = EngineBuilder::new()
-            .install_normalizer_yaml(GMAIL_NORM_YAML)
+            .install_normalizer_yaml(&gmail_norm)
             .unwrap()
-            .install_normalizer_yaml(OUTLOOK_NORM_YAML)
+            .install_normalizer_yaml(&outlook_norm)
             .unwrap()
-            .install_risk_rule_yaml(EMAIL_RISK_YAML)
+            .install_risk_rule_yaml(&email_risk)
             .unwrap()
             .with_audit(sink.clone() as Arc<dyn AuditSink>, signer)
             .build()

@@ -1210,6 +1210,7 @@ version = "0.1.0"
 dependencies = [
  "permit0-normalize",
  "permit0-scoring",
+ "permit0-test-utils",
  "permit0-types",
  "regex",
  "serde",
@@ -1230,6 +1231,7 @@ dependencies = [
  "permit0-scoring",
  "permit0-session",
  "permit0-store",
+ "permit0-test-utils",
  "permit0-token",
  "permit0-types",
  "serde",
@@ -1337,6 +1339,10 @@ dependencies = [
  "sha2 0.10.9",
  "thiserror 2.0.18",
 ]
+
+[[package]]
+name = "permit0-test-utils"
+version = "0.1.0"
 
 [[package]]
 name = "permit0-token"

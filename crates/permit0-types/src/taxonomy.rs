@@ -1,16 +1,16 @@
 #![forbid(unsafe_code)]
 
-//! The action catalog — the authoritative `domain.verb` taxonomy that all
-//! norm actions must conform to.
+//! The action taxonomy — the authoritative `domain.verb` classification that
+//! all norm actions must conform to.
 //!
 //! ## Domains
 //!
-//! Two tiers of detail in this catalog:
+//! Two tiers of detail in this taxonomy:
 //!
 //! - **`email`**: fully fleshed out (15 verbs), backed by real normalizers
 //!   and risk rules in `packs/email/`.
 //! - **All other domains**: declared as **placeholders** with a clean verb
-//!   list. They have no normalizers or risk rules yet — the catalog defines
+//!   list. They have no normalizers or risk rules yet — the taxonomy defines
 //!   the schema, future packs implement it.
 //!
 //! ## Verb design
@@ -29,7 +29,7 @@
 use serde::{Deserialize, Serialize};
 use std::fmt;
 
-/// Domains in the action catalog.
+/// Domains in the action taxonomy.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Domain {
@@ -300,7 +300,7 @@ impl fmt::Display for Domain {
     }
 }
 
-/// Verbs in the action catalog.
+/// Verbs in the action taxonomy.
 ///
 /// Generic verbs (`Get`, `List`, `Create`, `Update`, `Delete`, `Search`,
 /// `Move`, `Copy`, `Export`, `Send`, `Post`, `Schedule`, `Draft`) are
@@ -563,7 +563,7 @@ impl fmt::Display for Verb {
     }
 }
 
-/// A validated `domain.verb` pair from the action catalog.
+/// A validated `domain.verb` pair from the action taxonomy.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ActionType {
     pub domain: Domain,
@@ -572,11 +572,11 @@ pub struct ActionType {
 
 impl ActionType {
     /// Create a new ActionType, validating that the verb belongs to the domain.
-    pub fn new(domain: Domain, verb: Verb) -> Result<Self, CatalogError> {
+    pub fn new(domain: Domain, verb: Verb) -> Result<Self, TaxonomyError> {
         if domain.verbs().contains(&verb) {
             Ok(Self { domain, verb })
         } else {
-            Err(CatalogError::InvalidCombination { domain, verb })
+            Err(TaxonomyError::InvalidCombination { domain, verb })
         }
     }
 
@@ -586,14 +586,14 @@ impl ActionType {
     }
 
     /// Parse from a `domain.verb` string (e.g. "payment.charge").
-    pub fn parse(s: &str) -> Result<Self, CatalogError> {
+    pub fn parse(s: &str) -> Result<Self, TaxonomyError> {
         let (domain_str, verb_str) = s.split_once('.').ok_or_else(|| {
-            CatalogError::ParseError(format!("expected 'domain.verb', got '{s}'"))
+            TaxonomyError::ParseError(format!("expected 'domain.verb', got '{s}'"))
         })?;
         let domain = Domain::parse(domain_str)
-            .ok_or_else(|| CatalogError::UnknownDomain(domain_str.to_string()))?;
-        let verb =
-            Verb::parse(verb_str).ok_or_else(|| CatalogError::UnknownVerb(verb_str.to_string()))?;
+            .ok_or_else(|| TaxonomyError::UnknownDomain(domain_str.to_string()))?;
+        let verb = Verb::parse(verb_str)
+            .ok_or_else(|| TaxonomyError::UnknownVerb(verb_str.to_string()))?;
         Self::new(domain, verb)
     }
 
@@ -611,7 +611,7 @@ impl fmt::Display for ActionType {
 }
 
 #[derive(Debug, Clone, thiserror::Error)]
-pub enum CatalogError {
+pub enum TaxonomyError {
     #[error("invalid combination: verb '{verb}' is not valid for domain '{domain}'")]
     InvalidCombination { domain: Domain, verb: Verb },
     #[error("unknown domain: '{0}'")]
@@ -622,7 +622,7 @@ pub enum CatalogError {
     ParseError(String),
 }
 
-/// All domains in the catalog.
+/// All domains in the taxonomy.
 pub const ALL_DOMAINS: &[Domain] = &[
     Domain::Email,
     Domain::Message,
@@ -648,7 +648,7 @@ pub const ALL_DOMAINS: &[Domain] = &[
     Domain::Unknown,
 ];
 
-/// All verbs in the catalog (flat list, deduplicated).
+/// All verbs in the taxonomy (flat list, deduplicated).
 const ALL_VERBS: &[Verb] = &[
     // Generic CRUD + read
     Verb::Get,
@@ -769,7 +769,7 @@ const ALL_VERBS: &[Verb] = &[
     Verb::Unclassified,
 ];
 
-/// All valid `ActionType` entries in the catalog.
+/// All valid `ActionType` entries in the taxonomy.
 pub fn all_action_types() -> Vec<ActionType> {
     ALL_DOMAINS
         .iter()
@@ -810,7 +810,7 @@ mod tests {
         assert!(err.is_err());
         assert!(matches!(
             err.unwrap_err(),
-            CatalogError::InvalidCombination { .. }
+            TaxonomyError::InvalidCombination { .. }
         ));
     }
 
@@ -818,21 +818,21 @@ mod tests {
     fn parse_unknown_domain() {
         let err = ActionType::parse("foobar.send");
         assert!(err.is_err());
-        assert!(matches!(err.unwrap_err(), CatalogError::UnknownDomain(_)));
+        assert!(matches!(err.unwrap_err(), TaxonomyError::UnknownDomain(_)));
     }
 
     #[test]
     fn parse_unknown_verb() {
         let err = ActionType::parse("email.explode");
         assert!(err.is_err());
-        assert!(matches!(err.unwrap_err(), CatalogError::UnknownVerb(_)));
+        assert!(matches!(err.unwrap_err(), TaxonomyError::UnknownVerb(_)));
     }
 
     #[test]
     fn parse_no_dot() {
         let err = ActionType::parse("nodot");
         assert!(err.is_err());
-        assert!(matches!(err.unwrap_err(), CatalogError::ParseError(_)));
+        assert!(matches!(err.unwrap_err(), TaxonomyError::ParseError(_)));
     }
 
     #[test]
@@ -861,7 +861,7 @@ mod tests {
         assert_eq!(all.len(), expected);
         assert!(
             all.len() > 100,
-            "catalog should have >100 entries, got {}",
+            "taxonomy should have >100 entries, got {}",
             all.len()
         );
     }

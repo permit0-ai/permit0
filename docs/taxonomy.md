@@ -1,8 +1,8 @@
-# NormAction Catalog
+# Action Type Taxonomy
 
 permit0 normalizes every tool call into a **NormAction** — a vendor-agnostic, policy-addressable representation of intent. Rules score, deny, allow, allowlist, or deny-list by NormAction, not by raw tool name — so a `Bash` call, an `http` call to Stripe, and a bank-pack `wire_transfer` all flow through the same set of policies.
 
-The canonical source of truth is `permit0_types::catalog` (see `crates/permit0-types/src/catalog.rs`). It defines **20 domains** × **~116 action_types**. Of those, this repo ships **10 with full packs** (normalizer + risk rule). The rest are declared — you can reference them in YAML and they'll parse fine — but they currently fall through to `HumanInTheLoop` because no risk rule exists yet.
+The canonical source of truth is `permit0_types::taxonomy` (see `crates/permit0-types/src/taxonomy.rs`). It defines **20 domains** × **~116 action_types**. Of those, this repo ships **10 with full packs** (normalizer + risk rule). The rest are declared — you can reference them in YAML and they'll parse fine — but they currently fall through to `HumanInTheLoop` because no risk rule exists yet.
 
 ## Anatomy of a NormAction
 
@@ -23,9 +23,9 @@ NormAction {
 - **`entities`** are what **rule `when` clauses** look at. They are normalized across tool surfaces — every shell tool extracts `command`, every write tool extracts `path` + `file_type`.
 - Rules can reference entities either directly (`command: { contains: "rm -rf" }`) or under the `entity.*` namespace (`entity.host: { not_in_set: "org.trusted_domains" }`). The `entity.*` form is preferred for normalizer-computed values.
 
-## Catalog Overview
+## Taxonomy Overview
 
-Legend: ✅ = pack shipped, 🟡 = catalog-declared, no pack yet (falls through to `HumanInTheLoop`).
+Legend: ✅ = pack shipped, 🟡 = taxonomy-declared, no pack yet (falls through to `HumanInTheLoop`).
 
 ### email — 9 verbs
 
@@ -399,7 +399,7 @@ Cross-pack, these entity keys are consistent, so rules written against one pack 
 
 ## What happens for declared-but-unpacked action_types?
 
-If you add a YAML rule referencing, say, `dev.deploy`, it parses — the catalog accepts it. But until someone ships a normalizer that produces `dev.deploy` and a risk rule scoring it, the engine path is:
+If you add a YAML rule referencing, say, `dev.deploy`, it parses — the taxonomy accepts it. But until someone ships a normalizer that produces `dev.deploy` and a risk rule scoring it, the engine path is:
 
 1. Raw tool call arrives.
 2. No normalizer matches → falls through to `ActionType::UNKNOWN` (= `unknown.unclassified`).
@@ -409,7 +409,7 @@ So declared-only action_types don't crash; they just bypass per-call scoring and
 
 ## Adding a new NormAction
 
-1. Pick a `domain.verb` pair from `permit0_types::catalog`. If nothing fits, add a new `Verb` variant to the enum (it's append-only and versioned).
+1. Pick a `domain.verb` pair from `permit0_types::taxonomy`. If nothing fits, add a new `Verb` variant to the enum (it's append-only and versioned).
 2. Add a normalizer YAML under `packs/<name>/normalizers/` with `match:` on the raw tool name + `normalize:` producing the action.
 3. Add a risk rule YAML under `packs/<name>/risk_rules/` with the same `action_type:`.
 4. Register both files in `packs/<name>/pack.yaml`.
