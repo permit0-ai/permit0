@@ -15,6 +15,7 @@ members = [
     "crates/permit0-py",
     "crates/permit0-node",
     "crates/permit0-shell-dispatch",
+    "crates/permit0-test-utils",
 ]
 
 [workspace.package]
