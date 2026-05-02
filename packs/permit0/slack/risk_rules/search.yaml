@@ -1,0 +1,18 @@
+permit0_pack: "permit0/slack"
+action_type: "message.search"
+# Default tier: MINIMAL — read-only search across the workspace's
+# message history. Same reconnaissance shape as email search:
+# bulk-querying is a signal worth escalating.
+base:
+  flags: {}
+  amplifiers:
+    scope: 1
+rules: []
+session_rules:
+  - when:
+      record_count:
+        gt: 50
+    then:
+      - upgrade:
+          dim: scope
+          delta: 4

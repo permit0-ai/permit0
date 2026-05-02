@@ -1,0 +1,29 @@
+permit0_pack: "permit0/slack"
+id: "slack:slack_post_channel"
+priority: 200
+match:
+  tool: slack_post_channel
+normalize:
+  action_type: "message.post_channel"
+  domain: "message"
+  verb: "post_channel"
+  channel: "slack"
+  entities:
+    target_channel:
+      from: "channel"
+      type: "string"
+    text:
+      from: "text"
+      type: "string"
+      optional: true
+    blocks:
+      # Block Kit payloads can carry interactive buttons that change
+      # the audit trail's apparent intent — surface their presence so
+      # risk rules can flag posts with action-bearing UI.
+      from: "blocks"
+      type: "list"
+      optional: true
+    thread_ts:
+      from: "thread_ts"
+      type: "string"
+      optional: true

@@ -1,0 +1,45 @@
+# Slack pack — message-domain governance for Slack workspaces.
+#
+# Covers the verbs an LLM agent reaches for most often when wired to a
+# Slack MCP server: posting to channels, sending DMs, searching
+# message history, reacting to messages, and editing messages it
+# previously authored. See README.md for the full threat model.
+
+pack_format: 2
+
+permit0_pack: "permit0/slack"
+name: slack
+version: "0.1.0"
+description: "Slack message-domain governance: post, DM, search, react, update."
+license: Apache-2.0
+
+permit0_engine: ">=0.1.0,<0.2"
+taxonomy: "1.x"
+
+# packs/permit0/* derives BuiltIn — declaration is informational.
+trust_tier: built-in
+
+maintainers:
+  - github: "@permit0-team"
+
+# Five message-domain verbs covering the bulk of Slack-MCP traffic.
+# get/delete/send_sms in the taxonomy are intentionally deferred to a
+# follow-up — adding them later is one normalizer + one risk rule + an
+# action_types: bump (minor version per the SemVer rules in
+# docs/pack-contribution-guide.md).
+action_types:
+  - message.post_channel
+  - message.send_dm
+  - message.search
+  - message.react
+  - message.update
+
+channels:
+  slack:
+    mcp_server: clients/slack-mcp
+    display_name: "Slack"
+
+# Phase 2 forward-compat. Empty in Phase 1.
+signature: ""
+provenance: ""
+content_hash: ""

@@ -1,0 +1,45 @@
+lockfile_version: 1
+permit0_pack: permit0/slack
+pack_version: 0.1.0
+pack_format: 2
+generated_at: 2026-05-02T00:04:47Z
+files:
+- path: normalizers/slack/_channel.yaml
+  sha256: 7c66fb4b937a03222f7a49a85e5264b8067a45a1f35113b29ec3e49dce383127
+  size: 655
+- path: normalizers/slack/aliases.yaml
+  sha256: 3aba9871c4b0f9561f81596cb75bf287440b90360d2a08c115903f368305713f
+  size: 1825
+- path: normalizers/slack/post_channel.yaml
+  sha256: c23463a9aec2ad16f03f939a880fc38c956cbc65a44cc5c76c2cf38cc030a7c2
+  size: 719
+- path: normalizers/slack/react.yaml
+  sha256: cd93dc091ddc68cdf9f4efaab8149b25aba3f274d0fce423a265fc751a639ea9
+  size: 634
+- path: normalizers/slack/search.yaml
+  sha256: df35f5d8537192367e19eee2f8145996acef934454b815d20a64d114accde628
+  size: 401
+- path: normalizers/slack/send_dm.yaml
+  sha256: 686dd1af6606a5007d47cc907208961fcc6b9abfc39670dcda18f3e7ab24aca8
+  size: 548
+- path: normalizers/slack/update.yaml
+  sha256: 173ddf043e68d1863bcf17f90dff02b80701e76c1095a8b06a5dbc2ddc6ff738
+  size: 468
+- path: pack.yaml
+  sha256: eb29cb74a1ac04a8004839c84e7bf33db12ef1ad22456201fded966abaf98c6d
+  size: 1282
+- path: risk_rules/post_channel.yaml
+  sha256: bc19bf2ea49ab5c93f70d89c87f6f03ad351355d42272a30169e98ea9a9a6170
+  size: 1038
+- path: risk_rules/react.yaml
+  sha256: 8b302f65f57906ca8fc11fdd0ada2ca9cc8fc11364c9f1b7a141ce37e00d5bcc
+  size: 423
+- path: risk_rules/search.yaml
+  sha256: 947872690803f81087311b9f5fae14ebcf2dd4cffa421c3518676c0f21f4aa5c
+  size: 418
+- path: risk_rules/send_dm.yaml
+  sha256: 2d1e8716c4df2e80ccaea36a02cca78d3eaf52d92487a476cadd0096883ee9c5
+  size: 1072
+- path: risk_rules/update.yaml
+  sha256: 6454d76023da908dc477e0399a046f49056665c7d30e1b7324bd4b0abb4f9363
+  size: 758

@@ -1,0 +1,25 @@
+permit0_pack: "permit0/slack"
+id: "slack:slack_update"
+priority: 204
+match:
+  tool: slack_update
+normalize:
+  action_type: "message.update"
+  domain: "message"
+  verb: "update"
+  channel: "slack"
+  entities:
+    target_channel:
+      from: "channel"
+      type: "string"
+    timestamp:
+      from: "ts"
+      type: "string"
+    text:
+      from: "text"
+      type: "string"
+      optional: true
+    blocks:
+      from: "blocks"
+      type: "list"
+      optional: true

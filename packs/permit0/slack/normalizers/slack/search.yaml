@@ -1,0 +1,22 @@
+permit0_pack: "permit0/slack"
+id: "slack:slack_search"
+priority: 202
+match:
+  tool: slack_search
+normalize:
+  action_type: "message.search"
+  domain: "message"
+  verb: "search"
+  channel: "slack"
+  entities:
+    query:
+      from: "query"
+      type: "string"
+    sort:
+      from: "sort"
+      type: "string"
+      optional: true
+    count:
+      from: "count"
+      type: "int"
+      optional: true

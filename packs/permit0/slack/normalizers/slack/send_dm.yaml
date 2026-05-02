@@ -1,0 +1,24 @@
+permit0_pack: "permit0/slack"
+id: "slack:slack_send_dm"
+priority: 201
+match:
+  tool: slack_send_dm
+normalize:
+  action_type: "message.send_dm"
+  domain: "message"
+  verb: "send_dm"
+  channel: "slack"
+  entities:
+    recipient:
+      # Either an IM channel ID (D…) or a direct user ID (U…); the
+      # alias resolver routes both to this normalizer.
+      from: "channel"
+      type: "string"
+    text:
+      from: "text"
+      type: "string"
+      optional: true
+    thread_ts:
+      from: "thread_ts"
+      type: "string"
+      optional: true

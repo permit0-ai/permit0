@@ -1,0 +1,24 @@
+permit0_pack: "permit0/slack"
+id: "slack:slack_react"
+priority: 203
+match:
+  tool: slack_react
+normalize:
+  action_type: "message.react"
+  domain: "message"
+  verb: "react"
+  channel: "slack"
+  entities:
+    target_channel:
+      from: "channel"
+      type: "string"
+    timestamp:
+      from: "timestamp"
+      type: "string"
+    name:
+      # Emoji name without colons. The risk rule is mostly indifferent
+      # to which reaction — but recording it lets policies block
+      # specific signaling reactions like :white_check_mark: that
+      # might be load-bearing in incident workflows.
+      from: "name"
+      type: "string"

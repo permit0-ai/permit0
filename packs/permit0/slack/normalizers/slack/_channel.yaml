@@ -1,0 +1,18 @@
+# Channel metadata for the slack backend.
+#
+# `tool_pattern` is enforced by `permit0 pack validate` (PR 8 of the
+# pack taxonomy refactor): every YAML in this directory must have a
+# `match.tool` matching the glob. Cross-channel poisoning gets caught
+# at validate time, not at runtime when an agent has already escaped.
+#
+# `aliases.yaml` next to this file holds foreign-MCP name rewrites
+# (Slack's official MCP, community SDKs) that route to canonical
+# slack_* normalizer names.
+
+channel: slack
+display_name: "Slack"
+mcp_server: clients/slack-mcp
+auth: oauth_user
+api_docs: https://api.slack.com/methods
+tool_pattern: "slack_*"
+maintainers: [permit0]

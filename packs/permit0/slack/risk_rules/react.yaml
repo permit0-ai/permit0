@@ -1,0 +1,12 @@
+permit0_pack: "permit0/slack"
+action_type: "message.react"
+# Default tier: MINIMAL — emoji reactions are low-impact ambient
+# signal. The rare exceptions are reactions that load-bear in a
+# workflow (e.g. :white_check_mark: as a deploy-approval signal in
+# some ops cultures) — that's a per-workspace policy concern, not
+# something to bake into the pack.
+base:
+  flags: {}
+  amplifiers: {}
+rules: []
+session_rules: []

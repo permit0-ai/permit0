@@ -1,0 +1,59 @@
+permit0_pack: "permit0/slack"
+
+# Slack-channel foreign-tool-name aliases.
+#
+# Maps Slack Web API method names (chat.postMessage, etc.) and common
+# community-MCP exports onto canonical permit0 normalizer names so
+# policies and risk rules apply uniformly.
+#
+# Aliasing happens AFTER ClientKind prefix stripping (mcporter's
+# `slack.chat_post` becomes `chat_post`) and BEFORE normalizer
+# dispatch. See crates/permit0-normalize/src/alias.rs for resolver
+# semantics.
+#
+# Slack tools converge: `chat.postMessage` posts to a channel OR a DM
+# depending on whether the `channel` param is a channel ID (C…) or a
+# user/IM ID (D… / U…). The conditional alias below routes those two
+# cases to different action types so policies that allow public
+# channel posts don't accidentally allow DMs to coworkers.
+
+aliases:
+  # ── Slack Web API method names (snake_case after prefix strip) ──
+
+  - tool: chat_post_message
+    when:
+      # DMs use D-prefix (IM channel IDs) or U-prefix (user IDs that
+      # Slack auto-resolves to an IM).
+      - if: { param: channel, starts_with: "D" }
+        rewrite_as: slack_send_dm
+      - if: { param: channel, starts_with: "U" }
+        rewrite_as: slack_send_dm
+      - default: slack_post_channel
+
+  - tool: chat_update
+    rewrite_as: slack_update
+
+  - tool: search_messages
+    rewrite_as: slack_search
+
+  - tool: reactions_add
+    rewrite_as: slack_react
+
+  # ── Common community-MCP names ──
+
+  - tool: post_message
+    when:
+      - if: { param: channel, starts_with: "D" }
+        rewrite_as: slack_send_dm
+      - if: { param: channel, starts_with: "U" }
+        rewrite_as: slack_send_dm
+      - default: slack_post_channel
+
+  - tool: send_dm
+    rewrite_as: slack_send_dm
+
+  - tool: search
+    rewrite_as: slack_search
+
+  - tool: react
+    rewrite_as: slack_react

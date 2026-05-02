@@ -1,0 +1,34 @@
+permit0_pack: "permit0/slack"
+action_type: "message.send_dm"
+# Default tier: MEDIUM — DMs are private 1:1 communication. An LLM
+# initiating a DM with a coworker is qualitatively different from
+# posting in a public channel: there's no audience to spot a wrong
+# tone, social-engineering attempts have a clearer target, and the
+# message bypasses any moderation that exists at the channel level.
+base:
+  flags:
+    OUTBOUND: primary
+    BOUNDARY: secondary
+  amplifiers:
+    scope: 5
+    boundary: 8
+    sensitivity: 4
+rules:
+  # DMs to multiple distinct recipients in a session escalate fast.
+  # That's the bulk-DM social-engineering signature.
+  - when:
+      recipient:
+        exists: true
+    then:
+      # Always-human gate for DMs — the scoring tier may be Medium
+      # but the workflow should always surface for review until the
+      # user explicitly allowlists per-recipient or per-thread.
+      - gate: "slack_dm_human_review"
+session_rules:
+  - when:
+      record_count:
+        gt: 5
+    then:
+      - upgrade:
+          dim: scope
+          delta: 6

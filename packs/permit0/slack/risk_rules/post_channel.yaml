@@ -1,0 +1,35 @@
+permit0_pack: "permit0/slack"
+action_type: "message.post_channel"
+# Default tier: LOW — public channel posts are visible to whoever's
+# in the channel, but the blast radius is bounded by membership.
+# Amplifiers escalate when the message lands somewhere wider (a
+# company-wide channel) or carries action-bearing UI (Block Kit
+# buttons that can trigger workflows).
+base:
+  flags:
+    OUTBOUND: secondary
+  amplifiers:
+    scope: 3
+    sensitivity: 2
+rules:
+  # Block Kit blocks can render interactive buttons. A model posting
+  # a button labeled "Approve and ship" is a different blast radius
+  # than a plain text update — escalate.
+  - when:
+      blocks:
+        exists: true
+    then:
+      - upgrade:
+          dim: scope
+          delta: 5
+session_rules:
+  # >10 channel posts in a session = automation, not a teammate.
+  # Possibly fine for a status-bot, possibly spam — let policy decide
+  # at a higher tier.
+  - when:
+      record_count:
+        gt: 10
+    then:
+      - upgrade:
+          dim: scope
+          delta: 4

@@ -1,0 +1,25 @@
+permit0_pack: "permit0/slack"
+action_type: "message.update"
+# Default tier: LOW — editing a message the bot previously authored
+# is benign in most cases. Two amplifiers worth noting:
+#
+# 1. Editing across thread/channel boundaries is unusual; a model
+#    that's editing somewhere it didn't post probably picked up the
+#    timestamp from a leaked context. (Slack APIs allow editing only
+#    your own messages, so this is mostly defense in depth.)
+# 2. Bulk edits in a session shape like coverup behavior — escalate.
+base:
+  flags:
+    OUTBOUND: secondary
+  amplifiers:
+    scope: 2
+    irreversibility: 4
+rules: []
+session_rules:
+  - when:
+      record_count:
+        gt: 5
+    then:
+      - upgrade:
+          dim: irreversibility
+          delta: 6

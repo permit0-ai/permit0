@@ -1,0 +1,12 @@
+# Cross-channel-by-vendor calibration: a plain text post to a public
+# Slack channel. Should route via the alias resolver from
+# `chat_post_message` → `slack_post_channel`, score Minimal (scope=3,
+# sensitivity=2 from base; no Block Kit blocks so no further upgrade —
+# combined weight stays below the Low threshold), and decide Allow.
+name: slack_post_to_public_channel_simple
+tool_name: chat_post_message
+parameters:
+  channel: "C1234567890"           # C-prefixed → public/private channel, NOT a DM
+  text: "Build #4567 succeeded."
+expected_tier: "Minimal"
+expected_permission: "Allow"
