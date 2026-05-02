@@ -73,6 +73,10 @@ enum Matcher {
     /// Match if the param value is an array containing this scalar, or a
     /// string containing this substring.
     Contains(serde_json::Value),
+    /// Match if the param value is a string starting with this prefix.
+    /// Useful for ID-prefix routing (e.g. Slack channel IDs starting
+    /// with "D" for DMs vs "C" for public channels).
+    StartsWith(String),
 }
 
 impl Matcher {
@@ -84,6 +88,10 @@ impl Matcher {
                     serde_json::Value::String(n) => s.contains(n.as_str()),
                     _ => false,
                 },
+                _ => false,
+            },
+            Self::StartsWith(prefix) => match value {
+                serde_json::Value::String(s) => s.starts_with(prefix.as_str()),
                 _ => false,
             },
         }
@@ -267,15 +275,28 @@ struct ConditionYaml {
     param: String,
     #[serde(default)]
     contains: Option<serde_yaml::Value>,
+    /// String-prefix matcher for ID-prefix routing (e.g. Slack
+    /// channel IDs starting with `D` for DMs).
+    #[serde(default)]
+    starts_with: Option<String>,
 }
 
 impl ConditionYaml {
     fn compile(&self, tool: &str) -> Result<Condition, RegistryError> {
-        let matcher = match &self.contains {
-            Some(v) => Matcher::Contains(yaml_to_json(v.clone())),
-            None => {
+        let matcher = match (&self.contains, &self.starts_with) {
+            (Some(v), None) => Matcher::Contains(yaml_to_json(v.clone())),
+            (None, Some(prefix)) => Matcher::StartsWith(prefix.clone()),
+            (Some(_), Some(_)) => {
                 return Err(RegistryError::AliasParse(format!(
-                    "alias '{tool}' condition for param '{}' has no matcher (expected 'contains')",
+                    "alias '{tool}' condition for param '{}' has multiple matchers \
+                     (use one of `contains` or `starts_with`)",
+                    self.param
+                )));
+            }
+            (None, None) => {
+                return Err(RegistryError::AliasParse(format!(
+                    "alias '{tool}' condition for param '{}' has no matcher \
+                     (expected 'contains' or 'starts_with')",
                     self.param
                 )));
             }
