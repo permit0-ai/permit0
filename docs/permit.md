@@ -157,7 +157,7 @@ The agent reviewer **never produces Allow** and **never issues tokens**. It is a
 ### Crate Layout
 
 ```
-permit0-core/
+permit0/
 ├── Cargo.toml                       # workspace
 ├── crates/
 │   ├── permit0-types/               # Tier, RiskScore, NormAction, Permission, RiskTemplate
@@ -2827,7 +2827,7 @@ Each phase produces something runnable end-to-end before adding sophistication. 
 
 **Crates created:**
 ```
-permit0-core/
+permit0/
 ├── Cargo.toml                     # workspace root
 ├── Cargo.lock                     # committed for reproducibility
 ├── crates/

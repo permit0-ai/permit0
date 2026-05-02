@@ -2,7 +2,7 @@
 
 Phase 1 placeholder. Once the federated registry and signing
 infrastructure ship (Phase 2 — tracked in
-[#18](https://github.com/permit0-ai/permit0-core/issues/18)),
+[#18](https://github.com/permit0-ai/permit0/issues/18)),
 community-contributed packs will live in this directory.
 
 ## Phase 1 status

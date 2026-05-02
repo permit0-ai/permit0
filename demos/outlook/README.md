@@ -7,7 +7,7 @@ A ~150-line Python script that demonstrates the production loop:
 
 ```bash
 # 1. Start permit0 (in another terminal)
-cd /home/hy/projs/permit0-core
+cd /home/hy/projs/permit0
 cargo run -p permit0-cli -- serve --ui --port 9090
 
 # 2. Install Python deps

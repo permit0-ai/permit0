@@ -60,8 +60,8 @@ Verify with `cargo --version`, `python3 --version`, `claude --version`.
 ### 1. Build permit0 + start daemon (calibrate mode)
 
 ```bash
-git clone https://github.com/anthropics/permit0-core.git
-cd permit0-core
+git clone https://github.com/anthropics/permit0.git
+cd permit0
 cargo build --release
 export PATH="$PATH:$(pwd)/target/release"
 permit0 serve --calibrate --port 9090
@@ -79,7 +79,7 @@ User opens http://localhost:9090/ui/ → enters reviewer name → leaves
 ### 2. Install MCP servers (in a new terminal)
 
 ```bash
-cd permit0-core
+cd permit0
 pip install -e clients/outlook-mcp
 pip install -e clients/gmail-mcp     # skip if Gmail not needed
 ```
@@ -129,7 +129,7 @@ Use absolute paths (PATH and `~` expansion can't be relied on):
         "hooks": [
           {
             "type": "command",
-            "command": "/abs/path/to/permit0 hook --db /home/<user>/.permit0/sessions.db --packs-dir /abs/path/to/permit0-core/packs"
+            "command": "/abs/path/to/permit0 hook --db /home/<user>/.permit0/sessions.db --packs-dir /abs/path/to/permit0/packs"
           }
         ]
       }
@@ -206,7 +206,7 @@ Walk the user through diagnostic commands when something doesn't work:
 | Symptom | Diagnosis | Fix |
 |---------|-----------|-----|
 | MCP tools don't appear in Claude Code | `which permit0-outlook-mcp` empty, OR didn't fully quit Claude Code | Add pip's bin dir to PATH (or use absolute path in `~/.claude.json`); fully quit + relaunch |
-| Claude Code "completely ignores" the hook (tool runs unprompted) | Most likely combo of: (1) wrong file — must be `~/.claude/settings.json`, not `~/.claude.json`; (2) wrong schema — must be nested `{matcher,hooks:[{type,command}]}`; (3) wrong output format — must be `hookSpecificOutput.permissionDecision` not legacy `{"decision":"..."}` ; (4) missing `--packs-dir` so engine build fails on stale `~/.permit0/packs/` | Run `cd /tmp && echo '{"tool_name":"mcp__permit0-outlook__outlook_search","tool_input":{}}' \| /abs/path/to/permit0 hook --db ~/.permit0/sessions.db --packs-dir /abs/path/to/permit0-core/packs` and check exit code is 0 + output starts with `{"hookSpecificOutput"`. If exit is nonzero, the engine build failed — check error message |
+| Claude Code "completely ignores" the hook (tool runs unprompted) | Most likely combo of: (1) wrong file — must be `~/.claude/settings.json`, not `~/.claude.json`; (2) wrong schema — must be nested `{matcher,hooks:[{type,command}]}`; (3) wrong output format — must be `hookSpecificOutput.permissionDecision` not legacy `{"decision":"..."}` ; (4) missing `--packs-dir` so engine build fails on stale `~/.permit0/packs/` | Run `cd /tmp && echo '{"tool_name":"mcp__permit0-outlook__outlook_search","tool_input":{}}' \| /abs/path/to/permit0 hook --db ~/.permit0/sessions.db --packs-dir /abs/path/to/permit0/packs` and check exit code is 0 + output starts with `{"hookSpecificOutput"`. If exit is nonzero, the engine build failed — check error message |
 | Hook returns `ask` (legacy: `ask_user`) for built-in tools (Bash etc.) | Expected — only the `email` pack ships normalizers; built-in tools fall through to `unknown.unclassified` → ask | Either accept (default human review), or add normalizers/risk rules under `packs/<your-domain>/` for the built-ins you use |
 | Daemon not reachable | `curl http://localhost:9090/api/v1/health` fails | Daemon crashed or was killed; restart in terminal 1. Or port collision — try a different port and update the hook URL via `PERMIT0_URL` env var |
 | Outlook auth: "AADSTS65001" | Work/school account requires admin consent for the public Graph PowerShell client | Use personal `@outlook.com` account, OR register own Azure App and set `MSGRAPH_CLIENT_ID` |

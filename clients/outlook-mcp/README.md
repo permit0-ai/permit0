@@ -36,7 +36,7 @@ Claude Code  ──MCP/stdio──▶  permit0-outlook-mcp
 ### 1. Make sure the permit0 daemon is running
 
 ```bash
-cd /path/to/permit0-core
+cd /path/to/permit0
 cargo run -p permit0-cli -- serve --ui --port 9090
 ```
 

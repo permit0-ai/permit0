@@ -302,14 +302,14 @@ Move to a federated registry when ANY of:
 
 Phase 2 plan sketch lives in the working discussion doc;
 signing-infrastructure design is tracked in
-[#18](https://github.com/permit0-ai/permit0-core/issues/18) as a
+[#18](https://github.com/permit0-ai/permit0/issues/18) as a
 prerequisite.
 
 ## Related artifacts
 
-- [#18](https://github.com/permit0-ai/permit0-core/issues/18) — pack
+- [#18](https://github.com/permit0-ai/permit0/issues/18) — pack
   signing infrastructure (Phase 2 prerequisite).
-- [#19](https://github.com/permit0-ai/permit0-core/issues/19) — taxonomy
+- [#19](https://github.com/permit0-ai/permit0/issues/19) — taxonomy
   version-resolver semantics for multi-pack installs.
-- `~/.gstack/projects/permit0-ai-permit0-core/sufu-claudequirky-ritchie-4ae70b-eng-review-test-plan-20260501-150322.md`
+- `~/.gstack/projects/permit0-ai-permit0/sufu-claudequirky-ritchie-4ae70b-eng-review-test-plan-20260501-150322.md`
   — test plan artifact consumable by `/qa` and `/qa-only`.
