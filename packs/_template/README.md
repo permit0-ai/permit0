@@ -60,7 +60,3 @@ packs/<owner>/<name>/
 - **taxonomy:** `1.x`
 - **MCP servers:** TODO
 
-## Contributing
-
-See [`docs/pack-contribution-guide.md`](../../docs/pack-contribution-guide.md)
-for the contribution workflow.

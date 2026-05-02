@@ -51,10 +51,10 @@ pip install -e clients/outlook-mcp     # this server
 ### 3. Log in to Outlook once (creates token cache)
 
 The MCP server runs as a subprocess of Claude Code, where interactive login is
-clunky. Pre-populate the token cache by running the demo CLI once:
+clunky. Pre-populate the token cache by triggering the auth flow once:
 
 ```bash
-python demos/outlook/outlook_test.py list
+python -c "from permit0_outlook_mcp.auth import get_token; get_token()"
 ```
 
 Visit the Microsoft device-login URL it prints, sign in with your personal
@@ -85,14 +85,14 @@ Restart Claude Code. The 9 tools above appear in its tool list.
 
 In Claude Code:
 
-> 列出我收件箱里最近的 5 封邮件，归档所有上周的促销邮件。
+> List the 5 most recent emails in my inbox and archive all promotional emails from last week.
 
 Claude Code will call `outlook_list` (no permit0 check), then for each
 candidate message, call `outlook_archive(message_id=...)`. Each archive call
 hits permit0 — you'll see the decisions live in the dashboard at
 http://localhost:9090/ui/ under the **Audit** tab.
 
-> 发一封邮件给 bob@example.com，主题是 "测试"，内容是 "hi"。
+> Send an email to bob@example.com with subject "test" and body "hi".
 
 Claude Code calls `outlook_send(to=..., subject=..., body=...)`. permit0
 evaluates `email.send` against its risk rule. A clean send → ALLOW. Embedding

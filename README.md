@@ -60,15 +60,6 @@ The fastest path to a real, useful permit0 deployment: gate every email
 operation Claude Code performs on your **personal Outlook or Gmail account**
 through a single PreToolUse hook. ~10 minutes, fully gated, fully audited.
 
-> **Need a zero-to-running walkthrough?** Two formats:
->
-> - [**docs/claude-code-integration.md**](docs/claude-code-integration.md) —
->   100-line static recipe you read top-to-bottom.
-> - [**skills/permit0-claude-code-setup**](skills/permit0-claude-code-setup/SKILL.md) —
->   a Claude Code skill that walks you through interactively (symlink it
->   into `~/.claude/skills/` and tell Claude "set up permit0 with Claude
->   Code"). See [`skills/README.md`](skills/README.md) for install steps.
-
 ### Architecture (single-layer)
 
 ```
@@ -122,7 +113,7 @@ The hook + plain MCP path doesn't need it.)
 no Azure App registration needed:
 
 ```bash
-python demos/outlook/outlook_test.py list   # one-time device-code login
+python -c "from permit0_outlook_mcp.auth import get_token; get_token()"   # one-time device-code login
 ```
 
 **Gmail** — Google requires a per-user OAuth app:
@@ -195,7 +186,7 @@ hands you bare names.
 
 ### 5. Talk to Claude Code
 
-> 列出我收件箱里最近 5 封邮件,把所有 newsletter 类的归档
+> List the 5 most recent emails in my inbox and archive all newsletters.
 
 > Send an email to alice@example.com with subject "review" and body
 > "please take a look at the attached deck"
@@ -286,8 +277,7 @@ PERMIT0_SHADOW=1 permit0 hook                      # or env var
 |-----------|-------------|-------|
 | **Claude Code** | `PreToolUse` Hook | Native support, one-line config |
 | **OpenAI Agents** | HTTP Sidecar | `POST /api/v1/check` |
-| **LangChain** | Python SDK | `engine.get_permission(tool, params)` |
-| **CrewAI** | Python SDK | Same as above |
+| **CrewAI** | Python SDK | `engine.get_permission(tool, params)` |
 | **AutoGen** | Python SDK / HTTP | Both methods work |
 | **Custom Agent** | HTTP / Gateway | REST API or JSONL pipe |
 
@@ -783,8 +773,7 @@ permit0-core/
 ├── packs/
 │   └── email/                  # 30 normalizers + 15 risk rules
 ├── profiles/                   # Domain calibration profiles
-├── corpora/calibration/        # Golden test cases (YAML fixtures)
-└── demos/outlook/              # Standalone CLI demo (no MCP)
+└── corpora/calibration/        # Golden test cases (YAML fixtures)
 ```
 
 ---

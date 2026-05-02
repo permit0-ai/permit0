@@ -34,9 +34,6 @@ __pycache__/
 # Built native bindings
 *.node
 
-# Demo recordings (regenerated)
-demos/recording_output/
-
 # Local scratch
 README_tmp.html
 

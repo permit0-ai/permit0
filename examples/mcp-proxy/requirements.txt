@@ -1,4 +1,0 @@
-permit0
-# Install locally from the monorepo:
-#   cd ../../crates/permit0-py && maturin develop
-# No MCP dependencies needed — this demo simulates the JSON-RPC protocol.

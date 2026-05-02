@@ -1,7 +1,6 @@
 """MSAL device-code auth + token cache for Microsoft Graph.
 
-The token is cached at ~/.permit0/outlook_token.json and shared with
-demos/outlook/outlook_test.py — log in once via either, both use it.
+The token is cached at ~/.permit0/outlook_token.json.
 """
 import os
 import pathlib

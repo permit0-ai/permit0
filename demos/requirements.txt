@@ -1,7 +1,0 @@
-# Demo dependencies (permit0 is built separately via maturin)
-langgraph>=1.1
-langchain-anthropic>=1.4
-langchain-core>=1.2
-fastapi>=0.100
-uvicorn>=0.20
-websockets>=12.0
