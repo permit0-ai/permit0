@@ -898,9 +898,9 @@ mod tests {
     use serde_json::json;
 
     fn build_test_engine() -> Engine {
-        let gmail_norm = load_test_fixture("packs/email/normalizers/gmail_send.yaml");
-        let outlook_norm = load_test_fixture("packs/email/normalizers/outlook_send.yaml");
-        let email_risk = load_test_fixture("packs/email/risk_rules/send.yaml");
+        let gmail_norm = load_test_fixture("packs/permit0/email/normalizers/gmail/send.yaml");
+        let outlook_norm = load_test_fixture("packs/permit0/email/normalizers/outlook/send.yaml");
+        let email_risk = load_test_fixture("packs/permit0/email/risk_rules/send.yaml");
         EngineBuilder::new()
             .install_normalizer_yaml(&gmail_norm)
             .unwrap()
@@ -1133,9 +1133,9 @@ mod tests {
     fn build_test_engine_with_audit() -> (Engine, Arc<permit0_store::audit::InMemoryAuditSink>) {
         let signer = Arc::new(permit0_store::audit::Ed25519Signer::generate());
         let sink = Arc::new(permit0_store::audit::InMemoryAuditSink::new());
-        let gmail_norm = load_test_fixture("packs/email/normalizers/gmail_send.yaml");
-        let outlook_norm = load_test_fixture("packs/email/normalizers/outlook_send.yaml");
-        let email_risk = load_test_fixture("packs/email/risk_rules/send.yaml");
+        let gmail_norm = load_test_fixture("packs/permit0/email/normalizers/gmail/send.yaml");
+        let outlook_norm = load_test_fixture("packs/permit0/email/normalizers/outlook/send.yaml");
+        let email_risk = load_test_fixture("packs/permit0/email/risk_rules/send.yaml");
         let engine = EngineBuilder::new()
             .install_normalizer_yaml(&gmail_norm)
             .unwrap()
@@ -1407,7 +1407,7 @@ mod tests {
         let ctx = default_ctx();
 
         // body containing "password" pushes the email risk rule into HIGH
-        // tier (see packs/email/risk_rules/send.yaml), which routes to HITL.
+        // tier (see packs/permit0/email/risk_rules/send.yaml), which routes to HITL.
         let result = engine
             .get_permission(&gmail_send("update", "your password is hunter2"), &ctx)
             .unwrap();

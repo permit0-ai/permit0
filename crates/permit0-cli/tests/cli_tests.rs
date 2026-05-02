@@ -68,8 +68,22 @@ fn check_unknown_tool_human() {
 
 #[test]
 fn pack_validate_email() {
+    // Email pack moved to packs/permit0/email/ in PR 3 of the pack
+    // taxonomy refactor. Try the owner-namespaced location first; fall
+    // back to the legacy flat path for back-compat with checkouts that
+    // haven't merged the move yet.
+    let pack_path = if std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .and_then(std::path::Path::parent)
+        .map(|root| root.join("packs/permit0/email").is_dir())
+        .unwrap_or(false)
+    {
+        "packs/permit0/email"
+    } else {
+        "packs/email"
+    };
     let output = permit0_bin()
-        .args(["pack", "validate", "packs/email"])
+        .args(["pack", "validate", pack_path])
         .output()
         .unwrap();
     assert!(
@@ -176,14 +190,33 @@ fn gateway_processes_jsonl() {
 
 #[test]
 fn pack_new_creates_scaffold() {
-    // Use a temp dir to avoid polluting the workspace
+    // PR 7 of the pack taxonomy refactor changed `pack new` to:
+    //   - require a `<owner>/<name>` argument
+    //   - copy the in-tree packs/_template/ and substitute markers
+    //   - place the result at packs/<owner>/<name>/
+    //
+    // The test runs in a temp dir so it doesn't pollute the workspace.
+    // Symlink the workspace's packs/_template into the temp dir so the
+    // scaffolder can find it.
     let tmp = std::env::temp_dir().join("permit0_test_pack_new");
     let _ = std::fs::remove_dir_all(&tmp);
     std::fs::create_dir_all(tmp.join("packs")).unwrap();
 
+    let workspace_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap();
+    let template_src = workspace_root.join("packs/_template");
+    let template_dst = tmp.join("packs/_template");
+    #[cfg(unix)]
+    std::os::unix::fs::symlink(&template_src, &template_dst).unwrap();
+    #[cfg(windows)]
+    std::os::windows::fs::symlink_dir(&template_src, &template_dst).unwrap();
+
     let output = Command::new(env!("CARGO_BIN_EXE_permit0"))
         .current_dir(&tmp)
-        .args(["pack", "new", "test_service"])
+        .args(["pack", "new", "alice/test_service"])
         .output()
         .unwrap();
     assert!(
@@ -192,20 +225,56 @@ fn pack_new_creates_scaffold() {
         String::from_utf8_lossy(&output.stderr)
     );
 
-    // Verify scaffold files exist
+    // Verify scaffolded files exist (schema v2 + per-channel layout).
     assert!(
-        tmp.join("packs/test_service/normalizers/test_service.normalizer.yaml")
-            .exists()
+        tmp.join("packs/alice/test_service/pack.yaml").exists(),
+        "pack.yaml missing"
     );
     assert!(
-        tmp.join("packs/test_service/risk_rules/test_service.risk_rule.yaml")
-            .exists()
+        tmp.join("packs/alice/test_service/normalizers/test_service/_channel.yaml")
+            .exists(),
+        "_channel.yaml missing"
     );
     assert!(
-        tmp.join("packs/test_service/fixtures/test_service_basic.fixture.yaml")
-            .exists()
+        tmp.join("packs/alice/test_service/normalizers/test_service/aliases.yaml")
+            .exists(),
+        "aliases.yaml missing"
     );
-    assert!(tmp.join("packs/test_service/README.md").exists());
+    assert!(
+        tmp.join("packs/alice/test_service/normalizers/test_service/TODO_VERB.yaml")
+            .exists(),
+        "TODO_VERB.yaml stub missing"
+    );
+    assert!(
+        tmp.join("packs/alice/test_service/risk_rules/TODO_VERB.yaml")
+            .exists(),
+        "risk_rules TODO_VERB.yaml stub missing"
+    );
+
+    // pack.yaml should contain the substituted owner / pack name.
+    let pack_yaml =
+        std::fs::read_to_string(tmp.join("packs/alice/test_service/pack.yaml")).unwrap();
+    assert!(
+        pack_yaml.contains(r#"permit0_pack: "alice/test_service""#),
+        "permit0_pack not substituted: {pack_yaml}"
+    );
+    assert!(
+        pack_yaml.contains("name: test_service"),
+        "name not substituted: {pack_yaml}"
+    );
+
+    // Bad arg shape errors out cleanly.
+    let bad = Command::new(env!("CARGO_BIN_EXE_permit0"))
+        .current_dir(&tmp)
+        .args(["pack", "new", "no_slash_here"])
+        .output()
+        .unwrap();
+    assert!(!bad.status.success());
+    assert!(
+        String::from_utf8_lossy(&bad.stderr).contains("expected `<owner>/<name>`"),
+        "expected usage hint: stderr={}",
+        String::from_utf8_lossy(&bad.stderr)
+    );
 
     // Cleanup
     let _ = std::fs::remove_dir_all(&tmp);

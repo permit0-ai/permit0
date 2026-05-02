@@ -1,0 +1,61 @@
+# Template pack manifest. Replace every TODO before submitting.
+#
+# This file is the source of truth for `permit0 pack validate`. The
+# validator cross-checks `action_types:` against your normalizers and
+# risk rules, derives `trust_tier` from the `permit0_pack:` owner, and
+# refuses to load packs that drift from these invariants.
+
+pack_format: 2
+
+# <owner>/<name>. Owner determines the derived trust tier:
+#   "permit0/<name>"     → built-in (first-party only)
+#   "<other>/<name>"     → community
+permit0_pack: "TODO_OWNER/TODO_NAME"
+name: TODO_NAME
+version: "0.1.0"
+description: "TODO: one-line summary of what this pack governs."
+license: Apache-2.0  # MIT and BSD-2/3 also OK; copyleft licenses are flagged by the validator.
+
+# Engine + taxonomy compatibility ranges. Pack rejected at load if the
+# engine version falls outside this range.
+permit0_engine: ">=0.1.0,<0.2"
+taxonomy: "1.x"
+
+# Self-declared trust tier. Informational — the engine derives the
+# authoritative value from `permit0_pack`'s owner. Only the BuiltIn
+# (path: packs/permit0/*) and Community defaults are reachable in
+# Phase 1; Verified and Experimental require Phase 2 signing
+# infrastructure.
+trust_tier: community
+
+maintainers:
+  - github: "@TODO_GITHUB_HANDLE"
+  # email: "TODO@example.com"
+  # name: "TODO Display Name"
+
+# Action types this pack is responsible for. The validator requires:
+#   1. each entry parses as a real `domain.verb` from the taxonomy
+#   2. each entry has at least one normalizer producing it
+#   3. each entry has exactly one risk rule covering it
+#
+# Drift here flags via CI before merge. See docs/taxonomy.md for the
+# closed list of valid domain.verb pairs.
+action_types:
+  - TODO_DOMAIN.TODO_VERB
+  # - email.send
+  # - payment.charge
+
+# Channels this pack supports. Each channel is a self-contained
+# subdirectory under normalizers/<channel>/ with its own
+# _channel.yaml, aliases.yaml, and per-verb normalizer YAMLs. Adding
+# a vendor = create one directory + drop in the verbs.
+channels:
+  TODO_CHANNEL:
+    mcp_server: "TODO/path/to/mcp"
+    display_name: "TODO Display Name"
+
+# Phase 2 forward-compat. Leave empty in Phase 1; populated by signing
+# infrastructure when the federated registry ships.
+signature: ""
+provenance: ""
+content_hash: ""

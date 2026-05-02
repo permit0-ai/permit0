@@ -1,0 +1,35 @@
+permit0_pack: "permit0/email"
+
+# Outlook-channel foreign-tool-name aliases.
+#
+# Maps Microsoft's Work IQ Mail MCP and Graph-API-prefixed tool names
+# onto canonical permit0 normalizer names so policies and risk rules
+# apply uniformly. Sources:
+#
+#   - Microsoft's Work IQ Mail MCP
+#       https://learn.microsoft.com/en-us/microsoft-agent-365/mcp-server-reference/mail
+#
+# Tool names arrive bare (no mcp_MailTools_graph_mail_ prefix) once
+# ClientKind stripping has run, OR they may arrive prefixed depending
+# on the host. Add canonical short names here; if real traffic shows
+# the full prefixed names, extend the strip rule for that ClientKind
+# rather than aliasing every prefix variant.
+
+aliases:
+  - tool: searchMessages
+    rewrite_as: outlook_search
+
+  - tool: getMessage
+    rewrite_as: outlook_read
+
+  - tool: createMessage
+    rewrite_as: outlook_draft
+
+  - tool: sendMail
+    rewrite_as: outlook_send
+
+  - tool: sendDraft
+    rewrite_as: outlook_send
+
+  - tool: deleteMessage
+    rewrite_as: outlook_delete

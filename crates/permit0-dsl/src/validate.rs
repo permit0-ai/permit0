@@ -398,7 +398,8 @@ session_rules: []
 
     #[test]
     fn valid_risk_rule_passes() {
-        let yaml = permit0_test_utils::load_test_fixture("packs/email/risk_rules/send.yaml");
+        let yaml =
+            permit0_test_utils::load_test_fixture("packs/permit0/email/risk_rules/send.yaml");
         let def: RiskRuleDef = serde_yaml::from_str(&yaml).unwrap();
         let errors = validate_risk_rule(&def);
         assert!(errors.is_empty(), "unexpected errors: {errors:?}");

@@ -89,6 +89,17 @@ pub enum ViolationCode {
     /// require explicit human review; gateless rules can let the engine
     /// auto-approve based on score alone.
     MissingGateOnCriticalAction,
+    /// A normalizer's `match.tool` doesn't satisfy the channel's
+    /// `tool_pattern` glob. Indicates cross-channel poisoning — a
+    /// normalizer placed in `normalizers/gmail/` claiming an `outlook_*`
+    /// tool would route Outlook traffic through gmail-channel risk
+    /// rules and aliases.
+    ToolPatternMismatch,
+    /// A `normalizers/<channel>/` directory exists but lacks an
+    /// `_channel.yaml`. The validator can't enforce `tool_pattern`
+    /// without the manifest; treat as warning rather than hard error
+    /// to keep coexistence with PR 2's flat normalizer layout.
+    MissingChannelManifest,
 }
 
 /// Run every manifest-level check and return a flat list of violations.
@@ -261,6 +272,169 @@ fn check_orphans(
             });
         }
     }
+}
+
+/// Match a tool name against a `_channel.yaml` `tool_pattern` glob.
+///
+/// Supported wildcards (intentionally minimal):
+/// - `*` matches any sequence of characters (including empty).
+/// - Everything else matches literally.
+///
+/// Examples:
+/// - `gmail_*` matches `gmail_send`, `gmail_archive`, but not
+///   `outlook_send` or just `gmail`.
+/// - `*` matches everything (escape hatch for legacy packs).
+/// - `gmail_send` matches only the literal name.
+///
+/// We don't pull in the `glob` crate for one matcher — patterns are
+/// short and the wildcard set is fixed. If patterns get more complex
+/// (character classes, recursive globs), revisit.
+pub fn tool_pattern_matches(pattern: &str, tool: &str) -> bool {
+    // Split on `*` and verify the parts appear in order in `tool`.
+    let parts: Vec<&str> = pattern.split('*').collect();
+    if parts.len() == 1 {
+        // No wildcards — literal match.
+        return parts[0] == tool;
+    }
+    let mut cursor = 0usize;
+    for (idx, part) in parts.iter().enumerate() {
+        if part.is_empty() {
+            continue;
+        }
+        if idx == 0 {
+            // First non-empty part must be a prefix.
+            if !tool[cursor..].starts_with(part) {
+                return false;
+            }
+            cursor += part.len();
+        } else if idx == parts.len() - 1 {
+            // Last non-empty part must be a suffix.
+            return tool[cursor..].ends_with(part);
+        } else {
+            // Middle parts: any occurrence at-or-after `cursor`.
+            match tool[cursor..].find(part) {
+                Some(off) => cursor += off + part.len(),
+                None => return false,
+            }
+        }
+    }
+    true
+}
+
+/// Walk every `normalizers/<channel>/` subdirectory of a pack and
+/// verify each normalizer's `match.tool` satisfies the directory's
+/// `_channel.yaml` `tool_pattern`. Surfaces:
+/// - `ToolPatternMismatch` when a normalizer's tool name escapes
+///   the pattern (cross-channel poisoning).
+/// - `MissingChannelManifest` when a per-channel directory has
+///   normalizer YAMLs but no `_channel.yaml` (warning).
+///
+/// IO-bound, so this lives outside the pure `validate_pack`
+/// pipeline; the CLI calls it after the manifest checks. Returns an
+/// empty vec if the pack is still on the flat layout (no per-channel
+/// subdirectories).
+pub fn validate_channel_directories(
+    pack_dir: &std::path::Path,
+) -> Result<Vec<PackViolation>, std::io::Error> {
+    use crate::schema::pack::ChannelManifest;
+    let mut violations = Vec::new();
+
+    let normalizers_dir = pack_dir.join("normalizers");
+    if !normalizers_dir.is_dir() {
+        return Ok(violations);
+    }
+
+    for entry in std::fs::read_dir(&normalizers_dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if !path.is_dir() {
+            continue;
+        }
+        let basename = match path.file_name().and_then(|s| s.to_str()) {
+            Some(b) => b,
+            None => continue,
+        };
+        if basename.starts_with('_') || basename.starts_with('.') {
+            continue;
+        }
+
+        // Try to load _channel.yaml for the pattern. Surface a
+        // warning if missing; nothing else to enforce without it.
+        let channel_yaml_path = path.join(crate::CHANNEL_MANIFEST_FILENAME);
+        let pattern: Option<String> = if channel_yaml_path.is_file() {
+            let yaml = std::fs::read_to_string(&channel_yaml_path)?;
+            match serde_yaml::from_str::<ChannelManifest>(&yaml) {
+                Ok(m) => m.tool_pattern,
+                Err(_) => None,
+            }
+        } else {
+            violations.push(PackViolation {
+                code: ViolationCode::MissingChannelManifest,
+                message: format!(
+                    "normalizers/{basename}/ has normalizer YAMLs but no _channel.yaml \
+                     declaring `tool_pattern:`; tool-pattern enforcement skipped"
+                ),
+            });
+            None
+        };
+
+        let Some(pattern) = pattern else {
+            // _channel.yaml exists but doesn't declare tool_pattern;
+            // we already surfaced the manifest issue above (or chose
+            // to silently allow patternless channel manifests for
+            // back-compat). Skip enforcement.
+            continue;
+        };
+
+        // Check every normalizer YAML in the channel directory.
+        for sub in std::fs::read_dir(&path)? {
+            let sub = sub?;
+            let sub_path = sub.path();
+            let sub_basename = match sub_path.file_name().and_then(|s| s.to_str()) {
+                Some(b) => b,
+                None => continue,
+            };
+            if !sub_path
+                .extension()
+                .is_some_and(|e| e == "yaml" || e == "yml")
+            {
+                continue;
+            }
+            if sub_basename == crate::CHANNEL_MANIFEST_FILENAME
+                || sub_basename == crate::ALIASES_FILENAME
+            {
+                continue;
+            }
+            let yaml = std::fs::read_to_string(&sub_path)?;
+            // Pull `match.tool` out without deserializing the full
+            // normalizer schema. The normalizer DSL is permissive
+            // enough that re-parsing here would couple the validator
+            // to its evolution; a one-field probe is robust enough.
+            let parsed: serde_yaml::Value = match serde_yaml::from_str(&yaml) {
+                Ok(v) => v,
+                Err(_) => continue, // schema-level error already surfaced elsewhere
+            };
+            let Some(tool) = parsed
+                .get("match")
+                .and_then(|m| m.get("tool"))
+                .and_then(|t| t.as_str())
+            else {
+                continue;
+            };
+            if !tool_pattern_matches(&pattern, tool) {
+                violations.push(PackViolation {
+                    code: ViolationCode::ToolPatternMismatch,
+                    message: format!(
+                        "normalizers/{basename}/{sub_basename} has match.tool: \"{tool}\" \
+                         which does not match channel pattern \"{pattern}\" — \
+                         cross-channel poisoning suspected"
+                    ),
+                });
+            }
+        }
+    }
+
+    Ok(violations)
 }
 
 fn check_security_lint(risk_rule_targets: &[(String, RiskRuleDef)], out: &mut Vec<PackViolation>) {
@@ -506,6 +680,44 @@ session_rules: []
 "#
         );
         serde_yaml::from_str(&yaml).expect("valid risk rule")
+    }
+
+    // ── tool_pattern_matches ──
+
+    #[test]
+    fn tool_pattern_literal_matches_exactly() {
+        assert!(tool_pattern_matches("gmail_send", "gmail_send"));
+        assert!(!tool_pattern_matches("gmail_send", "gmail_archive"));
+        assert!(!tool_pattern_matches("gmail_send", "outlook_send"));
+    }
+
+    #[test]
+    fn tool_pattern_prefix_wildcard() {
+        assert!(tool_pattern_matches("gmail_*", "gmail_send"));
+        assert!(tool_pattern_matches("gmail_*", "gmail_archive"));
+        assert!(tool_pattern_matches("gmail_*", "gmail_"));
+        assert!(!tool_pattern_matches("gmail_*", "outlook_send"));
+        // Pattern requires the prefix to literally start the tool name.
+        assert!(!tool_pattern_matches("gmail_*", "x_gmail_send"));
+    }
+
+    #[test]
+    fn tool_pattern_suffix_wildcard() {
+        assert!(tool_pattern_matches("*_send", "gmail_send"));
+        assert!(tool_pattern_matches("*_send", "outlook_send"));
+        assert!(!tool_pattern_matches("*_send", "gmail_archive"));
+    }
+
+    #[test]
+    fn tool_pattern_universal() {
+        assert!(tool_pattern_matches("*", "anything"));
+        assert!(tool_pattern_matches("*", ""));
+    }
+
+    #[test]
+    fn tool_pattern_middle_wildcard() {
+        assert!(tool_pattern_matches("g*l_send", "gmail_send"));
+        assert!(!tool_pattern_matches("g*l_send", "gmail_archive"));
     }
 
     fn risk_rule_with_gate(action_type: &str) -> RiskRuleDef {

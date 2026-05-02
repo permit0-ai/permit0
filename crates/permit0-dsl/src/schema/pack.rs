@@ -102,7 +102,7 @@ pub struct Maintainer {
     pub name: Option<String>,
 }
 
-/// Channel-level metadata (per-vendor).
+/// Channel-level metadata (per-vendor) declared in `pack.yaml`.
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct ChannelMeta {
     /// Path to the MCP server adapter for this channel, e.g.
@@ -112,6 +112,46 @@ pub struct ChannelMeta {
     /// Display name (UI-facing).
     #[serde(default)]
     pub display_name: Option<String>,
+}
+
+/// `_channel.yaml` — full channel manifest sitting next to per-vendor
+/// normalizers under `normalizers/<channel>/`.
+///
+/// Distinct from [`ChannelMeta`] (which is the lightweight summary
+/// declared in `pack.yaml`'s `channels:` block). The `_channel.yaml`
+/// file is the authoritative per-channel record, including the
+/// `tool_pattern` glob the validator enforces against every normalizer
+/// in the directory to prevent cross-channel poisoning.
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct ChannelManifest {
+    /// Channel slug. Should match the directory name.
+    #[serde(default)]
+    pub channel: Option<String>,
+    /// Display name (UI-facing).
+    #[serde(default)]
+    pub display_name: Option<String>,
+    /// Path to the MCP server adapter for this channel.
+    #[serde(default)]
+    pub mcp_server: Option<String>,
+    /// Auth model: `oauth_user`, `api_key`, `mtls`, `none`.
+    #[serde(default)]
+    pub auth: Option<String>,
+    /// API documentation URL (informational).
+    #[serde(default)]
+    pub api_docs: Option<String>,
+    /// Glob pattern that every normalizer's `match.tool` in this
+    /// directory MUST satisfy. Uses simple `*` wildcards; for full
+    /// semantics see [`tool_pattern_matches`](super::super::pack_validate::tool_pattern_matches).
+    ///
+    /// The validator rejects normalizers whose `match.tool` doesn't
+    /// match. Guards against cross-channel poisoning where a
+    /// malicious normalizer in `normalizers/gmail/` claims
+    /// `outlook_send`.
+    #[serde(default)]
+    pub tool_pattern: Option<String>,
+    /// Maintainer handles (informational).
+    #[serde(default)]
+    pub maintainers: Vec<String>,
 }
 
 /// Authoritative pack trust tier.
