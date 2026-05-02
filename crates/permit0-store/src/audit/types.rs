@@ -98,6 +98,14 @@ pub struct AuditEntry {
     /// execute). Auditors compare the two to find "should not have run"
     /// cases. `None` for normal entries.
     pub retroactive_decision: Option<Permission>,
+
+    // ── Decision trace ───────────────────────────────────
+    /// Per-stage record of what each pipeline level observed before
+    /// this entry's terminating verdict. Empty for legacy entries written
+    /// before this field existed — `#[serde(default)]` keeps old JSONL
+    /// audit files deserializable without a migration.
+    #[serde(default)]
+    pub decision_trace: Vec<DecisionStage>,
 }
 
 /// Forensic context attached to an audit entry that was replayed from a
@@ -119,6 +127,29 @@ pub struct FailedOpenContext {
     pub client_version: String,
     /// How the client's fail-open switch got flipped: "env_var" | "config_flag".
     pub fail_open_source: String,
+}
+
+/// One stage of the decision pipeline as observed at evaluation time.
+/// Stages are appended to `AuditEntry::decision_trace` in pipeline order;
+/// the last entry corresponds to the stage that produced the final verdict.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DecisionStage {
+    /// Pipeline stage identifier. One of: "normalize", "denylist",
+    /// "allowlist", "policy_cache", "unknown_action", "risk_scoring",
+    /// "agent_review".
+    pub stage: String,
+    /// Outcome at this stage. One of: "miss", "hit", "evaluated", "skipped".
+    pub outcome: String,
+    /// Redacted snapshot of `raw_tool_call` as observed at this stage.
+    /// Identical across stages today, but recorded per‑stage so future
+    /// stage‑aware parameter rewriting / progressive redaction can be
+    /// added without another schema migration.
+    pub raw_tool_call: serde_json::Value,
+    /// Stage‑specific structured detail (e.g. `risk_scoring` records
+    /// `tier`/`flags`; `agent_review` records the verdict). Optional so
+    /// the schema can grow without further migrations.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detail: Option<serde_json::Value>,
 }
 
 /// Full scoring breakdown, making every decision independently reproducible.

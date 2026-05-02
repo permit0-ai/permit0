@@ -86,6 +86,15 @@ pub fn compute_entry_hash(entry: &AuditEntry) -> String {
         hasher.update(format!("{rd:?}").as_bytes());
     }
 
+    // Decision trace — hashed only when non‑empty so legacy entries
+    // (written before this field existed) hash identically to before.
+    // Operationally critical: any pre‑change JSONL on disk must continue
+    // to verify with the same recomputed hash.
+    if !entry.decision_trace.is_empty() {
+        let trace_json = serde_json::to_string(&entry.decision_trace).unwrap_or_default();
+        hasher.update(trace_json.as_bytes());
+    }
+
     hex::encode(hasher.finalize())
 }
 
@@ -106,7 +115,7 @@ pub fn verify_chain_link(prev: &AuditEntry, current: &AuditEntry) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::audit::types::AuditEntry;
+    use crate::audit::types::{AuditEntry, DecisionStage};
     use permit0_types::{ActionType, ExecutionMeta, NormAction, Permission};
     use serde_json::json;
 
@@ -148,6 +157,7 @@ mod tests {
             correction_of: None,
             failed_open_context: None,
             retroactive_decision: None,
+            decision_trace: Vec::new(),
         };
         entry.entry_hash = compute_entry_hash(&entry);
         entry
@@ -199,5 +209,121 @@ mod tests {
         let e1 = make_entry(1, GENESIS_HASH);
         let e3 = make_entry(3, &e1.entry_hash); // gap: 1 → 3
         assert!(!verify_chain_link(&e1, &e3));
+    }
+
+    #[test]
+    fn empty_decision_trace_does_not_change_hash() {
+        // Backward compatibility guarantee: any AuditEntry produced
+        // before decision_trace existed had `decision_trace: vec![]`
+        // (after deserialization with #[serde(default)]). Such entries
+        // must hash *identically* to the pre-change implementation, or
+        // every existing JSONL on disk fails `audit verify`.
+        //
+        // We can't compare against a frozen pre-change hex because the
+        // surrounding fixture pulls in version strings; instead we
+        // assert the property: an entry with empty trace hashes the
+        // same as one with the field reset to default after we
+        // explicitly set it to a non-empty trace and back. Equivalently:
+        // mutating a non-empty trace to empty must reproduce the
+        // original empty-trace hash.
+        let e = make_entry(1, GENESIS_HASH);
+        let baseline = e.entry_hash.clone();
+        let mut mutated = e.clone();
+        mutated.decision_trace = vec![DecisionStage {
+            stage: "denylist".into(),
+            outcome: "miss".into(),
+            raw_tool_call: serde_json::json!({}),
+            detail: None,
+        }];
+        mutated.entry_hash = compute_entry_hash(&mutated);
+        assert_ne!(
+            baseline, mutated.entry_hash,
+            "non-empty trace must affect hash"
+        );
+
+        let mut reset = mutated.clone();
+        reset.decision_trace.clear();
+        reset.entry_hash = compute_entry_hash(&reset);
+        assert_eq!(
+            baseline, reset.entry_hash,
+            "empty trace must hash identically to pre-change entries",
+        );
+    }
+
+    #[test]
+    fn populated_decision_trace_round_trips_through_serde() {
+        // Ensure the new field survives JSON round-trip exactly so an
+        // entry written to a JSONL audit file deserializes with the
+        // same trace and the same content hash.
+        let mut e = make_entry(1, GENESIS_HASH);
+        e.decision_trace = vec![
+            DecisionStage {
+                stage: "normalize".into(),
+                outcome: "ok".into(),
+                raw_tool_call: serde_json::json!({"tool_name": "gmail_read"}),
+                detail: Some(serde_json::json!({"action_type": "email.read"})),
+            },
+            DecisionStage {
+                stage: "risk_scoring".into(),
+                outcome: "evaluated".into(),
+                raw_tool_call: serde_json::json!({"tool_name": "gmail_read"}),
+                detail: Some(serde_json::json!({"tier": "Low", "raw": 0.12})),
+            },
+        ];
+        e.entry_hash = compute_entry_hash(&e);
+
+        let json = serde_json::to_string(&e).unwrap();
+        let parsed: AuditEntry = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.decision_trace.len(), 2);
+        assert_eq!(parsed.decision_trace[0].stage, "normalize");
+        assert_eq!(parsed.decision_trace[1].outcome, "evaluated");
+        assert!(
+            verify_entry_hash(&parsed),
+            "hash must survive serde round-trip"
+        );
+    }
+
+    #[test]
+    fn legacy_jsonl_without_trace_field_still_deserializes() {
+        // Concrete proof of backward compat: a JSONL line written
+        // before this field existed has no `decision_trace` key. Serde
+        // must default it to an empty Vec without erroring.
+        let legacy = r#"{
+            "entry_id": "legacy-1",
+            "timestamp": "2025-01-01T00:00:00Z",
+            "sequence": 1,
+            "decision": "Allow",
+            "decision_source": "scorer",
+            "norm_action": {
+                "action_type": {"domain": "email", "verb": "send"},
+                "channel": "gmail",
+                "entities": {},
+                "execution": {"surface_tool": "test", "surface_command": "test cmd"}
+            },
+            "norm_hash": [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],
+            "raw_tool_call": {"tool": "test"},
+            "risk_score": null,
+            "scoring_detail": null,
+            "agent_id": "agent-1",
+            "session_id": null,
+            "task_goal": null,
+            "org_id": "org-1",
+            "environment": "test",
+            "engine_version": "0.1.0",
+            "pack_id": "test-pack",
+            "pack_version": "1.0",
+            "dsl_version": "1.0",
+            "human_review": null,
+            "token_id": null,
+            "prev_hash": "0000000000000000000000000000000000000000000000000000000000000000",
+            "entry_hash": "x",
+            "signature": "y",
+            "correction_of": null,
+            "failed_open_context": null,
+            "retroactive_decision": null
+        }"#;
+        let parsed: AuditEntry = serde_json::from_str(legacy)
+            .expect("legacy entry without decision_trace must deserialize");
+        assert!(parsed.decision_trace.is_empty());
     }
 }

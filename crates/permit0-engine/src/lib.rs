@@ -10,3 +10,4 @@ pub mod learning;
 pub use context::PermissionCtx;
 pub use engine::{DecisionSource, Engine, EngineBuilder, PermissionResult};
 pub use error::EngineError;
+pub use permit0_store::DecisionStage;

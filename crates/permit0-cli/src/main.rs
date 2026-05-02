@@ -62,6 +62,32 @@ enum Commands {
         /// Override via PERMIT0_CLIENT env var.
         #[arg(long, value_name = "CLIENT")]
         client: Option<String>,
+        /// Delegate evaluation to a running `permit0 serve --ui` daemon at
+        /// the given URL instead of evaluating in-process. The hook POSTs
+        /// to `<URL>/api/v1/check` and translates the response into the
+        /// Claude Code hookSpecificOutput envelope.
+        ///
+        /// Pairs with `serve --ui --calibrate` to centralize approvals
+        /// through the dashboard. When set, --profile / --packs-dir / --db
+        /// are ignored (the daemon's configuration governs evaluation).
+        ///
+        /// Override via PERMIT0_REMOTE env var. Example:
+        ///   permit0 hook --remote http://127.0.0.1:9090
+        #[arg(long, value_name = "URL")]
+        remote: Option<String>,
+        /// What permit0 emits when a tool call has no matching pack
+        /// (i.e. the action normalizes to `unknown.unclassified` and the
+        /// engine's verdict is the fallback "ask"). One of:
+        ///
+        ///   ask    — prompt the user with permit0's reasoning
+        ///   allow  — let the tool run unprompted
+        ///   deny   — block the tool
+        ///   defer  — emit no permissionDecision; Claude Code's own
+        ///            permission flow handles it (default)
+        ///
+        /// Override via PERMIT0_UNKNOWN env var.
+        #[arg(long, value_name = "MODE")]
+        unknown: Option<String>,
     },
     /// Generic stdin/stdout JSON gateway (JSONL mode)
     Gateway {
@@ -208,6 +234,8 @@ fn main() -> anyhow::Result<()> {
             packs_dir,
             shadow,
             client,
+            remote,
+            unknown,
         } => {
             // Precedence: --client flag > PERMIT0_CLIENT env var > default.
             let client_str = client.or_else(|| std::env::var("PERMIT0_CLIENT").ok());
@@ -217,6 +245,24 @@ fn main() -> anyhow::Result<()> {
                     .map_err(anyhow::Error::msg)?,
                 None => cmd::hook::ClientKind::default(),
             };
+            // Precedence: --remote flag > PERMIT0_REMOTE env var > local.
+            let remote_url = remote.or_else(|| {
+                std::env::var("PERMIT0_REMOTE")
+                    .ok()
+                    .filter(|s| !s.is_empty())
+            });
+            // Precedence: --unknown flag > PERMIT0_UNKNOWN env var > default (defer).
+            let unknown_str = unknown.or_else(|| {
+                std::env::var("PERMIT0_UNKNOWN")
+                    .ok()
+                    .filter(|s| !s.is_empty())
+            });
+            let unknown_mode = match unknown_str {
+                Some(s) => s
+                    .parse::<cmd::hook::UnknownMode>()
+                    .map_err(anyhow::Error::msg)?,
+                None => cmd::hook::UnknownMode::default(),
+            };
             cmd::hook::run(
                 profile,
                 &org_domain,
@@ -225,6 +271,8 @@ fn main() -> anyhow::Result<()> {
                 packs_dir,
                 shadow,
                 client_kind,
+                remote_url,
+                unknown_mode,
             )
         }
         Commands::Gateway {

@@ -13,6 +13,6 @@ pub use traits::{Store, StoreError};
 // Re-export key audit types at crate root for convenience.
 pub use audit::{
     AuditEntry, AuditError, AuditFilter, AuditPolicy, AuditSigner, AuditSink, BuiltinRedactor,
-    ChainVerification, Ed25519Signer, Ed25519Verifier, HumanReview, InMemoryAuditSink, Redactor,
-    ScoringDetail, StdoutAuditSink,
+    ChainVerification, DecisionStage, Ed25519Signer, Ed25519Verifier, HumanReview,
+    InMemoryAuditSink, Redactor, ScoringDetail, StdoutAuditSink,
 };
