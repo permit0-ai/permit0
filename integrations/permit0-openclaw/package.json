@@ -5,7 +5,7 @@
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "https://github.com/AnissL93/permit0-core.git",
+    "url": "https://github.com/permit0-ai/permit0-core.git",
     "directory": "integrations/permit0-openclaw"
   },
   "type": "module",
