@@ -113,6 +113,7 @@ mod tests {
             correction_of: None,
             failed_open_context: None,
             retroactive_decision: None,
+            decision_trace: Vec::new(),
         };
         entry.entry_hash = compute_entry_hash(&entry);
         entry

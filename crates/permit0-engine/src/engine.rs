@@ -12,7 +12,8 @@ use permit0_normalize::{Normalizer, NormalizerRegistry};
 use permit0_scoring::{ScoringConfig, compute_hybrid};
 use permit0_session::{SessionContext, evaluate_session_block_rules, session_amplifier_score};
 use permit0_store::audit::{
-    AuditEntry, AuditPolicy, AuditSigner, AuditSink, FailedOpenContext, HumanReview, Redactor,
+    AuditEntry, AuditPolicy, AuditSigner, AuditSink, DecisionStage, FailedOpenContext, HumanReview,
+    Redactor,
     chain::{GENESIS_HASH, compute_entry_hash},
 };
 use permit0_store::{InMemoryStore, Store};
@@ -136,41 +137,69 @@ impl Engine {
     ) -> Result<PermissionResult, EngineError> {
         let norm_hash = norm.norm_hash();
 
+        // Snapshot the redacted raw_tool_call once and reuse for every
+        // stage in the trace. The redactor is non‑trivial (regex matches
+        // over field names + values), so single‑shot is meaningfully
+        // cheaper than per‑stage; semantically the snapshot is the same
+        // value at every stage today anyway.
+        let redacted = self.redacted_tool_call_value(tool_call);
+        let mut trace: Vec<DecisionStage> = Vec::with_capacity(7);
+        trace.push(stage(
+            "normalize",
+            "ok",
+            &redacted,
+            Some(serde_json::json!({
+                "action_type": norm.action_type.as_action_str(),
+                "channel": norm.channel,
+            })),
+        ));
+
         // Step 2: Denylist
         if self.store.denylist_check(&norm_hash)?.is_some() {
+            trace.push(stage("denylist", "hit", &redacted, None));
             let result = PermissionResult {
                 permission: Permission::Deny,
                 norm_action: norm,
                 risk_score: None,
                 source: DecisionSource::Denylist,
             };
-            self.log_decision(&result, tool_call, ctx)?;
+            self.log_decision(&result, tool_call, ctx, trace)?;
             return Ok(result);
         }
+        trace.push(stage("denylist", "miss", &redacted, None));
 
         // Step 3: Allowlist
         if self.store.allowlist_check(&norm_hash)? {
+            trace.push(stage("allowlist", "hit", &redacted, None));
             let result = PermissionResult {
                 permission: Permission::Allow,
                 norm_action: norm,
                 risk_score: None,
                 source: DecisionSource::Allowlist,
             };
-            self.log_decision(&result, tool_call, ctx)?;
+            self.log_decision(&result, tool_call, ctx, trace)?;
             return Ok(result);
         }
+        trace.push(stage("allowlist", "miss", &redacted, None));
 
         // Step 4: Policy cache
         if let Some(cached) = self.store.policy_cache_get(&norm_hash)? {
+            trace.push(stage(
+                "policy_cache",
+                "hit",
+                &redacted,
+                Some(serde_json::json!({ "cached_permission": cached })),
+            ));
             let result = PermissionResult {
                 permission: cached,
                 norm_action: norm,
                 risk_score: None,
                 source: DecisionSource::PolicyCache,
             };
-            self.log_decision(&result, tool_call, ctx)?;
+            self.log_decision(&result, tool_call, ctx, trace)?;
             return Ok(result);
         }
+        trace.push(stage("policy_cache", "miss", &redacted, None));
 
         // Step 5: Unknown action type → human-in-the-loop (conservative default).
         //
@@ -185,18 +214,40 @@ impl Engine {
         let action_key = norm.action_type.as_action_str();
         if !self.risk_rules.contains_key(&action_key) {
             let permission = Permission::HumanInTheLoop;
+            trace.push(stage(
+                "unknown_action",
+                "evaluated",
+                &redacted,
+                Some(serde_json::json!({
+                    "action_type": action_key,
+                    "permission": permission,
+                })),
+            ));
             let result = PermissionResult {
                 permission,
                 norm_action: norm,
                 risk_score: None,
                 source: DecisionSource::Scorer,
             };
-            self.log_decision(&result, tool_call, ctx)?;
+            self.log_decision(&result, tool_call, ctx, trace)?;
             return Ok(result);
         }
+        trace.push(stage("unknown_action", "miss", &redacted, None));
 
         // Step 6: Risk scoring (with session amplifier + block rules)
         let risk_score = self.assess(&tool_call.parameters, &norm, ctx.session.as_ref())?;
+        trace.push(stage(
+            "risk_scoring",
+            "evaluated",
+            &redacted,
+            Some(serde_json::json!({
+                "tier": risk_score.tier,
+                "raw": risk_score.raw,
+                "flags": risk_score.flags,
+                "blocked": risk_score.blocked,
+                "block_reason": risk_score.block_reason,
+            })),
+        ));
 
         // Step 7: Score → permission routing
         let base_permission = score_to_permission(risk_score.tier, risk_score.blocked);
@@ -217,6 +268,15 @@ impl Engine {
                     ReviewVerdict::HumanInTheLoop => Permission::HumanInTheLoop,
                     ReviewVerdict::Deny => Permission::Deny,
                 };
+                trace.push(stage(
+                    "agent_review",
+                    "evaluated",
+                    &redacted,
+                    Some(serde_json::json!({
+                        "verdict": format!("{:?}", review.verdict),
+                        "permission": perm,
+                    })),
+                ));
                 (perm, DecisionSource::AgentReviewer)
             } else {
                 (base_permission, DecisionSource::Scorer)
@@ -239,8 +299,20 @@ impl Engine {
             risk_score: Some(risk_score),
             source,
         };
-        self.log_decision(&result, tool_call, ctx)?;
+        self.log_decision(&result, tool_call, ctx, trace)?;
         Ok(result)
+    }
+
+    /// Apply the configured `Redactor` (if any) and return the
+    /// redacted JSON form of the raw tool call. Centralized so the
+    /// trace and the audit entry's `raw_tool_call` always agree.
+    fn redacted_tool_call_value(&self, tool_call: &RawToolCall) -> serde_json::Value {
+        let value = serde_json::to_value(tool_call).unwrap_or_default();
+        if let Some(ref redactor) = self.audit_redactor {
+            redactor.redact(&value)
+        } else {
+            value
+        }
     }
 
     /// Perform risk assessment: apply risk rules to build template, then score.
@@ -316,11 +388,17 @@ impl Engine {
     }
 
     /// Build and persist a decision audit record.
+    ///
+    /// `trace` records what each pipeline stage saw; the entry stores it
+    /// as `decision_trace`. Empty for callers that bypass the pipeline
+    /// (none today, but the field is `#[serde(default)]` so legacy entries
+    /// continue to deserialize).
     fn log_decision(
         &self,
         result: &PermissionResult,
         tool_call: &RawToolCall,
         ctx: &PermissionCtx,
+        trace: Vec<DecisionStage>,
     ) -> Result<(), EngineError> {
         // Caller (e.g. calibration daemon) intends to write a richer
         // composite record itself; don't double-log.
@@ -403,6 +481,7 @@ impl Engine {
                 correction_of: None,
                 failed_open_context: None,
                 retroactive_decision: None,
+                decision_trace: trace,
             };
 
             entry.entry_hash = compute_entry_hash(&entry);
@@ -510,6 +589,7 @@ impl Engine {
             correction_of: None,
             failed_open_context: None,
             retroactive_decision: None,
+            decision_trace: Vec::new(),
         };
 
         entry.entry_hash = compute_entry_hash(&entry);
@@ -608,6 +688,7 @@ impl Engine {
                 correction_of: None,
                 failed_open_context: Some(failed_open_context),
                 retroactive_decision: Some(retroactive_result.permission),
+                decision_trace: Vec::new(),
             };
 
             entry.entry_hash = compute_entry_hash(&entry);
@@ -634,6 +715,22 @@ impl Engine {
         }
 
         Ok(entry_id)
+    }
+}
+
+/// Construct a `DecisionStage`. Tiny shim so the pipeline body stays
+/// readable instead of repeating the field-by-field struct literal.
+fn stage(
+    name: &str,
+    outcome: &str,
+    raw: &serde_json::Value,
+    detail: Option<serde_json::Value>,
+) -> DecisionStage {
+    DecisionStage {
+        stage: name.into(),
+        outcome: outcome.into(),
+        raw_tool_call: raw.clone(),
+        detail,
     }
 }
 
@@ -1127,7 +1224,6 @@ mod tests {
         assert_eq!(result.source, DecisionSource::Scorer);
         assert!(result.risk_score.is_some());
     }
-
     // ── Failed-open replay (Lane A step 1b) ──────────────────────────
 
     fn build_test_engine_with_audit() -> (Engine, Arc<permit0_store::audit::InMemoryAuditSink>) {
@@ -1495,5 +1591,196 @@ mod tests {
         let second = engine.get_permission(&tool_call, &ctx).unwrap();
         assert_eq!(second.permission, Permission::Deny);
         assert_eq!(second.source, DecisionSource::PolicyCache);
+    }
+    // ── Decision trace tests ────────────────────────────────────
+    //
+    // The trace is what makes audit entries forensically useful — every
+    // stage that ran for a given call must show up, in order, with its
+    // outcome. These tests pin the trace shape per pipeline path so a
+    // future refactor can't silently drop a stage.
+
+    fn last_entry(
+        sink: &Arc<permit0_store::audit::InMemoryAuditSink>,
+    ) -> permit0_store::audit::AuditEntry {
+        let entries = sink.all_entries();
+        entries
+            .last()
+            .expect("audit sink should have an entry")
+            .clone()
+    }
+
+    fn stages(entry: &permit0_store::audit::AuditEntry) -> Vec<(String, String)> {
+        entry
+            .decision_trace
+            .iter()
+            .map(|s| (s.stage.clone(), s.outcome.clone()))
+            .collect()
+    }
+
+    #[test]
+    fn trace_records_full_pipeline_for_scored_call() {
+        let (engine, sink) = build_test_engine_with_audit();
+        let ctx = default_ctx();
+        engine
+            .get_permission(&gmail_send("Hello", "ok"), &ctx)
+            .unwrap();
+        let entry = last_entry(&sink);
+        assert_eq!(
+            stages(&entry),
+            vec![
+                ("normalize".into(), "ok".into()),
+                ("denylist".into(), "miss".into()),
+                ("allowlist".into(), "miss".into()),
+                ("policy_cache".into(), "miss".into()),
+                ("unknown_action".into(), "miss".into()),
+                ("risk_scoring".into(), "evaluated".into()),
+            ],
+        );
+    }
+
+    #[test]
+    fn trace_terminates_at_denylist_hit() {
+        let (engine, sink) = build_test_engine_with_audit();
+        let ctx = default_ctx();
+        // First call to capture the norm hash, then plant a denylist entry.
+        let result = engine
+            .get_permission(&gmail_send("Hello", "body"), &ctx)
+            .unwrap();
+        let hash = result.norm_action.norm_hash();
+        engine.store().policy_cache_invalidate(&hash).unwrap();
+        engine.store().denylist_add(hash, "blocked".into()).unwrap();
+
+        // Second call hits the denylist — trace must end there.
+        engine
+            .get_permission(&gmail_send("Hello", "body"), &ctx)
+            .unwrap();
+        let entry = last_entry(&sink);
+        let stages = stages(&entry);
+        assert_eq!(stages.last(), Some(&("denylist".into(), "hit".into())));
+        assert!(
+            !stages
+                .iter()
+                .any(|(s, _)| s == "policy_cache" || s == "risk_scoring"),
+            "denylist hit must short-circuit the rest of the pipeline; got: {stages:?}",
+        );
+    }
+
+    #[test]
+    fn trace_records_allowlist_hit() {
+        let (engine, sink) = build_test_engine_with_audit();
+        let ctx = default_ctx();
+        let result = engine
+            .get_permission(&gmail_send("Hello", "body"), &ctx)
+            .unwrap();
+        let hash = result.norm_action.norm_hash();
+        engine.store().policy_cache_invalidate(&hash).unwrap();
+        engine.store().allowlist_add(hash, "ok".into()).unwrap();
+
+        engine
+            .get_permission(&gmail_send("Hello", "body"), &ctx)
+            .unwrap();
+        let entry = last_entry(&sink);
+        let stages = stages(&entry);
+        assert_eq!(stages.last(), Some(&("allowlist".into(), "hit".into())));
+        // Denylist must be recorded as miss before the allowlist hit.
+        assert!(stages.contains(&("denylist".into(), "miss".into())));
+    }
+
+    #[test]
+    fn trace_records_policy_cache_hit_on_replay() {
+        let (engine, sink) = build_test_engine_with_audit();
+        let ctx = default_ctx();
+        // Warm the cache.
+        engine
+            .get_permission(&gmail_send("Hello", "body"), &ctx)
+            .unwrap();
+        // Second call hits the cache.
+        engine
+            .get_permission(&gmail_send("Hello", "body"), &ctx)
+            .unwrap();
+        let entry = last_entry(&sink);
+        let stages = stages(&entry);
+        assert_eq!(stages.last(), Some(&("policy_cache".into(), "hit".into())));
+        // Cache hit must include the cached permission in the detail.
+        let last_detail = entry
+            .decision_trace
+            .last()
+            .and_then(|s| s.detail.as_ref())
+            .expect("cache stage should carry detail");
+        assert!(last_detail.get("cached_permission").is_some());
+    }
+
+    #[test]
+    fn trace_records_unknown_action_path() {
+        let (engine, sink) = build_test_engine_with_audit();
+        let ctx = default_ctx();
+        let raw = RawToolCall {
+            tool_name: "unknown_tool".into(),
+            parameters: json!({"some": "data"}),
+            metadata: Default::default(),
+        };
+        engine.get_permission(&raw, &ctx).unwrap();
+        let entry = last_entry(&sink);
+        let stages = stages(&entry);
+        assert_eq!(
+            stages.last(),
+            Some(&("unknown_action".into(), "evaluated".into())),
+        );
+        // The risk_scoring stage MUST NOT appear — there's no rule to score.
+        assert!(!stages.iter().any(|(s, _)| s == "risk_scoring"));
+    }
+
+    #[test]
+    fn trace_raw_tool_call_passes_through_redactor() {
+        // The trace's raw_tool_call snapshot must reflect the same
+        // redacted JSON that the final entry's `raw_tool_call` shows —
+        // the redactor is the only path to either, so they must agree.
+        use permit0_store::audit::{BuiltinRedactor, Ed25519Signer, InMemoryAuditSink};
+        let sink = Arc::new(InMemoryAuditSink::new());
+        let signer = Arc::new(Ed25519Signer::generate());
+        let gmail_norm = load_test_fixture("packs/permit0/email/normalizers/gmail/send.yaml");
+        let email_risk = load_test_fixture("packs/permit0/email/risk_rules/send.yaml");
+        let engine = EngineBuilder::new()
+            .install_normalizer_yaml(&gmail_norm)
+            .unwrap()
+            .install_risk_rule_yaml(&email_risk)
+            .unwrap()
+            .with_audit(sink.clone() as Arc<dyn AuditSink>, signer)
+            .with_audit_redactor(Arc::new(BuiltinRedactor::new()))
+            .build()
+            .unwrap();
+        let ctx = default_ctx();
+        let raw = RawToolCall {
+            tool_name: "gmail_send".into(),
+            parameters: json!({
+                "to": "bob@external.com",
+                "subject": "Hi",
+                "body": "ok",
+                "api_key": "sk-secret-should-be-redacted",
+            }),
+            metadata: Default::default(),
+        };
+        engine.get_permission(&raw, &ctx).unwrap();
+        let entry = last_entry(&sink);
+
+        // Top-level raw_tool_call (today's behavior) and the per-stage
+        // snapshots must all agree — and none must leak the secret.
+        let top_str = serde_json::to_string(&entry.raw_tool_call).unwrap();
+        assert!(
+            !top_str.contains("sk-secret-should-be-redacted"),
+            "top-level raw_tool_call must be redacted; got: {top_str}",
+        );
+        for stage in &entry.decision_trace {
+            let s = serde_json::to_string(&stage.raw_tool_call).unwrap();
+            assert!(
+                !s.contains("sk-secret-should-be-redacted"),
+                "stage {} raw_tool_call must be redacted; got: {s}",
+                stage.stage,
+            );
+            assert_eq!(
+                stage.raw_tool_call, entry.raw_tool_call,
+                "per-stage snapshot must equal top-level redacted form",
+            );
+        }
     }
 }

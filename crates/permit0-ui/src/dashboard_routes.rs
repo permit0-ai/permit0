@@ -795,6 +795,7 @@ mod tests {
                 fail_open_source: "env_var".into(),
             }),
             retroactive_decision: retroactive,
+            decision_trace: Vec::new(),
         }
     }
 
