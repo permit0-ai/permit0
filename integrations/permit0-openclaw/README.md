@@ -56,8 +56,6 @@ What changes between profiles (`fintech`, `healthtech`, `default`, …) is which
 - `permit0 calibrate test|diff|validate` — offline CLI for testing, diffing, and validating profiles against the golden corpus under `corpora/calibration/`. Run before shipping a custom profile.
 - `permit0 serve --calibrate` — a daemon mode that **escalates every fresh engine decision to human approval in the dashboard, regardless of tier**, so an operator can audit and override recommendations to build a calibration corpus. Allowlist/denylist/policy-cache hits skip the escalation. Used during onboarding or profile training; never in production. Default is off — production daemons return the engine's recommendation directly.
 
-See [docs/permit.md](../../docs/permit.md) for the full scoring pipeline.
-
 #### Agent-in-the-loop review (MEDIUM tier)
 
 Medium-tier actions don't go straight to a verdict. The daemon hands them to a configured **agent-in-the-loop reviewer** — a second-pass LLM that reads `task_goal`, the session's prior decisions, and the action itself, then returns one of two outcomes:
@@ -362,33 +360,7 @@ npm run test:integration                         # in another
 
 ## Related
 
-- [`docs/dsl.md`](../../docs/dsl.md) — pack and risk-rule authoring (what determines allow/deny/human).
-- [`docs/permit.md`](../../docs/permit.md) — the audit log format.
 - [`integrations/README.md`](../README.md) — index of all framework integrations.
-- [`examples/openclaw-governed/`](../../examples/openclaw-governed/) — a single-file demo if you want to read the wrapper pattern in <100 lines.
-
-## Appendix: migrating from `examples/openclaw-governed`
-
-If you have code importing from the demo file:
-
-```ts
-// Before
-import { Permit0Client, permit0Skill, isBlocked } from "openclaw-permit0-demo";
-// After
-import { Permit0Client, permit0Skill, isBlocked } from "@permit0/openclaw";
-```
-
-The HOF signature is unchanged. New behavior available in this package:
-
-| Demo file | This package |
-|---|---|
-| `permit0Skill(name, client, fn)` | same, plus optional `(args, { ctx }) => …` per-call context |
-| no middleware | `permit0Middleware(client, dispatch)` for gateway-wide enforcement |
-| no fail-open buffer | `PERMIT0_FAIL_OPEN=1` activates the replay path |
-| `client.health()` POSTs `/check` | `client.health()` GETs `/health` (no audit pollution) |
-| `console.log` everywhere | pluggable `logger`, no-op default |
-| no retries | 1s timeout + 1 retry + keep-alive |
-| no type validation | runtime shape check on every `/check` response |
 
 ## License
 

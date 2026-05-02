@@ -1,4 +1,0 @@
-openai-agents>=0.1.0
-permit0
-# Install permit0 locally from source:
-#   cd ../../crates/permit0-py && maturin develop

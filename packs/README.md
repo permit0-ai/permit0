@@ -69,9 +69,6 @@ validator flags mismatches.
 
 ## Adding a pack
 
-See [`docs/pack-contribution-guide.md`](../docs/pack-contribution-guide.md)
-for the full workflow. Quick start:
-
 ```bash
 # Copy the template
 cp -r packs/_template packs/permit0/<name>     # first-party

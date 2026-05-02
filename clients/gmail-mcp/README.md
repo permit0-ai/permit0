@@ -99,12 +99,12 @@ the same `email.*` norm actions, same risk rules.
 
 In Claude Code:
 
-> 在我的 Gmail 里搜索"newsletter"过去 7 天的邮件,把所有结果归档
+> Search my Gmail for "newsletter" emails from the past 7 days and archive all results.
 
 Claude Code will call `gmail_search(query="newsletter newer_than:7d")` →
 permit0 evaluates each result's `gmail_archive(message_id=...)`.
 
-> 把那条 thread 完整读出来
+> Read that entire thread.
 
 → `gmail_read_thread(thread_id=...)` (Gmail has native threads, no
 conversationId stitching needed).

@@ -77,7 +77,6 @@ $ permit0 pack test packs/<owner>/<name>
 
 ## Related docs
 
-- [Pack contribution guide](../../docs/pack-contribution-guide.md)
 - [Layout reference](../../packs/README.md)
 - [Action taxonomy](../../docs/taxonomy.md)
 
