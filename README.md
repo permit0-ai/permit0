@@ -2,7 +2,6 @@
 
 **Runtime permission control framework for AI Agents — deterministic policy execution, risk scoring engine, session awareness, compliance audit**
 
-English | [简体中文](README.zh.md)
 
 ---
 
