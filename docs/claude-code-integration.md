@@ -51,7 +51,7 @@ claude --version
 ## 1. Build + start daemon (calibrate mode)
 
 ```bash
-git clone https://github.com/anthropics/permit0-core.git && cd permit0-core
+git clone https://github.com/anthropics/permit0.git && cd permit0
 cargo build --release
 export PATH="$PATH:$(pwd)/target/release"
 permit0 serve --calibrate --port 9090
@@ -105,7 +105,7 @@ JSON strings, and `permit0` may not be on Claude Code's PATH:
         "hooks": [
           {
             "type": "command",
-            "command": "/abs/path/to/permit0 hook --db /home/you/.permit0/sessions.db --packs-dir /abs/path/to/permit0-core/packs"
+            "command": "/abs/path/to/permit0 hook --db /home/you/.permit0/sessions.db --packs-dir /abs/path/to/permit0/packs"
           }
         ]
       }
@@ -169,7 +169,7 @@ Now Allow/Deny route by tier; identical norm_hash calls auto-replay your earlier
 
 - **Tools don't appear in Claude Code** → didn't fully quit/relaunch, OR MCP commands not on Claude Code's PATH (use absolute paths).
 - **Hook returns ask_user for everything** → check `curl localhost:9090/api/v1/health` and that `which permit0` resolves where Claude Code can find it.
-- **Hook can't find packs** → add `--packs-dir /absolute/path/to/permit0-core/packs` to the hook command.
+- **Hook can't find packs** → add `--packs-dir /absolute/path/to/permit0/packs` to the hook command.
 - **Different MCP host (Cursor / Cline / …)** → `permit0 hook --client {claude-code|claude-desktop|raw}`. Default is `claude-code` (strips `mcp__<server>__` prefix).
 
 ## Reset for a fresh calibration

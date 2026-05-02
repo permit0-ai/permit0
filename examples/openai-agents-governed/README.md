@@ -70,7 +70,7 @@ decisions are identical — only the registration step differs.
 ```
 ━━ OpenAI Agents SDK + permit0 ...
 openai-agents SDK not installed  (using fallback mock decorator).
-Packs loaded from: /.../permit0-core/packs
+Packs loaded from: /.../permit0/packs
 
 ━━ Scripted tool invocations (no API key required) ...
 

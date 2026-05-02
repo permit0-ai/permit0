@@ -3,7 +3,7 @@
 Launch the permit0 demo server.
 
 Usage:
-    cd /path/to/permit0-core
+    cd /path/to/permit0
     source .venv/bin/activate
     export ANTHROPIC_API_KEY=sk-ant-...
     python demos/run_demo.py

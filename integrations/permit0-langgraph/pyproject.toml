@@ -44,9 +44,9 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/permit0/permit0-core"
-Repository = "https://github.com/permit0/permit0-core"
-Documentation = "https://github.com/permit0/permit0-core/tree/main/integrations/permit0-langgraph"
+Homepage = "https://github.com/permit0/permit0"
+Repository = "https://github.com/permit0/permit0"
+Documentation = "https://github.com/permit0/permit0/tree/main/integrations/permit0-langgraph"
 
 [tool.hatch.build.targets.wheel]
 packages = ["permit0_langgraph"]

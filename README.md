@@ -32,7 +32,7 @@ Agent actions (tool calls) ──► Normalize ──► Session-aware determini
 
 ```bash
 # 1. Install
-git clone https://github.com/anthropics/permit0-core.git && cd permit0-core
+git clone https://github.com/anthropics/permit0.git && cd permit0
 cargo build --release
 
 # 2. Start the admin dashboard
@@ -760,7 +760,7 @@ The **Audit Log** tab in the Web GUI also supports online viewing and export.
 ## Project Structure
 
 ```
-permit0-core/
+permit0/
 ├── crates/
 │   ├── permit0-engine          # Core decision pipeline
 │   ├── permit0-scoring         # 6-step hybrid scoring algorithm
