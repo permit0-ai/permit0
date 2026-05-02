@@ -1364,6 +1364,7 @@ name = "permit0-types"
 version = "0.1.0"
 dependencies = [
  "chrono",
+ "permit0-test-utils",
  "serde",
  "serde_json",
  "sha2 0.10.9",
