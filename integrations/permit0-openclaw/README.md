@@ -11,6 +11,8 @@ gateway.dispatch = permit0Middleware(client, gateway.dispatch);
 
 That's the integration. Every skill the gateway dispatches now hits the local permit0 daemon first. Allow → the inner skill runs and its result flows back unchanged. Deny / human-in-the-loop → the dispatch throws `Permit0DenyError`, which the gateway can render to the LLM (or, with `{ onBlock: "return" }`, you get a structured `Blocked` value to handle inline).
 
+MEDIUM-tier actions take one detour before the verdict comes back: the daemon hands them to a configurable **agent-in-the-loop reviewer** — an LLM second-pass that decides between Deny and Human (never Allow). On the wire you still see three verdicts; knowing the reviewer is in the loop matters because it consumes the `session_id` and `task_goal` you thread in. See [Agent-in-the-loop review](#agent-in-the-loop-review-medium-tier) below.
+
 ## What is OpenClaw
 
 [OpenClaw](https://github.com/openclaw/openclaw) is a TypeScript agent gateway. Capabilities are exposed as **skills** — plain `async (args) => result` functions registered into the gateway's dispatch table. The gateway hands tool calls from the LLM to those skills.
@@ -45,7 +47,7 @@ A `Decision` carries a `score` (0–100, display) and a `tier`. The engine's map
 | tier | score range | verdict the client sees |
 |---|---|---|
 | MINIMAL / LOW | 0–35 | allow |
-| MEDIUM | 36–55 | human, or deny if the daemon's agent reviewer rejects it |
+| MEDIUM | 36–55 | human, or deny if the agent-in-the-loop reviewer rejects it |
 | HIGH | 56–75 | human |
 | CRITICAL | 76–100 | deny |
 
@@ -56,9 +58,9 @@ What changes between profiles (`fintech`, `healthtech`, `default`, …) is which
 
 See [docs/permit.md](../../docs/permit.md) for the full scoring pipeline.
 
-#### Agent review (MEDIUM tier)
+#### Agent-in-the-loop review (MEDIUM tier)
 
-Medium-tier actions don't go straight to a verdict. The daemon hands them to a configured **agent reviewer** — a second-pass LLM that reads `task_goal`, the session's prior decisions, and the action itself, then returns one of two outcomes:
+Medium-tier actions don't go straight to a verdict. The daemon hands them to a configured **agent-in-the-loop reviewer** — a second-pass LLM that reads `task_goal`, the session's prior decisions, and the action itself, then returns one of two outcomes:
 
 - **Deny** when the reviewer is highly confident the action is wrong (≥ 0.90).
 - **Human** when the action is uncertain or plausible.
@@ -163,7 +165,7 @@ gateway.dispatch = permit0Middleware(client, gateway.dispatch);
 
 That's the integration. Every skill OpenClaw dispatches now goes through permit0 first.
 
-The middleware reads `session_id` and `task_goal` off the gateway's per-call `ctx` automatically. If your gateway already passes a context object through `dispatch(toolName, args, ctx)`, those fields land on the audit entry — and reach the agent reviewer for Medium-tier calls (see [Agent review](#agent-review-medium-tier) above) — without any extra work.
+The middleware reads `session_id` and `task_goal` off the gateway's per-call `ctx` automatically. If your gateway already passes a context object through `dispatch(toolName, args, ctx)`, those fields land on the audit entry — and reach the agent-in-the-loop reviewer for Medium-tier calls (see [Agent-in-the-loop review](#agent-in-the-loop-review-medium-tier) above) — without any extra work.
 
 Switch the deny behavior if your gateway prefers value-returns over exceptions:
 
