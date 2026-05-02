@@ -1,0 +1,12 @@
+# Channel metadata for the outlook backend.
+#
+# See gmail/_channel.yaml for the field contract — same shape, just a
+# different vendor surface.
+
+channel: outlook
+display_name: "Outlook (Microsoft 365)"
+mcp_server: clients/outlook-mcp
+auth: oauth_user
+api_docs: https://learn.microsoft.com/en-us/graph/api/resources/mail-api-overview
+tool_pattern: "outlook_*"
+maintainers: [permit0]

@@ -4,5 +4,5 @@ parameters:
   to: "alice@external.com"
   subject: "Meeting notes"
   body: "Attached."
-expected_tier: "Minimal"
+expected_tier: "Low"
 expected_permission: "Allow"

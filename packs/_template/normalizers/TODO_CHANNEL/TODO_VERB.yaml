@@ -1,0 +1,36 @@
+# Normalizer template for one verb on the TODO_CHANNEL backend.
+#
+# Replace every TODO. The `id` must be unique within this pack and
+# stable across releases — risk rules don't reference it directly,
+# but the registry uses it to detect duplicates.
+
+permit0_pack: "TODO_OWNER/TODO_NAME"
+id: "TODO_NAME:TODO_CHANNEL_TODO_VERB"
+
+# Priority determines normalizer-dispatch order when multiple
+# normalizers match. Higher = earlier. Each priority must be unique
+# within the registry; the engine errors at build time if two share.
+# Convention: 100 + N where N grows roughly with verb specificity.
+priority: 100
+
+match:
+  # The raw tool name the agent calls (after alias rewriting). Must
+  # match `tool_pattern` declared in `_channel.yaml`.
+  tool: TODO_CHANNEL_TODO_VERB
+
+normalize:
+  # Must be a real `domain.verb` from docs/taxonomy.md. The validator
+  # rejects unknown action types.
+  action_type: "TODO_DOMAIN.TODO_VERB"
+  domain: "TODO_DOMAIN"
+  verb: "TODO_VERB"
+  channel: "TODO_CHANNEL"
+
+  # Map raw parameters onto canonical entity names. Risk rules `when:`
+  # blocks reference these. Provide `optional: true` for params that
+  # may be absent.
+  entities:
+    TODO_ENTITY:
+      from: "TODO_PARAM_NAME"
+      type: "string"   # or: int, bool, float, list
+      # optional: true

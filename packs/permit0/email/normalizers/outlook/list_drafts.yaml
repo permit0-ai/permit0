@@ -1,0 +1,21 @@
+permit0_pack: "permit0/email"
+id: "email:outlook_list_drafts"
+priority: 131
+match:
+  tool: outlook_list_drafts
+normalize:
+  action_type: "email.list_drafts"
+  domain: "email"
+  verb: "list_drafts"
+  channel: "outlook"
+  entities:
+    query:
+      # Microsoft Graph supports $filter / $search on /me/messages.
+      # Surface either as the canonical "query" entity.
+      from: "filter"
+      type: "string"
+      optional: true
+    page_token:
+      from: "skip_token"
+      type: "string"
+      optional: true

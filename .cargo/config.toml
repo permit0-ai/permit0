@@ -1,0 +1,14 @@
+# PyO3 extension modules on macOS need the linker to defer Python symbol
+# resolution to runtime — the Python interpreter loads the .dylib and
+# provides the symbols. Without these flags, plain `cargo build` of the
+# workspace fails on macOS with "Undefined symbols ... _PyBaseObject_Type"
+# when linking permit0-py's cdylib. maturin sets these automatically; this
+# config makes direct cargo invocations work too.
+#
+# See: https://pyo3.rs/v0.24.0/building-and-distribution.html#macos
+
+[target.aarch64-apple-darwin]
+rustflags = ["-C", "link-arg=-undefined", "-C", "link-arg=dynamic_lookup"]
+
+[target.x86_64-apple-darwin]
+rustflags = ["-C", "link-arg=-undefined", "-C", "link-arg=dynamic_lookup"]

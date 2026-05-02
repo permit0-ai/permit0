@@ -2,7 +2,6 @@
 
 **Runtime permission control framework for AI Agents — deterministic policy execution, risk scoring engine, session awareness, compliance audit**
 
-English | [简体中文](README.zh.md)
 
 ---
 
@@ -511,7 +510,7 @@ Packs are permit0's core extension unit. Each Pack = **normalizer** (standardiza
 |------|----------|-------------|------------|
 | `email` | All 15 email norm actions × Outlook + Gmail backends | 30 | 15 |
 
-The catalog declares **22 domains** total (`email`, `message`, `social`,
+The taxonomy declares **22 domains** total (`email`, `message`, `social`,
 `cms`, `newsletter`, `calendar`, `task`, `file`, `db`, `crm`, `payment`,
 `legal`, `iam`, `secret`, `infra`, `process`, `network`, `dev`, `browser`,
 `device`, `ai`, `unknown`). Only `email` ships with full normalizers and
@@ -594,7 +593,7 @@ session_rules:
       - upgrade: { dim: amount, delta: 6 }
 ```
 
-### Action Type Catalog (Selection)
+### Action Type Taxonomy (Selection)
 
 | Domain | Verbs | Notes |
 |--------|-------|-------|
@@ -769,7 +768,7 @@ permit0-core/
 │   ├── permit0-normalize       # Normalizer registry & matching
 │   ├── permit0-session         # Session context & pattern detection
 │   ├── permit0-store           # Storage layer (InMemory / SQLite)
-│   ├── permit0-types           # Shared types + action catalog
+│   ├── permit0-types           # Shared types + action taxonomy
 │   ├── permit0-token           # Biscuit capability tokens
 │   ├── permit0-agent           # LLM Agent reviewer
 │   ├── permit0-ui              # Web admin dashboard (axum)

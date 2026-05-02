@@ -1,0 +1,68 @@
+# Email pack — unified Gmail + Outlook governance.
+#
+# Schema v2 (introduced PR 2 of the pack taxonomy refactor). The engine
+# version-gates on `pack_format: 2`; v1 manifests are rejected with a
+# clear error pointing at this file.
+#
+# `normalizers:` and `risk_rules:` are intentionally absent — the engine
+# auto-discovers every YAML under `normalizers/` and `risk_rules/`.
+# Add files; don't touch this file.
+
+pack_format: 2
+permit0_pack: "permit0/email"
+name: email
+version: "0.4.0"
+description: "Unified email actions across Gmail and Outlook (16 verbs, 32 normalizers)."
+license: Apache-2.0
+
+# Engine + taxonomy compatibility. The engine refuses to load packs
+# pinned outside the supported semver range.
+permit0_engine: ">=0.1.0,<0.2"
+taxonomy: "1.x"
+
+# Self-declared trust tier. The engine derives the authoritative tier
+# from `<owner>` in `permit0_pack` (and, in Phase 2, signature). This
+# field is informational; mismatch is flagged by `permit0 pack validate`.
+trust_tier: built-in
+
+maintainers:
+  - github: "@permit0-team"
+
+# Action types this pack is responsible for. Validator cross-checks
+# every entry has at least one normalizer mapping to it AND a risk rule
+# covering it (orphan check). Drift here flags via CI before merge.
+action_types:
+  - email.search
+  - email.read
+  - email.read_thread
+  - email.list_mailboxes
+  - email.draft
+  - email.list_drafts
+  - email.send
+  - email.mark_read
+  - email.flag
+  - email.move
+  - email.archive
+  - email.mark_spam
+  - email.delete
+  - email.create_mailbox
+  - email.set_forwarding
+  - email.add_delegate
+
+# Channel metadata. Each channel maps to a self-contained subdirectory
+# under normalizers/<channel>/ that holds its own _channel.yaml,
+# aliases.yaml, and per-verb normalizer files. Adding a vendor =
+# create one directory + drop in 16 verbs.
+channels:
+  gmail:
+    mcp_server: clients/gmail-mcp
+    display_name: "Gmail (Google)"
+  outlook:
+    mcp_server: clients/outlook-mcp
+    display_name: "Outlook (Microsoft 365)"
+
+# Phase 2 forward-compat. Empty in Phase 1; populated when the
+# federated registry + signing infrastructure ships.
+signature: ""
+provenance: ""
+content_hash: ""

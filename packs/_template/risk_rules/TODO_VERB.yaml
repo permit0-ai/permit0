@@ -1,0 +1,55 @@
+# Risk rule template for one action_type. One file per
+# domain.verb — channel-agnostic, since rules score the canonical
+# action regardless of which vendor surfaced it.
+#
+# Replace every TODO. The validator rejects rules whose action_type
+# isn't listed in pack.yaml's `action_types:`.
+
+permit0_pack: "TODO_OWNER/TODO_NAME"
+action_type: "TODO_DOMAIN.TODO_VERB"
+
+# Base flags + amplifiers. Flags are categorical: GOVERNANCE, EXPOSURE,
+# OUTBOUND, PRIVILEGE, etc. Roles are 'primary' or 'secondary'.
+# Amplifiers are 0..=30 weights on dimensions: scope, sensitivity,
+# destination, irreversibility, boundary, etc.
+base:
+  flags: {}
+  # flags:
+  #   GOVERNANCE: primary
+  #   EXPOSURE: secondary
+
+  amplifiers:
+    scope: 1
+  # amplifiers:
+  #   scope: 5
+  #   sensitivity: 10
+
+# Conditional rules — adjust the score based on entity values.
+rules: []
+  # - when:
+  #     destination:
+  #       in_set: org.trusted_domains
+  #   then:
+  #     - downgrade:
+  #         dim: destination
+  #         delta: 5
+  #
+  # - when:
+  #     sensitivity:
+  #       gte: 8
+  #   then:
+  #     # Critical action types should always include at least one
+  #     # `gate:` mutation; the validator's security lint enforces it
+  #     # for the always-human list.
+  #     - gate: "needs_human_review"
+
+# Session-level rules — adjust based on call patterns within one
+# session (e.g. >100 calls = bulk reconnaissance).
+session_rules: []
+  # - when:
+  #     record_count:
+  #       gt: 100
+  #   then:
+  #     - upgrade:
+  #         dim: scope
+  #         delta: 4

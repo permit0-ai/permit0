@@ -129,6 +129,7 @@ We will. For now Python integrations are `pip install -e .` from this repo to ma
 ## Related docs
 
 - [`../README.md`](../README.md) — what permit0 is
+- [`../docs/taxonomy.md`](../docs/taxonomy.md) — the taxonomy of governed action types
 - [`../docs/permit.md`](../docs/permit.md) — the audit log format
 - [`../docs/dsl.md`](../docs/dsl.md) — pack / risk-rule authoring
 - [`../examples/`](../examples/) — single-file integration demos

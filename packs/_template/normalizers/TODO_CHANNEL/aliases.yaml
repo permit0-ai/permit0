@@ -1,0 +1,24 @@
+permit0_pack: "TODO_OWNER/TODO_NAME"
+
+# Foreign-tool-name aliases for the TODO_CHANNEL backend.
+#
+# Maps non-canonical tool names (third-party MCP exports, vendor SDK
+# names, common shortenings) onto the names this pack's normalizers
+# match. Aliasing happens AFTER ClientKind prefix stripping and
+# BEFORE normalizer dispatch.
+#
+# See crates/permit0-normalize/src/alias.rs for the resolver semantics.
+# Conditional aliases (with `when:` blocks) are supported when one
+# foreign tool name overloads multiple semantic actions.
+
+aliases: []
+  # Flat alias:
+  # - tool: foreign_tool_name
+  #   rewrite_as: TODO_CHANNEL_canonical_name
+  #
+  # Conditional alias:
+  # - tool: ambiguous_foreign_name
+  #   when:
+  #     - if: { param: kind, equals: SPAM }
+  #       rewrite_as: TODO_CHANNEL_mark_spam
+  #     - default: TODO_CHANNEL_move

@@ -20,6 +20,7 @@ serde_yaml = { workspace = true }
 permit0-types = { workspace = true }
 permit0-scoring = { workspace = true }
 permit0-normalize = { workspace = true }
+permit0-dsl = { workspace = true }
 permit0-engine = { workspace = true }
 permit0-agent = { workspace = true }
 permit0-store = { workspace = true }

@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
-use crate::catalog::ActionType;
+use crate::taxonomy::ActionType;
 
 /// Opaque entity map — pack-defined fields.
 pub type Entities = serde_json::Map<String, serde_json::Value>;
@@ -14,11 +14,11 @@ pub type NormHash = [u8; 32];
 /// A structured, tool-agnostic representation of what an action *means*.
 /// This is the stable key used for risk rule lookup and caching.
 ///
-/// The `action_type` field is a validated `ActionType` from the closed catalog.
+/// The `action_type` field is a validated `ActionType` from the closed taxonomy.
 /// Normalizers MUST map to a known `domain.verb` pair — they cannot invent new ones.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct NormAction {
-    /// Validated action type from the catalog (e.g. payments.charge).
+    /// Validated action type from the taxonomy (e.g. payments.charge).
     pub action_type: ActionType,
     /// Channel/vendor, e.g. "gmail", "stripe".
     pub channel: String,
@@ -36,12 +36,12 @@ pub struct ExecutionMeta {
 
 impl NormAction {
     /// Domain shorthand — delegates to `action_type.domain`.
-    pub fn domain(&self) -> crate::catalog::Domain {
+    pub fn domain(&self) -> crate::taxonomy::Domain {
         self.action_type.domain
     }
 
     /// Verb shorthand — delegates to `action_type.verb`.
-    pub fn verb(&self) -> crate::catalog::Verb {
+    pub fn verb(&self) -> crate::taxonomy::Verb {
         self.action_type.verb
     }
 
@@ -120,7 +120,7 @@ fn hex_prefix(hash: &[u8; 32]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::catalog::{Domain, Verb};
+    use crate::taxonomy::{Domain, Verb};
 
     fn test_action() -> NormAction {
         let mut entities = Entities::new();

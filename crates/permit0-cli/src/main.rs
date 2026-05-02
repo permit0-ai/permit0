@@ -8,6 +8,14 @@ use clap::{Parser, Subcommand};
 #[derive(Parser)]
 #[command(name = "permit0", about = "Agent safety & permission framework")]
 struct Cli {
+    /// Require every loaded pack to ship a `pack.lock.yaml` and verify
+    /// every loaded file's sha256 against it. Refuses to start when
+    /// any pack is missing a lockfile or its on-disk content drifts.
+    /// Recommended for CI and production. Off by default (Phase 1
+    /// "lazy" policy) so older checkouts still work.
+    #[arg(long, global = true)]
+    strict_lockfile: bool,
+
     #[command(subcommand)]
     command: Commands,
 }
@@ -112,6 +120,15 @@ enum PackCmd {
         /// Pack name (e.g. "slack", "jira")
         name: String,
     },
+    /// Generate or refresh `pack.lock.yaml` for a pack directory
+    Lock {
+        /// Path to the pack directory (e.g. packs/permit0/email)
+        path: String,
+        /// Verify the existing lockfile against current contents
+        /// without writing changes. Exits non-zero on drift.
+        #[arg(long)]
+        check: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -171,6 +188,12 @@ fn main() -> anyhow::Result<()> {
 
     let cli = Cli::parse();
 
+    // Propagate the global --strict-lockfile flag to engine_factory so
+    // every build_engine_* call (across check, hook, gateway,
+    // calibrate, serve) honors it without threading the flag through
+    // each call site.
+    engine_factory::set_strict_lockfile_override(cli.strict_lockfile);
+
     match cli.command {
         Commands::Check {
             input,
@@ -219,6 +242,7 @@ fn main() -> anyhow::Result<()> {
             PackCmd::Validate { path } => cmd::pack::validate(&path),
             PackCmd::Test { path } => cmd::pack::test(&path),
             PackCmd::New { name } => cmd::pack::new_pack(&name),
+            PackCmd::Lock { path, check } => cmd::pack::lock(&path, check),
         },
         Commands::Audit(audit_cmd) => match audit_cmd {
             AuditCmd::Verify { path, public_key } => cmd::audit::verify(&path, &public_key),
