@@ -221,7 +221,7 @@ channels:
 | MCP server bundling with packs | Reference in `_channel.yaml`, don't bundle (separation of concerns: pack = policy, MCP = adapter) |
 | Action-type-string migration tooling | Refactor preserves all action_types byte-identical |
 | Versioned taxonomy bump | `taxonomy: "1.x"` reserved; bump deferred to first taxonomy change |
-| First community pack (Slack/Stripe/GitHub/Notion) | Tracked in TODOS.md; separate engineering thread |
+| Domain pack beyond `permit0/email` | Vendors are channels under domain packs (`gmail`+`outlook` under `permit0/email`); next domain pack is its own engineering effort |
 
 ## Failure modes
 
@@ -300,12 +300,16 @@ Move to a federated registry when ANY of:
 - A community contributor wants to ship outside our release cadence.
 - Someone wants to ship a private/internal pack their employer can't open-source.
 
-Phase 2 plan sketch lives in the working discussion doc; signing-infrastructure
-design is tracked in `TODOS.md` as a prerequisite.
+Phase 2 plan sketch lives in the working discussion doc;
+signing-infrastructure design is tracked in
+[#18](https://github.com/permit0-ai/permit0-core/issues/18) as a
+prerequisite.
 
 ## Related artifacts
 
-- `TODOS.md` — deferred items (signing infrastructure design, taxonomy
-  version-resolver semantics, first community pack walkthrough).
+- [#18](https://github.com/permit0-ai/permit0-core/issues/18) — pack
+  signing infrastructure (Phase 2 prerequisite).
+- [#19](https://github.com/permit0-ai/permit0-core/issues/19) — taxonomy
+  version-resolver semantics for multi-pack installs.
 - `~/.gstack/projects/permit0-ai-permit0-core/sufu-claudequirky-ritchie-4ae70b-eng-review-test-plan-20260501-150322.md`
   — test plan artifact consumable by `/qa` and `/qa-only`.
