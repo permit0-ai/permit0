@@ -97,7 +97,7 @@ The taxonomy is the canonical, append-only vocabulary for *what agents do* — `
 
 22 domains, 159 verbs are defined today in [`crates/permit0-types/src/taxonomy.rs`](crates/permit0-types/src/taxonomy.rs) and documented at [`docs/taxonomy.md`](docs/taxonomy.md). The engine fails closed on any tool call that doesn't normalize to a covered action — unknown actions queue for human approval, they don't auto-run.
 
-**Today (v0.1):** engine, signed audit, admin UI, CLI, one reference pack (`email`, 16 verbs × Gmail + Outlook), two integrations (Claude Code hook, OpenClaw HOF).
+**Today (v0.1):** engine, signed audit, admin UI, CLI, one reference pack (`email`, 16 verbs for Gmail + Outlook), two integrations (Claude Code, OpenClaw).
 
 **Roadmap:** packs for Slack, Notion, Linear, Stripe, Postgres, Bash, GitHub; framework adapters for LangChain, CrewAI, AutoGen, OpenAI Agents; pre-built CLI binaries.
 
