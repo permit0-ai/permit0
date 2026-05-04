@@ -1,4 +1,4 @@
-# permit0
+# Permit0
 
 **The policy engine for AI agent actions. The boundary between what your agent decides and what it's allowed to do.**
 
@@ -7,7 +7,7 @@
 <a href="LICENSE"><img alt="License: Apache 2.0" src="https://img.shields.io/badge/License-Apache%202.0-blue.svg"></a>
 <img alt="Rust 1.85+" src="https://img.shields.io/badge/rust-1.85%2B-orange">
 
-> permit0 integrates with **Claude Code** and **OpenClaw** — more integrations to come. The pilot `email` taxonomy is ready, with Outlook and Gmail packs. [Open an issue to request the next taxonomy domain or tool pack →](https://github.com/permit0-ai/permit0/issues/new?template=new-pack.md) and ⭐ star the project.
+> Permit0 integrates with **Claude Code** and **OpenClaw** — more integrations to come. The pilot `email` taxonomy is ready, with Outlook and Gmail packs. [Open an issue to request the next taxonomy domain or tool pack →](https://github.com/permit0-ai/permit0/issues/new?template=new-pack.md) and ⭐ star the project.
 
 ---
 
@@ -15,7 +15,7 @@
 
 Your AI agent — one you built, or one you use every day — can send email, touch a database, move money, or execute code. You've watched it do something in testing that shouldn't have happened. Or you've held it back from real work because there's no hard permission you set that actually gets enforced.
 
-permit0 is the boundary between what the LLM *decides* and what actually runs. Every tool call is normalized into a canonical action, scored deterministically against risk dimensions, and decided against a policy in sub-millisecond time — with a signed audit trail an auditor can verify.
+Permit0 is the boundary between what the LLM *decides* and what actually runs. Every tool call is normalized into a canonical action, scored deterministically against risk dimensions, and decided against a policy in sub-millisecond time — with a signed audit trail an auditor can verify.
 
 The vocabulary is published. The first pack is shipped. The rest is the work.
 
@@ -68,7 +68,7 @@ Wire into Claude Code with two files (use absolute paths — `~` doesn't expand 
 }
 ```
 
-Restart Claude Code. Ask it: *"list recent emails and archive any newsletters,"* then *"send alice@example.com a draft of my notes."* Every action shows up in the dashboard's **Approvals** tab with permit0's tier, the risk flags that fired (`OUTBOUND`, `EXPOSURE`, `GOVERNANCE`, …), and the full message body. Approve or deny; verdicts cache in the policy store. Once calibration agrees with you, drop `--calibrate` to enforce.
+Restart Claude Code. Ask it: *"list recent emails and archive any newsletters,"* then *"send alice@example.com a draft of my notes."* Every action shows up in the dashboard's **Approvals** tab with Permit0's tier, the risk flags that fired (`OUTBOUND`, `EXPOSURE`, `GOVERNANCE`, …), and the full message body. Approve or deny; verdicts cache in the policy store. Once calibration agrees with you, drop `--calibrate` to enforce.
 
 Shadow mode (`permit0 hook --shadow`) logs decisions without blocking, if you want to observe before enforcing.
 
@@ -76,7 +76,7 @@ Shadow mode (`permit0 hook --shadow`) logs decisions without blocking, if you wa
 
 ## What makes it different
 
-|  | **permit0** | Microsoft AGT | Lakera / Guardrails | Langfuse / Helicone |
+|  | **Permit0** | Microsoft AGT | Lakera / Guardrails | Langfuse / Helicone |
 | --- | --- | --- | --- | --- |
 | Category | Action governance | Action governance | Prompt governance | LLM observability |
 | Governs | Agent actions | Agent actions | LLM text | After-the-fact |
@@ -87,7 +87,7 @@ Shadow mode (`permit0 hook --shadow`) logs decisions without blocking, if you wa
 | Deterministic | ✅ sub-ms | ✅ | ❌ | n/a |
 | Signed audit | ✅ ed25519 hash chain | ⚠️ logs only | ❌ | ⚠️ unsigned |
 
-> permit0 publishes the canonical action vocabulary first — `gmail.send`, `outlook.send`, and any future SMTP wrapper all resolve to `email.send`, so one risk rule covers every tool that ever does that thing. The vocabulary is the moat. The shipped risk defaults mean you get a working policy on install. The packs are how the community fills in the long tail.
+> Permit0 publishes the canonical action vocabulary first — `gmail.send`, `outlook.send`, and any future SMTP wrapper all resolve to `email.send`, so one risk rule covers every tool that ever does that thing. The vocabulary is the moat. The shipped risk defaults mean you get a working policy on install. The packs are how the community fills in the long tail.
 
 ---
 
@@ -110,7 +110,7 @@ The taxonomy is the canonical, append-only vocabulary for *what agents do* — `
 
 ```
 Tool call              ┌─────────────────────────────────┐
-  (Bash, HTTP,  ────────► │        permit0 Engine           │
+  (Bash, HTTP,  ────────► │        Permit0 Engine           │
    Stripe, ...)           ├─────────────────────────────────┤
                           │  1. Normalize (YAML pack)       │
                           │  2. Deny / Allow lists          │
@@ -138,7 +138,7 @@ The deterministic path (steps 1–6, 8) runs in-process, sub-millisecond, no net
 
 ### Trust asymmetry — why the LLM reviewer can deny but not allow
 
-permit0 treats LLM reviewers as a **filter, not an authority.** The reviewer can narrow the decision space — flagging an ambiguous action as obviously unsafe — but it cannot expand it. Only policy or a human can grant permission for a medium-risk action.
+Permit0 treats LLM reviewers as a **filter, not an authority.** The reviewer can narrow the decision space — flagging an ambiguous action as obviously unsafe — but it cannot expand it. Only policy or a human can grant permission for a medium-risk action.
 
 This preserves the determinism guarantee. The LLM is allowed to be fallible in one direction: false negatives still escalate to humans. Never in the other: no false positives that silently approve unsafe actions. For regulated environments, disable the LLM reviewer entirely — every medium-risk action routes straight to human review.
 
@@ -146,11 +146,11 @@ This preserves the determinism guarantee. The LLM is allowed to be fallible in o
 
 ## FAQ
 
-**1. Why not OPA or Cedar?** Policy DSLs, not action engines. They don't intercept, normalize, or score — you'd build permit0 on top of them.
+**1. Why not OPA or Cedar?** Policy DSLs, not action engines. They don't intercept, normalize, or score — you'd build Permit0 on top of them.
 
-**2. Why not Microsoft AGT?** Right category, ships empty. permit0 ships the taxonomy, risk defaults, and session scoring on install — and one working reference pack so you can read real YAML when you write your own.
+**2. Why not Microsoft AGT?** Right category, ships empty. Permit0 ships the taxonomy, risk defaults, and session scoring on install — and one working reference pack so you can read real YAML when you write your own.
 
-**3. Does this add latency to every agent call?** The deterministic hot path runs in-process, sub-millisecond, no network calls — cached decisions are microseconds. The LLM reviewer is only invoked on genuinely ambiguous medium-risk actions, never on the default path. Your agent's own LLM call is ~1000× slower than permit0's evaluation.
+**3. Does this add latency to every agent call?** The deterministic hot path runs in-process, sub-millisecond, no network calls — cached decisions are microseconds. The LLM reviewer is only invoked on genuinely ambiguous medium-risk actions, never on the default path. Your agent's own LLM call is ~1000× slower than Permit0's evaluation.
 
 **4. What happens to a tool or action I haven't registered?** Unknown actions fail closed — they route to human approval rather than auto-allow. You can add a pack in an afternoon of YAML.
 
@@ -162,8 +162,8 @@ This preserves the determinism guarantee. The LLM is allowed to be fallible in o
 
 ## Known limitations
 
-- **Text-only attacks — out of scope.** If the attack gets the agent to produce harmful output without calling a tool (bad advice, fabricated instructions, malicious links in rendered text), there's no action to intercept. Different problem, different layer — pair permit0 with a content filter on the output side.
-- **Actions that skip your hook.** Subprocesses that make their own network calls, tools that bypass your agent framework, anything that doesn't flow through `permit0 hook` or the gateway — permit0 can't see them. Wrap at the outermost boundary.
+- **Text-only attacks — out of scope.** If the attack gets the agent to produce harmful output without calling a tool (bad advice, fabricated instructions, malicious links in rendered text), there's no action to intercept. Different problem, different layer — pair Permit0 with a content filter on the output side.
+- **Actions that skip your hook.** Subprocesses that make their own network calls, tools that bypass your agent framework, anything that doesn't flow through `permit0 hook` or the gateway — Permit0 can't see them. Wrap at the outermost boundary.
 - **Tools with no pack.** Fail-closed protects you, but actions for unpacked domains pile up in the human review queue until a pack exists. Fine for week one, annoying by week four — write the pack or open a request.
 - **No pre-built binaries yet.** Today you build from source (Rust 1.85+). Release CI is on the roadmap.
 
