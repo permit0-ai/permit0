@@ -1,0 +1,10 @@
+{
+  "mcpServers": {
+    "permit0-gmail": {
+      "command": "/Users/hylan/miniforge3/bin/permit0-gmail-mcp"
+    },
+    "permit0-outlook": {
+      "command": "/Users/hylan/miniforge3/bin/permit0-outlook-mcp"
+    }
+  }
+}
