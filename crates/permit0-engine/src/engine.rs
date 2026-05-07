@@ -50,6 +50,12 @@ pub enum DecisionSource {
     /// in calibration mode, or the HITL approval flow). The audit record
     /// will also have a `reviewer` field set.
     HumanReviewer,
+    /// The action normalized to `unknown.unclassified` (no pack matched
+    /// it AND no risk rule was registered). The engine returned the
+    /// conservative HITL default — there was no real scoring or rule
+    /// hit. UI surfaces this as "Fallback" to distinguish it from a
+    /// medium-tier HITL verdict the scorer actually produced.
+    UnknownFallback,
 }
 
 impl DecisionSource {
@@ -61,6 +67,7 @@ impl DecisionSource {
             Self::Scorer => "scorer",
             Self::AgentReviewer => "agent_reviewer",
             Self::HumanReviewer => "human_reviewer",
+            Self::UnknownFallback => "unknown_fallback",
         }
     }
 }
@@ -227,7 +234,11 @@ impl Engine {
                 permission,
                 norm_action: norm,
                 risk_score: None,
-                source: DecisionSource::Scorer,
+                // UnknownFallback (not Scorer) — there was no risk rule
+                // and nothing scored. Surfaces in audit + UI as "fallback"
+                // so a real medium-tier HITL verdict isn't confused with
+                // "permit0 has no opinion about this tool".
+                source: DecisionSource::UnknownFallback,
             };
             self.log_decision(&result, tool_call, ctx, trace)?;
             return Ok(result);
@@ -1183,6 +1194,20 @@ mod tests {
         let result = engine.get_permission(&raw, &ctx).unwrap();
         // Falls through to fallback normalizer → unknown.unclassified → no risk rule → HITL
         assert_eq!(result.permission, Permission::HumanInTheLoop);
+        // Critical: the source must be UnknownFallback (not Scorer) so
+        // the UI can label this distinctly from a real medium‑tier HITL.
+        assert_eq!(result.source, DecisionSource::UnknownFallback);
+        // No scoring happened — risk_score must be None.
+        assert!(result.risk_score.is_none());
+    }
+
+    #[test]
+    fn unknown_fallback_source_str_is_stable() {
+        // The audit log persists `decision_source.as_str()` and the UI
+        // pattern‑matches the exact literal "unknown_fallback" to render
+        // a Fallback badge. Pin the wire format so a refactor can't
+        // silently change what the dashboard reads.
+        assert_eq!(DecisionSource::UnknownFallback.as_str(), "unknown_fallback");
     }
 
     // ── Session-aware scoring tests ─────────────────────────────
