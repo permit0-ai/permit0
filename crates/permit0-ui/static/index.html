@@ -1803,6 +1803,11 @@ textarea.input {
       // Skip if user is editing a filter input or viewing details.
       if (document.activeElement && document.activeElement.id &&
           document.activeElement.id.startsWith('auditFilter')) return;
+      // Skip if any detail row is expanded — re-rendering would wipe the
+      // open state and the user's expanded panel would vanish under them.
+      // The comment above used to say "or viewing details" but the check
+      // was missing; this is that check.
+      if ($('#auditBody .detail-row.open')) return;
       // Skip if "load more" has been used (offset > 0) — refreshing would
       // reset their pagination. They can apply filters again to get fresh data.
       if (auditState.offset > 0) return;
