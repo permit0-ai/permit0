@@ -207,6 +207,15 @@ Dev setup, branch conventions, and PR review bar live in [`CONTRIBUTING.md`](CON
 
 ---
 
+## Community
+
+- **Discord:** [discord.gg/FAxGRygU](https://discord.gg/FAxGRygU)
+- **X:** [@Permit0_social](https://x.com/Permit0_social)
+- **Discussions:** [github.com/permit0-ai/permit0/discussions](https://github.com/permit0-ai/permit0/discussions)
+- **Design partner:** [hello@permit0.com](mailto:hello@permit0.com)
+
+---
+
 ## License
 
 Apache 2.0 — see [LICENSE](LICENSE).
