@@ -165,6 +165,8 @@ async fn check_handler(
     )
 }
 
+
+
 /// Pull a string field out of the metadata map, ignoring non-string types.
 fn extract_string_field(
     metadata: &serde_json::Map<String, serde_json::Value>,
@@ -418,7 +420,14 @@ async fn apply_calibration(
         | DecisionSource::Denylist
         | DecisionSource::PolicyCache
         | DecisionSource::HumanReviewer => return Ok((result, CalibrationMeta::default())),
-        DecisionSource::Scorer | DecisionSource::AgentReviewer => {}
+        // Scorer / AgentReviewer / UnknownFallback — permit0 has no
+        // recorded human decision yet, so calibration mode should park
+        // the call for human review. UnknownFallback is especially
+        // important to surface: there's no risk rule, so the human's
+        // verdict is the only signal we'll get.
+        DecisionSource::Scorer
+        | DecisionSource::AgentReviewer
+        | DecisionSource::UnknownFallback => {}
     }
 
     let manager = match &state.approval_manager {

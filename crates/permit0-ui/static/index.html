@@ -270,6 +270,11 @@ html, body {
 .badge-human { background: var(--warning-dim); color: var(--warning); }
 .badge-minimal { background: rgba(100,116,139,0.15); color: #94a3b8; }
 .badge-low { background: var(--accent-dim); color: var(--accent); }
+/* Unknown-fallback HITL: muted grey-blue so it visually separates from
+   "warning amber" HITL (real medium-tier verdicts). Operators should be
+   able to tell at a glance whether permit0 has an opinion or is just
+   defaulting because no pack covers the tool. */
+.badge-fallback { background: rgba(99,102,241,0.12); color: #818cf8; }
 .badge-medium { background: var(--warning-dim); color: var(--warning); }
 .badge-high { background: rgba(249,115,22,0.15); color: #f97316; }
 .badge-critical { background: var(--danger-dim); color: var(--danger); }
@@ -1546,9 +1551,16 @@ textarea.input {
     return d.toLocaleString([], {month:'short',day:'numeric',hour:'2-digit',minute:'2-digit',second:'2-digit'});
   }
 
-  function permissionBadge(p) {
+  function permissionBadge(p, source) {
     if (!p) return '<span class="badge badge-minimal">-</span>';
     var lp = String(p).toLowerCase();
+    // Unknown-fallback HITL: when permit0 has no pack for the tool, the
+    // engine returns HITL with source="unknown_fallback". Render that
+    // distinctly so it's not confused with a real medium-tier HITL.
+    var ls = source ? String(source).toLowerCase() : '';
+    if ((lp === 'humanintheloop' || lp === 'human') && ls === 'unknown_fallback') {
+      return '<span class="badge badge-fallback" title="No permit0 pack covers this tool — Claude Code’s own permissions handle it (or HITL fallback).">Fallback</span>';
+    }
     var cls = lp === 'allow' ? 'badge-allow' : lp === 'deny' ? 'badge-deny' : 'badge-human';
     return '<span class="badge ' + cls + '">' + esc(p) + '</span>';
   }
@@ -1740,7 +1752,7 @@ textarea.input {
         + '<td class="mono">' + esc(formatTimestamp(r.timestamp)) + '</td>'
         + '<td>' + esc(r.action_type) + '</td>'
         + '<td class="mono">' + esc(r.channel || '-') + '</td>'
-        + '<td>' + permissionBadge(r.permission) + '</td>'
+        + '<td>' + permissionBadge(r.permission, r.source) + '</td>'
         + '<td>' + tierBadge(r.tier) + '</td>'
         + '<td class="mono">' + esc(r.risk_raw != null ? r.risk_raw : '-') + '</td>'
         + '</tr>';
@@ -1852,7 +1864,7 @@ textarea.input {
         + '<td class="mono">' + esc(formatTimestamp(r.timestamp)) + '</td>'
         + '<td>' + esc(r.action_type) + '</td>'
         + '<td class="mono">' + esc(r.channel || '-') + '</td>'
-        + '<td>' + permissionBadge(r.permission) + '</td>'
+        + '<td>' + permissionBadge(r.permission, r.source) + '</td>'
         + '<td>' + tierBadge(r.tier) + '</td>'
         + '<td class="mono">' + esc(r.risk_raw != null ? r.risk_raw : '-') + '</td>'
         + '<td class="mono">' + esc(r.source || '-') + '</td>'
@@ -2522,7 +2534,7 @@ textarea.input {
         + '<div class="live-card-info">'
         + '<span class="live-card-action">' + esc(r.action_type) + '</span>'
         + '<span class="live-card-channel">' + esc(r.channel || '-') + '</span>'
-        + permissionBadge(r.permission)
+        + permissionBadge(r.permission, r.source)
         + tierBadge(r.tier)
         + '<span class="live-card-score">score: ' + esc(r.risk_raw != null ? r.risk_raw : '-') + '</span>'
         + '</div></div>';
@@ -2598,7 +2610,11 @@ textarea.input {
                human: '<span style="color:var(--text-dim)">—</span>',
                match: '<span style="color:var(--text-dim)">—</span>' };
     }
-    var engineHtml = permissionBadge(r.engine_permission);
+    // Engine column: pass `r.source` so an unknown_fallback HITL is
+    // labeled "Fallback". Human column intentionally doesn't pass the
+    // source — the human chose Allow/Deny/HITL explicitly, never
+    // "fallback".
+    var engineHtml = permissionBadge(r.engine_permission, r.source);
     var humanHtml = hasReviewer ? permissionBadge(r.permission) : '<span style="color:var(--text-dim)">—</span>';
     var matchHtml;
     if (!hasReviewer) {
