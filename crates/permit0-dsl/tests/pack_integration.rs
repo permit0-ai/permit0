@@ -23,6 +23,10 @@ fn gmail_normalizer_yaml() -> String {
     load_test_fixture("packs/permit0/email/normalizers/gmail/send.yaml")
 }
 
+fn gmail_read_normalizer_yaml() -> String {
+    load_test_fixture("packs/permit0/email/normalizers/gmail/read.yaml")
+}
+
 fn outlook_normalizer_yaml() -> String {
     load_test_fixture("packs/permit0/email/normalizers/outlook/send.yaml")
 }
@@ -77,6 +81,64 @@ fn outlook_normalizes_send() {
     assert_eq!(norm.entities["domain"], json!("external.com"));
 }
 
+// Regression: NormalizeCtx::org_domain must reach `recipient_scope` so that
+// internal recipients are classified as "internal", not falsely flagged
+// "external". Before the fix, DslNormalizer ignored ctx, the helper saw an
+// empty org_domain, and every recipient was "external".
+#[test]
+fn gmail_recipient_scope_uses_org_domain_from_ctx() {
+    let n = load_normalizer(&gmail_normalizer_yaml());
+    let raw = RawToolCall {
+        tool_name: "gmail_send".into(),
+        parameters: json!({
+            "to": "alice@acme.com",
+            "subject": "internal note",
+            "body": "fyi"
+        }),
+        metadata: Default::default(),
+    };
+    let ctx = NormalizeCtx::new().with_org_domain("acme.com");
+    let norm = n.normalize(&raw, &ctx).unwrap();
+    assert_eq!(norm.entities["recipient_scope"], json!("self"));
+
+    // External recipient stays external.
+    let raw_ext = RawToolCall {
+        tool_name: "gmail_send".into(),
+        parameters: json!({
+            "to": "bob@gmail.com",
+            "subject": "x",
+            "body": "y"
+        }),
+        metadata: Default::default(),
+    };
+    let norm_ext = n.normalize(&raw_ext, &ctx).unwrap();
+    assert_eq!(norm_ext.entities["recipient_scope"], json!("external"));
+}
+
+// Regression: the canonical `permit0-gmail` MCP wrapper sends `gmail_read`
+// with parameter `message_id` (see clients/gmail-mcp/.../server.py:46).
+// An earlier version of gmail/read.yaml read `from: "id"` and dropped the
+// value, causing the engine to fail with `missing required field 'message_id'`.
+#[test]
+fn gmail_normalizes_read_message_id() {
+    let n = load_normalizer(&gmail_read_normalizer_yaml());
+    let raw = RawToolCall {
+        tool_name: "gmail_read".into(),
+        parameters: json!({ "message_id": "19e03c9bf13c2edf" }),
+        metadata: Default::default(),
+    };
+    assert!(n.matches(&raw));
+
+    let ctx = NormalizeCtx::new();
+    let norm = n
+        .normalize(&raw, &ctx)
+        .expect("gmail_read must extract message_id from canonical wrapper params");
+
+    assert_eq!(norm.action_type.as_action_str(), "email.read");
+    assert_eq!(norm.channel, "gmail");
+    assert_eq!(norm.entities["message_id"], json!("19e03c9bf13c2edf"));
+}
+
 #[test]
 fn gmail_does_not_match_outlook_tool() {
     let n = load_normalizer(&gmail_normalizer_yaml());
@@ -97,6 +159,38 @@ fn outlook_does_not_match_gmail_tool() {
         metadata: Default::default(),
     };
     assert!(!n.matches(&raw));
+}
+
+// Regression: the `external recipient` rule in send.yaml should fire when
+// `entity.recipient_scope == "external"` and add GOVERNANCE+PRIVILEGE flags.
+// The rule originally referenced `recipient_scope` (top-level), but the engine
+// merges entities under a sibling `entity` object — so the predicate resolved
+// to None and the rule silently never fired, leaving external sends in LOW.
+#[test]
+fn email_risk_external_recipient_fires_governance() {
+    let rule = load_risk_rule(&email_risk_yaml());
+    let data = json!({
+        "to": "huiying.lan93@gmail.com",
+        "subject": "hello",
+        "body": "hello",
+        "entity": {
+            "to": "huiying.lan93@gmail.com",
+            "recipient_scope": "external",
+            "domain": "gmail.com"
+        }
+    });
+    let template = execute_risk_rules(&rule, &data, None);
+
+    assert!(
+        template.flags.contains_key("GOVERNANCE"),
+        "external recipient rule must add GOVERNANCE flag — got flags: {:?}",
+        template.flags.keys().collect::<Vec<_>>()
+    );
+    assert!(
+        template.flags.contains_key("PRIVILEGE"),
+        "external recipient rule must add PRIVILEGE flag — got flags: {:?}",
+        template.flags.keys().collect::<Vec<_>>()
+    );
 }
 
 // TODO: pre-existing failure on this branch — email pack risk-rule

@@ -2,7 +2,7 @@ lockfile_version: 1
 permit0_pack: permit0/email
 pack_version: 0.4.0
 pack_format: 2
-generated_at: 2026-05-01T23:48:04Z
+generated_at: 2026-05-07T23:53:36Z
 files:
 - path: normalizers/gmail/_channel.yaml
   sha256: eab5d02a787d943e55a2c105207a2510d3436907e5e7d0417a201e088f30d7ab
@@ -14,20 +14,20 @@ files:
   sha256: 093c4831d40790ab6147278a23448282b72cd0ba7af025ade4073cfb7d49cb1c
   size: 4121
 - path: normalizers/gmail/archive.yaml
-  sha256: ce87ac5ee2b9e01cdf4311bd6c925d40ce03e131877d785f2739717fe67d9466
-  size: 283
+  sha256: dfcde0bed6353da13cd66a9de871043943cd40622072f6803f467ab7e1484805
+  size: 291
 - path: normalizers/gmail/create_mailbox.yaml
   sha256: b976e05191c9f7289f8613d67aa85c340c1f3f730be8e30d925a1d6d0f780165
   size: 388
 - path: normalizers/gmail/delete.yaml
-  sha256: c9f0330b4644a2f90a41c5206a1ec498b13fd847d222c4ef6fc35a0592c34374
-  size: 279
+  sha256: 69d392c0833ef76d137029f06686e2dd9d05df3a876c95886076a6360c2ba680
+  size: 287
 - path: normalizers/gmail/draft.yaml
   sha256: 9a47938a79109b41076efb77da9dc3d7b6b81111f7e882657dbac1d5d9b6a95c
   size: 603
 - path: normalizers/gmail/flag.yaml
-  sha256: caa51bf91042cb7efa723a8875be4237d78a7d516b1a6308b524ad07a2b348ee
-  size: 349
+  sha256: ab2ea2e9ad034b6a0f937575825245f8a9fb6cc84a46479ed182622f00aadef0
+  size: 357
 - path: normalizers/gmail/list_drafts.yaml
   sha256: 1b0e918af4c12a50a7fd89ae2c27fea9d4aa9f6f2f5fe1acf27e8b0857cbae55
   size: 376
@@ -35,17 +35,17 @@ files:
   sha256: 63b0a2c20e39833c17cb8827768b5a40c8c6555cbd18b5085de3c2441f10a0c2
   size: 239
 - path: normalizers/gmail/mark_read.yaml
-  sha256: f54384e27a9cea6c56321044cf70f93c65977935ca5af2db13786e1fa68e317c
-  size: 383
+  sha256: 3d4f06914fdb17ceb13dd3a78b01f9fee7549f14bdb38a265df7a76190624a6f
+  size: 391
 - path: normalizers/gmail/mark_spam.yaml
-  sha256: d14225b31f1a1cb6e552a88e7ce574b8d5e98525d53fb9baa4a322643376a10b
-  size: 291
+  sha256: 2d49e37fd18d7eaf97e1db66f44276cb3e107796fc3fd349b0fae1e4b2f6a146
+  size: 299
 - path: normalizers/gmail/move.yaml
-  sha256: 345cdbe445c1f0beee0c00b57f64e9f38e48df75e64c58d7b677f25446269afc
-  size: 740
+  sha256: 34ee59020af12b683fca776d1d3fbb0f7cca575da21ef7840d38218fc38a3c87
+  size: 748
 - path: normalizers/gmail/read.yaml
-  sha256: b30d20735c5c913f547226057fc3b3ca4452322e2f3183ef274551cfc7349ab6
-  size: 271
+  sha256: 65554b524b11c99567b0467c0aa3cf79bcb4d1e7e473ced052ac67ad713bb220
+  size: 279
 - path: normalizers/gmail/read_thread.yaml
   sha256: 661a75b15e327c33f655f5fa159b54da9ded0ba22a92525caaa4cb7d97c173b6
   size: 620
@@ -158,8 +158,8 @@ files:
   sha256: 757e3b4cff0a9f2723be6e2ec9919fedd4a3f10e49b1eb5a8c6fe069e846cffa
   size: 360
 - path: risk_rules/send.yaml
-  sha256: d78b6eef059e730df65ca1e1a0193cf4600339c3f203207dd91c6d697fe6251e
-  size: 3791
+  sha256: f9b925ca8d2ceccef9eaba50131a7a3e81cd12dd767eb775f55c64b27a22ae22
+  size: 3798
 - path: risk_rules/set_forwarding.yaml
   sha256: 2050a804ab5b8dafe25429bb580ba5fcad2fef4dbc2eb3771358715807c83f5f
   size: 539

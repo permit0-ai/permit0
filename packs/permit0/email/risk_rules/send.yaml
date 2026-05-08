@@ -82,7 +82,7 @@ rules:
   # score from LOW into MEDIUM/HIGH without tripping the global trust_boundary
   # gate (boundary stays < 18).
   - when:
-      recipient_scope:
+      entity.recipient_scope:
         contains: "external"
     then:
       - add_flag:

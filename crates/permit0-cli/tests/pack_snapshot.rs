@@ -201,7 +201,7 @@ fn snapshot_outlook_send_to_external() {
 #[test]
 fn snapshot_gmail_archive() {
     let reg = build_email_registry();
-    let n = normalize_or_panic(&reg, raw("gmail_archive", json!({"id": "msg-123"})));
+    let n = normalize_or_panic(&reg, raw("gmail_archive", json!({"message_id": "msg-123"})));
     insta_assert_eq(
         &fingerprint(&n),
         r#"{"action_type":"email.archive","channel":"gmail","entities":{"message_id":"msg-123"},"execution":{"surface_command":"gmail_archive","surface_tool":"gmail_archive"}}"#,
