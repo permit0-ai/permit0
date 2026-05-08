@@ -32,8 +32,9 @@ The vocabulary is published. The first pack is shipped. The rest is the work.
 git clone https://github.com/permit0-ai/permit0.git && cd permit0
 cargo build --release
 
-# 2. Daemon (calibration mode: every fresh decision blocks on a human)
-cargo run -p permit0-cli -- serve --calibrate --port 9090
+# 2. Run server 
+cargo run -p permit0-cli -- serve --ui --port 9090
+
 # Open http://localhost:9090/ui/
 
 # 3. MCP servers (in another terminal)
@@ -52,14 +53,15 @@ Wire into Claude Code with two files (use absolute paths — `~` doesn't expand 
   "hooks": {
     "PreToolUse": [{ "hooks": [{
       "type": "command",
-      "command": "/abs/path/to/permit0 hook --db /home/<user>/.permit0/sessions.db"
+      "command": "/abs/path/to/permit0 hook --remote http://127.0.0.1:9090 --unknown defer"
     }]}]
   }
 }
 ```
 
+`--remote <url>` forwards each call to the daemon you started in step 2, so the hook and dashboard share one engine instance and one audit trail. `--unknown <mode>` controls what happens when permit0 has no pack for a tool — `defer` (recommended) returns "no opinion" and lets Claude Code's normal permission flow handle it; alternatives are `ask`, `allow`, `deny`.
+
 ```jsonc
-// ~/.claude.json — exposes the email tools to Claude
 {
   "mcpServers": {
     "permit0-outlook": { "command": "/abs/path/to/permit0-outlook-mcp" },

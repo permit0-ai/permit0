@@ -1021,10 +1021,13 @@ mod tests {
     }
 
     fn gmail_send(subject: &str, body: &str) -> RawToolCall {
+        // Internal recipient so tests don't get swept up by the
+        // external-recipient escalation rule. Tests that need HITL
+        // trigger it deliberately via the body (credentials rule).
         RawToolCall {
             tool_name: "gmail_send".into(),
             parameters: json!({
-                "to": "bob@external.com",
+                "to": "bob@acme.com",
                 "subject": subject,
                 "body": body,
             }),

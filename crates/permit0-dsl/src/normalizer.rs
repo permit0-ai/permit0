@@ -56,7 +56,7 @@ impl Normalizer for DslNormalizer {
     fn normalize(
         &self,
         raw: &RawToolCall,
-        _ctx: &NormalizeCtx,
+        ctx: &NormalizeCtx,
     ) -> Result<NormAction, NormalizeError> {
         let norm = &self.def.normalize;
 
@@ -67,8 +67,15 @@ impl Normalizer for DslNormalizer {
                 reason: e.to_string(),
             })?;
 
+        // Inject NormalizeCtx fields (org_domain, …) into the params namespace
+        // so closed helpers like `recipient_scope` can resolve them via path
+        // arguments — e.g. `args: ["to", "org_domain"]`. ctx wins over any
+        // user-supplied param of the same name to prevent a malicious agent
+        // from spoofing the org boundary.
+        let effective_params = inject_ctx_into_params(&raw.parameters, ctx);
+
         // Extract entities
-        let entity_map = extract_entities(&raw.parameters, &norm.entities, &self.helpers).map_err(
+        let entity_map = extract_entities(&effective_params, &norm.entities, &self.helpers).map_err(
             |e| match e {
                 EntityError::MissingRequired(field) => NormalizeError::MissingRequiredField {
                     tool_name: raw.tool_name.clone(),
@@ -105,6 +112,28 @@ impl Normalizer for DslNormalizer {
             },
         })
     }
+}
+
+/// Merge `NormalizeCtx` fields onto the raw-params object so helpers can
+/// resolve them via path arguments. ctx fields overwrite any user-supplied
+/// keys of the same name — `org_domain` is a trust-boundary input and must
+/// not be spoofable by the caller.
+fn inject_ctx_into_params(
+    params: &serde_json::Value,
+    ctx: &NormalizeCtx,
+) -> serde_json::Value {
+    let mut obj = match params {
+        serde_json::Value::Object(m) => m.clone(),
+        other => {
+            let mut m = serde_json::Map::new();
+            m.insert("_raw".into(), other.clone());
+            m
+        }
+    };
+    if let Some(domain) = &ctx.org_domain {
+        obj.insert("org_domain".into(), serde_json::Value::String(domain.clone()));
+    }
+    serde_json::Value::Object(obj)
 }
 
 /// Build a human-readable surface command string for audit.

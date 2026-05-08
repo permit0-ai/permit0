@@ -10,7 +10,7 @@ normalize:
   channel: "gmail"
   entities:
     message_id:
-      from: "id"
+      from: "message_id"
       type: "string"
       required: true
     # Optional rather than required: the canonical permit0 wrapper
