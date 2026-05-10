@@ -74,6 +74,16 @@ rand = "0.8"
 
 # Storage
 rusqlite = { version = "0.32", features = ["bundled"] }
+sqlx = { version = "0.8", default-features = false, features = [
+    "runtime-tokio-rustls",
+    "postgres",
+    "macros",
+    "json",
+    "chrono",
+    "uuid",
+    "migrate",
+] }
+async-trait = "0.1"
 
 # Regex (linear time, no backtracking)
 regex = "1"

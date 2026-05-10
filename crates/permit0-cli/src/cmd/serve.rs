@@ -142,7 +142,7 @@ async fn check_handler(
 
     let (result, meta) = apply_calibration(&state, result).await?;
 
-    record_and_respond(&state, &result, &tool_call, &ctx, meta)
+    record_and_respond(&state, &result, &tool_call, &ctx, meta).await
 }
 
 /// Pull a string field out of the metadata map, ignoring non-string types.
@@ -296,6 +296,7 @@ async fn audit_replay_handler(
         match state
             .engine
             .log_failed_open_replay(&tool_call, &ctx, &result, foc)
+            .await
         {
             Ok(_entry_id) => accepted += 1,
             Err(e) => rejected.push(ReplayRejection {
@@ -365,7 +366,7 @@ async fn check_action_handler(
 
     let (result, meta) = apply_calibration(&state, result).await?;
 
-    record_and_respond(&state, &result, &synthetic_tool_call, &ctx, meta)
+    record_and_respond(&state, &result, &synthetic_tool_call, &ctx, meta).await
 }
 
 /// In calibration mode, escalate every fresh decision (engine-produced —
@@ -461,7 +462,8 @@ async fn apply_calibration(
     let _ = state
         .engine
         .state()
-        .policy_cache_set(norm_hash, decision.permission);
+        .policy_cache_set(norm_hash, decision.permission)
+        .await;
 
     let meta = CalibrationMeta {
         engine_permission: Some(original_permission),
@@ -494,7 +496,7 @@ struct CalibrationMeta {
 /// via `ctx.skip_audit`; this function appends the composite entry now
 /// so the dashboard sees the human's verdict and `engine_decision`
 /// preserves the pre-calibration recommendation for override visibility.
-fn record_and_respond(
+async fn record_and_respond(
     state: &ServerState,
     result: &permit0_engine::PermissionResult,
     tool_call: &RawToolCall,
@@ -506,14 +508,11 @@ fn record_and_respond(
         calibration.reviewer,
         calibration.reason,
     ) {
-        if let Err(e) = state.engine.log_calibrated_audit(
-            result,
-            tool_call,
-            ctx,
-            engine_permission,
-            reviewer,
-            reason,
-        ) {
+        if let Err(e) = state
+            .engine
+            .log_calibrated_audit(result, tool_call, ctx, engine_permission, reviewer, reason)
+            .await
+        {
             tracing::warn!("failed to append calibrated audit entry: {e}");
         }
     }
@@ -539,6 +538,21 @@ async fn health() -> Json<serde_json::Value> {
     Json(serde_json::json!({ "ok": true, "service": "permit0" }))
 }
 
+/// Strip the password (and any `password=...` query parameter) from a
+/// `postgres://user:password@host/db` URL before logging. Best-effort
+/// redaction — anything we can't parse is logged as `<redacted>`.
+fn redact_url(url: &str) -> String {
+    match url::Url::parse(url) {
+        Ok(mut u) => {
+            if u.password().is_some() {
+                let _ = u.set_password(Some("***"));
+            }
+            u.to_string()
+        }
+        Err(_) => "<redacted>".to_string(),
+    }
+}
+
 /// Run the HTTP server.
 pub fn run(
     port: u16,
@@ -556,45 +570,104 @@ pub fn run(
                 .join(".permit0");
             std::fs::create_dir_all(&db_dir).ok();
 
-            // Persistent split: state DB owns denylist/allowlist/cache/HITL;
-            // audit DB owns the chained decision log.
-            let state_db_path = db_dir.join("state.db");
-            let audit_db_path = db_dir.join("audit.db");
-            eprintln!("  state DB at {}", state_db_path.display());
-            eprintln!("  audit DB at {}", audit_db_path.display());
+            // Connection-string env vars take precedence over the local
+            // SQLite fallback. Two separate URLs so policy state and the
+            // audit chain can live in distinct Postgres instances (the
+            // `docker-compose.yml` shipped with the repo wires both).
+            let state_url = std::env::var("PERMIT0_STATE_URL").ok();
+            let audit_url = std::env::var("PERMIT0_AUDIT_URL").ok();
 
-            let policy_state: Arc<dyn PolicyState> = match SqlitePolicyState::open(&state_db_path) {
-                Ok(s) => Arc::new(s),
-                Err(e) => {
+            let policy_state: Arc<dyn PolicyState> = match state_url.as_deref() {
+                Some(url) => {
+                    eprintln!("  state DB: postgres ({})", redact_url(url));
+                    let pg = permit0_store::PostgresPolicyState::connect(url)
+                        .await
+                        .with_context(|| "connecting to state DB")?;
+                    pg.migrate()
+                        .await
+                        .with_context(|| "running state DB migrations")?;
+                    Arc::new(pg)
+                }
+                None => {
+                    let state_db_path = db_dir.join("state.db");
                     eprintln!(
-                        "  warning: failed to open state DB ({e}), falling back to in-memory"
+                        "  state DB: sqlite at {} (set PERMIT0_STATE_URL for Postgres)",
+                        state_db_path.display()
                     );
-                    Arc::new(InMemoryPolicyState::new())
+                    match SqlitePolicyState::open(&state_db_path) {
+                        Ok(s) => Arc::new(s),
+                        Err(e) => {
+                            eprintln!(
+                                "  warning: failed to open state DB ({e}), falling back to in-memory"
+                            );
+                            Arc::new(InMemoryPolicyState::new())
+                        }
+                    }
                 }
             };
 
-            let audit_sink: Arc<dyn AuditSink> = match SqliteAuditSink::open(&audit_db_path) {
-                Ok(s) => Arc::new(s),
-                Err(e) => {
+            let audit_sink: Arc<dyn AuditSink> = match audit_url.as_deref() {
+                Some(url) => {
+                    eprintln!("  audit DB: postgres ({})", redact_url(url));
+                    let pg = permit0_store::PostgresAuditSink::connect(url)
+                        .await
+                        .with_context(|| "connecting to audit DB")?;
+                    pg.migrate()
+                        .await
+                        .with_context(|| "running audit DB migrations")?;
+                    Arc::new(pg)
+                }
+                None => {
+                    let audit_db_path = db_dir.join("audit.db");
                     eprintln!(
-                        "  warning: failed to open audit DB ({e}), falling back to in-memory"
+                        "  audit DB: sqlite at {} (set PERMIT0_AUDIT_URL for Postgres)",
+                        audit_db_path.display()
                     );
-                    Arc::new(permit0_store::InMemoryAuditSink::new())
+                    match SqliteAuditSink::open(&audit_db_path) {
+                        Ok(s) => Arc::new(s),
+                        Err(e) => {
+                            eprintln!(
+                                "  warning: failed to open audit DB ({e}), falling back to in-memory"
+                            );
+                            Arc::new(permit0_store::InMemoryAuditSink::new())
+                        }
+                    }
                 }
             };
 
             // Persistent ed25519 signing key — preserved across restarts so
-            // signatures remain verifiable with the same public key.
-            let key_path = db_dir.join("audit_signing.key");
+            // signatures remain verifiable with the same public key. The
+            // mount point is configurable so a Docker bind-mount can drop
+            // the seed under /var/lib/permit0/audit_signing.key.
+            let key_path = std::env::var("PERMIT0_AUDIT_KEY_PATH")
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|_| db_dir.join("audit_signing.key"));
+            if let Some(parent) = key_path.parent() {
+                std::fs::create_dir_all(parent).ok();
+            }
             let signer = FileKeyStore::load_or_generate(&key_path)
                 .with_context(|| format!("loading audit signing key at {}", key_path.display()))?;
             let audit_signer: Arc<dyn AuditSigner> = Arc::new(signer);
             eprintln!("  audit signing pubkey: {}", audit_signer.public_key_hex());
 
-            let engine = engine_factory::build_engine_builder_from_packs(profile.as_deref(), None)?
-                .with_policy_state(policy_state.clone())
-                .with_audit(audit_sink.clone(), audit_signer)
-                .build()?;
+            // Resume the audit chain across restarts: read the head of the
+            // sink and seed the engine builder so the next entry's
+            // `prev_hash` and `sequence` continue monotonically.
+            let seed = audit_sink
+                .tail()
+                .await
+                .with_context(|| "reading audit chain tail")?;
+            let mut builder = engine_factory::build_engine_builder_from_packs(
+                profile.as_deref(),
+                None,
+            )?
+            .with_policy_state(policy_state.clone())
+            .with_audit(audit_sink.clone(), audit_signer);
+            if let Some((seq, prev)) = seed {
+                eprintln!("  audit chain resuming at sequence {seq}");
+                builder = builder.with_audit_seed(seq, prev);
+            }
+            let engine = builder.build()?;
 
             // Shared approval manager so the daemon's calibration handler and
             // the dashboard's /api/v1/approvals/decide endpoint resolve the

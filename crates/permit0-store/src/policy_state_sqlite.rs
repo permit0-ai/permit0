@@ -119,8 +119,9 @@ impl<T> OptExt<T> for Result<T, rusqlite::Error> {
     }
 }
 
+#[async_trait::async_trait]
 impl PolicyState for SqlitePolicyState {
-    fn denylist_check(&self, hash: &NormHash) -> Result<Option<String>, StateError> {
+    async fn denylist_check(&self, hash: &NormHash) -> Result<Option<String>, StateError> {
         let conn = self
             .conn
             .lock()
@@ -133,7 +134,7 @@ impl PolicyState for SqlitePolicyState {
             .map_err(|e| StateError::Io(e.to_string()))
     }
 
-    fn denylist_add(&self, hash: NormHash, reason: String) -> Result<(), StateError> {
+    async fn denylist_add(&self, hash: NormHash, reason: String) -> Result<(), StateError> {
         let conn = self
             .conn
             .lock()
@@ -146,7 +147,7 @@ impl PolicyState for SqlitePolicyState {
         Ok(())
     }
 
-    fn denylist_remove(&self, hash: &NormHash) -> Result<(), StateError> {
+    async fn denylist_remove(&self, hash: &NormHash) -> Result<(), StateError> {
         let conn = self
             .conn
             .lock()
@@ -159,7 +160,7 @@ impl PolicyState for SqlitePolicyState {
         Ok(())
     }
 
-    fn denylist_list(&self) -> Result<Vec<(NormHash, String)>, StateError> {
+    async fn denylist_list(&self) -> Result<Vec<(NormHash, String)>, StateError> {
         let conn = self
             .conn
             .lock()
@@ -181,7 +182,7 @@ impl PolicyState for SqlitePolicyState {
         Ok(out)
     }
 
-    fn allowlist_check(&self, hash: &NormHash) -> Result<bool, StateError> {
+    async fn allowlist_check(&self, hash: &NormHash) -> Result<bool, StateError> {
         let conn = self
             .conn
             .lock()
@@ -196,7 +197,7 @@ impl PolicyState for SqlitePolicyState {
             .is_some())
     }
 
-    fn allowlist_add(&self, hash: NormHash, j: String) -> Result<(), StateError> {
+    async fn allowlist_add(&self, hash: NormHash, j: String) -> Result<(), StateError> {
         let conn = self
             .conn
             .lock()
@@ -209,7 +210,7 @@ impl PolicyState for SqlitePolicyState {
         Ok(())
     }
 
-    fn allowlist_remove(&self, hash: &NormHash) -> Result<(), StateError> {
+    async fn allowlist_remove(&self, hash: &NormHash) -> Result<(), StateError> {
         let conn = self
             .conn
             .lock()
@@ -222,7 +223,7 @@ impl PolicyState for SqlitePolicyState {
         Ok(())
     }
 
-    fn allowlist_list(&self) -> Result<Vec<(NormHash, String)>, StateError> {
+    async fn allowlist_list(&self) -> Result<Vec<(NormHash, String)>, StateError> {
         let conn = self
             .conn
             .lock()
@@ -244,7 +245,7 @@ impl PolicyState for SqlitePolicyState {
         Ok(out)
     }
 
-    fn policy_cache_get(&self, hash: &NormHash) -> Result<Option<Permission>, StateError> {
+    async fn policy_cache_get(&self, hash: &NormHash) -> Result<Option<Permission>, StateError> {
         let conn = self
             .conn
             .lock()
@@ -260,7 +261,7 @@ impl PolicyState for SqlitePolicyState {
         .map_err(|e| StateError::Io(e.to_string()))
     }
 
-    fn policy_cache_set(&self, hash: NormHash, p: Permission) -> Result<(), StateError> {
+    async fn policy_cache_set(&self, hash: NormHash, p: Permission) -> Result<(), StateError> {
         let conn = self
             .conn
             .lock()
@@ -273,7 +274,7 @@ impl PolicyState for SqlitePolicyState {
         Ok(())
     }
 
-    fn policy_cache_clear(&self) -> Result<(), StateError> {
+    async fn policy_cache_clear(&self) -> Result<(), StateError> {
         let conn = self
             .conn
             .lock()
@@ -283,7 +284,7 @@ impl PolicyState for SqlitePolicyState {
         Ok(())
     }
 
-    fn policy_cache_invalidate(&self, hash: &NormHash) -> Result<(), StateError> {
+    async fn policy_cache_invalidate(&self, hash: &NormHash) -> Result<(), StateError> {
         let conn = self
             .conn
             .lock()
@@ -296,7 +297,7 @@ impl PolicyState for SqlitePolicyState {
         Ok(())
     }
 
-    fn approval_create(&self, row: PendingApprovalRow) -> Result<(), StateError> {
+    async fn approval_create(&self, row: PendingApprovalRow) -> Result<(), StateError> {
         let conn = self
             .conn
             .lock()
@@ -319,7 +320,7 @@ impl PolicyState for SqlitePolicyState {
         Ok(())
     }
 
-    fn approval_get(&self, id: &str) -> Result<Option<PendingApprovalRow>, StateError> {
+    async fn approval_get(&self, id: &str) -> Result<Option<PendingApprovalRow>, StateError> {
         let conn = self
             .conn
             .lock()
@@ -347,7 +348,11 @@ impl PolicyState for SqlitePolicyState {
         .map_err(|e| StateError::Io(e.to_string()))
     }
 
-    fn approval_resolve(&self, id: &str, decision: HumanDecisionRow) -> Result<(), StateError> {
+    async fn approval_resolve(
+        &self,
+        id: &str,
+        decision: HumanDecisionRow,
+    ) -> Result<(), StateError> {
         let mut conn = self
             .conn
             .lock()
@@ -377,7 +382,7 @@ impl PolicyState for SqlitePolicyState {
         Ok(())
     }
 
-    fn approval_list_pending(&self) -> Result<Vec<PendingApprovalRow>, StateError> {
+    async fn approval_list_pending(&self) -> Result<Vec<PendingApprovalRow>, StateError> {
         let conn = self
             .conn
             .lock()
@@ -424,37 +429,37 @@ mod tests {
         x
     }
 
-    #[test]
-    fn denylist_crud() {
+    #[tokio::test]
+    async fn denylist_crud() {
         let s = SqlitePolicyState::in_memory().unwrap();
-        assert!(s.denylist_check(&h()).unwrap().is_none());
-        s.denylist_add(h(), "bad".into()).unwrap();
-        assert_eq!(s.denylist_check(&h()).unwrap(), Some("bad".into()));
-        s.denylist_remove(&h()).unwrap();
-        assert!(s.denylist_check(&h()).unwrap().is_none());
+        assert!(s.denylist_check(&h()).await.unwrap().is_none());
+        s.denylist_add(h(), "bad".into()).await.unwrap();
+        assert_eq!(s.denylist_check(&h()).await.unwrap(), Some("bad".into()));
+        s.denylist_remove(&h()).await.unwrap();
+        assert!(s.denylist_check(&h()).await.unwrap().is_none());
     }
 
-    #[test]
-    fn allowlist_crud() {
+    #[tokio::test]
+    async fn allowlist_crud() {
         let s = SqlitePolicyState::in_memory().unwrap();
-        s.allowlist_add(h(), "ok".into()).unwrap();
-        assert!(s.allowlist_check(&h()).unwrap());
-        let l = s.allowlist_list().unwrap();
+        s.allowlist_add(h(), "ok".into()).await.unwrap();
+        assert!(s.allowlist_check(&h()).await.unwrap());
+        let l = s.allowlist_list().await.unwrap();
         assert_eq!(l.len(), 1);
     }
 
-    #[test]
-    fn policy_cache_clear() {
+    #[tokio::test]
+    async fn policy_cache_clear() {
         let s = SqlitePolicyState::in_memory().unwrap();
-        s.policy_cache_set(h(), Permission::Allow).unwrap();
-        s.policy_cache_set(h2(), Permission::Deny).unwrap();
-        s.policy_cache_clear().unwrap();
-        assert!(s.policy_cache_get(&h()).unwrap().is_none());
-        assert!(s.policy_cache_get(&h2()).unwrap().is_none());
+        s.policy_cache_set(h(), Permission::Allow).await.unwrap();
+        s.policy_cache_set(h2(), Permission::Deny).await.unwrap();
+        s.policy_cache_clear().await.unwrap();
+        assert!(s.policy_cache_get(&h()).await.unwrap().is_none());
+        assert!(s.policy_cache_get(&h2()).await.unwrap().is_none());
     }
 
-    #[test]
-    fn approval_lifecycle() {
+    #[tokio::test]
+    async fn approval_lifecycle() {
         let s = SqlitePolicyState::in_memory().unwrap();
         s.approval_create(PendingApprovalRow {
             approval_id: "a1".into(),
@@ -465,8 +470,9 @@ mod tests {
             norm_action_json: "{}".into(),
             risk_score_json: "{}".into(),
         })
+        .await
         .unwrap();
-        let got = s.approval_get("a1").unwrap().unwrap();
+        let got = s.approval_get("a1").await.unwrap().unwrap();
         assert_eq!(got.action_type, "email.send");
 
         s.approval_resolve(
@@ -478,7 +484,8 @@ mod tests {
                 decided_at: "2026-01-01T00:01:00Z".into(),
             },
         )
+        .await
         .unwrap();
-        assert!(s.approval_get("a1").unwrap().is_none());
+        assert!(s.approval_get("a1").await.unwrap().is_none());
     }
 }

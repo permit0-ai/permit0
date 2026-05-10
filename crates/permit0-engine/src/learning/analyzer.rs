@@ -36,7 +36,7 @@ impl LearningAnalyzer {
     }
 
     /// Compute statistics for a given action type.
-    pub fn action_stats(&self, action_type: &str) -> Result<ActionStats, String> {
+    pub async fn action_stats(&self, action_type: &str) -> Result<ActionStats, String> {
         let entries = self
             .audit_sink
             .query(&AuditFilter {
@@ -44,6 +44,7 @@ impl LearningAnalyzer {
                 limit: Some(10_000),
                 ..Default::default()
             })
+            .await
             .map_err(|e| e.to_string())?;
 
         let total_decisions = entries.len() as u64;
@@ -76,19 +77,20 @@ impl LearningAnalyzer {
     }
 
     /// Check whether an action type should be auto-approved.
-    pub fn should_auto_approve(&self, action_type: &str) -> Result<bool, String> {
-        let stats = self.action_stats(action_type)?;
+    pub async fn should_auto_approve(&self, action_type: &str) -> Result<bool, String> {
+        let stats = self.action_stats(action_type).await?;
         Ok(stats.suggest_auto_approve)
     }
 
     /// Generate suggestions for all action types with enough data.
-    pub fn generate_suggestions(&self) -> Result<Vec<LearningSuggestion>, String> {
+    pub async fn generate_suggestions(&self) -> Result<Vec<LearningSuggestion>, String> {
         let all_entries = self
             .audit_sink
             .query(&AuditFilter {
                 limit: Some(10_000),
                 ..Default::default()
             })
+            .await
             .map_err(|e| e.to_string())?;
 
         let mut action_types: Vec<String> = all_entries
@@ -100,7 +102,7 @@ impl LearningAnalyzer {
 
         let mut suggestions = Vec::new();
         for at in &action_types {
-            let stats = self.action_stats(at)?;
+            let stats = self.action_stats(at).await?;
 
             if stats.suggest_allowlist {
                 suggestions.push(LearningSuggestion::PromoteToAllowlist {
@@ -140,7 +142,7 @@ impl LearningAnalyzer {
     }
 
     /// Extract training features from audit entries (for ML pipeline).
-    pub fn extract_training_features(
+    pub async fn extract_training_features(
         &self,
         action_type: &str,
     ) -> Result<Vec<TrainingFeatures>, String> {
@@ -151,6 +153,7 @@ impl LearningAnalyzer {
                 limit: Some(10_000),
                 ..Default::default()
             })
+            .await
             .map_err(|e| e.to_string())?;
 
         let overrides = self.override_store.get_overrides_by_action(action_type)?;
@@ -222,7 +225,7 @@ fn entry_to_features(
 ///
 /// Records the override in the override store, then updates the policy
 /// cache so the next identical call is a cache hit.
-pub fn record_human_decision(
+pub async fn record_human_decision(
     state: &dyn PolicyState,
     override_store: &dyn OverrideStore,
     override_record: super::types::HumanOverride,
@@ -234,6 +237,7 @@ pub fn record_human_decision(
 
     state
         .policy_cache_set(norm_hash, human_decision)
+        .await
         .map_err(|e| e.to_string())?;
 
     Ok(())
@@ -307,7 +311,7 @@ mod tests {
         e
     }
 
-    fn setup(
+    async fn setup(
         action_type: &str,
         allow_count: u32,
         human_count: u32,
@@ -320,25 +324,25 @@ mod tests {
         for _ in 0..allow_count {
             let e = make_entry(action_type, Permission::Allow, idx, &signer, &prev);
             prev = e.entry_hash.clone();
-            sink.append(&e).unwrap();
+            sink.append(&e).await.unwrap();
             idx += 1;
         }
         for _ in 0..human_count {
             let e = make_entry(action_type, Permission::HumanInTheLoop, idx, &signer, &prev);
             prev = e.entry_hash.clone();
-            sink.append(&e).unwrap();
+            sink.append(&e).await.unwrap();
             idx += 1;
         }
         (sink, overrides)
     }
 
-    #[test]
-    fn cache_promotion_on_human_approve() {
+    #[tokio::test]
+    async fn cache_promotion_on_human_approve() {
         let state = Arc::new(InMemoryPolicyState::new());
         let override_store = Arc::new(InMemoryOverrideStore::new());
         let norm_hash = [42u8; 32];
 
-        assert!(state.policy_cache_get(&norm_hash).unwrap().is_none());
+        assert!(state.policy_cache_get(&norm_hash).await.unwrap().is_none());
 
         let override_record = super::super::types::HumanOverride {
             original_decision: Permission::HumanInTheLoop,
@@ -349,35 +353,37 @@ mod tests {
             timestamp: "2025-01-01T00:00:00Z".into(),
             reviewer: "alice@example.com".into(),
         };
-        record_human_decision(&*state, &*override_store, override_record).unwrap();
+        record_human_decision(&*state, &*override_store, override_record)
+            .await
+            .unwrap();
 
         assert_eq!(
-            state.policy_cache_get(&norm_hash).unwrap(),
+            state.policy_cache_get(&norm_hash).await.unwrap(),
             Some(Permission::Allow)
         );
     }
 
-    #[test]
-    fn allowlist_suggestion_fires_at_threshold() {
-        let (sink, overrides) = setup("email.send", 50, 0);
+    #[tokio::test]
+    async fn allowlist_suggestion_fires_at_threshold() {
+        let (sink, overrides) = setup("email.send", 50, 0).await;
         let analyzer = LearningAnalyzer::new(sink, overrides);
-        let stats = analyzer.action_stats("email.send").unwrap();
+        let stats = analyzer.action_stats("email.send").await.unwrap();
         assert!(stats.suggest_allowlist);
         assert_eq!(stats.human_approvals, 50);
         assert_eq!(stats.override_rate, 0.0);
     }
 
-    #[test]
-    fn allowlist_suggestion_does_not_fire_below_threshold() {
-        let (sink, overrides) = setup("email.send", 49, 0);
+    #[tokio::test]
+    async fn allowlist_suggestion_does_not_fire_below_threshold() {
+        let (sink, overrides) = setup("email.send", 49, 0).await;
         let analyzer = LearningAnalyzer::new(sink, overrides);
-        let stats = analyzer.action_stats("email.send").unwrap();
+        let stats = analyzer.action_stats("email.send").await.unwrap();
         assert!(!stats.suggest_allowlist);
     }
 
-    #[test]
-    fn allowlist_suggestion_blocked_by_override_rate() {
-        let (sink, overrides) = setup("email.send", 50, 0);
+    #[tokio::test]
+    async fn allowlist_suggestion_blocked_by_override_rate() {
+        let (sink, overrides) = setup("email.send", 50, 0).await;
         for i in 0..2u32 {
             overrides
                 .record_override(super::super::types::HumanOverride {
@@ -392,26 +398,29 @@ mod tests {
                 .unwrap();
         }
         let analyzer = LearningAnalyzer::new(sink, overrides);
-        let stats = analyzer.action_stats("email.send").unwrap();
+        let stats = analyzer.action_stats("email.send").await.unwrap();
         assert!(!stats.suggest_allowlist);
     }
 
-    #[test]
-    fn auto_approve_requires_100_examples() {
-        let (sink, overrides) = setup("email.send", 99, 0);
+    #[tokio::test]
+    async fn auto_approve_requires_100_examples() {
+        let (sink, overrides) = setup("email.send", 99, 0).await;
         let analyzer = LearningAnalyzer::new(sink, overrides);
-        assert!(!analyzer.should_auto_approve("email.send").unwrap());
+        assert!(!analyzer.should_auto_approve("email.send").await.unwrap());
 
-        let (sink2, overrides2) = setup("email.send", 100, 0);
+        let (sink2, overrides2) = setup("email.send", 100, 0).await;
         let analyzer2 = LearningAnalyzer::new(sink2, overrides2);
-        assert!(analyzer2.should_auto_approve("email.send").unwrap());
+        assert!(analyzer2.should_auto_approve("email.send").await.unwrap());
     }
 
-    #[test]
-    fn training_features_extraction() {
-        let (sink, overrides) = setup("email.send", 5, 0);
+    #[tokio::test]
+    async fn training_features_extraction() {
+        let (sink, overrides) = setup("email.send", 5, 0).await;
         let analyzer = LearningAnalyzer::new(sink, overrides);
-        let features = analyzer.extract_training_features("email.send").unwrap();
+        let features = analyzer
+            .extract_training_features("email.send")
+            .await
+            .unwrap();
         assert_eq!(features.len(), 5);
         assert_eq!(features[0].action_type, "email.send");
         assert_eq!(features[0].domain, "email");
@@ -419,9 +428,9 @@ mod tests {
         assert!(!features[0].was_overridden);
     }
 
-    #[test]
-    fn training_features_with_override() {
-        let (sink, overrides) = setup("email.send", 3, 0);
+    #[tokio::test]
+    async fn training_features_with_override() {
+        let (sink, overrides) = setup("email.send", 3, 0).await;
         overrides
             .record_override(super::super::types::HumanOverride {
                 original_decision: Permission::HumanInTheLoop,
@@ -435,7 +444,10 @@ mod tests {
             .unwrap();
 
         let analyzer = LearningAnalyzer::new(sink, overrides);
-        let features = analyzer.extract_training_features("email.send").unwrap();
+        let features = analyzer
+            .extract_training_features("email.send")
+            .await
+            .unwrap();
 
         let overridden: Vec<&TrainingFeatures> =
             features.iter().filter(|f| f.was_overridden).collect();
@@ -443,11 +455,11 @@ mod tests {
         assert_eq!(overridden[0].label, Permission::Allow);
     }
 
-    #[test]
-    fn generate_suggestions_promotes_allowlist() {
-        let (sink, overrides) = setup("email.send", 55, 0);
+    #[tokio::test]
+    async fn generate_suggestions_promotes_allowlist() {
+        let (sink, overrides) = setup("email.send", 55, 0).await;
         let analyzer = LearningAnalyzer::new(sink, overrides);
-        let suggestions = analyzer.generate_suggestions().unwrap();
+        let suggestions = analyzer.generate_suggestions().await.unwrap();
         let allowlist_suggestions: Vec<&LearningSuggestion> = suggestions
             .iter()
             .filter(|s| matches!(s, LearningSuggestion::PromoteToAllowlist { .. }))
@@ -455,12 +467,12 @@ mod tests {
         assert_eq!(allowlist_suggestions.len(), 1);
     }
 
-    #[test]
-    fn always_human_suggestion_when_high_human_rate() {
+    #[tokio::test]
+    async fn always_human_suggestion_when_high_human_rate() {
         // Use a real action_type (the parser only accepts known domains).
-        let (sink, overrides) = setup("email.send", 1, 9);
+        let (sink, overrides) = setup("email.send", 1, 9).await;
         let analyzer = LearningAnalyzer::new(sink, overrides);
-        let suggestions = analyzer.generate_suggestions().unwrap();
+        let suggestions = analyzer.generate_suggestions().await.unwrap();
         let always_human: Vec<&LearningSuggestion> = suggestions
             .iter()
             .filter(|s| matches!(s, LearningSuggestion::AddToAlwaysHuman { .. }))

@@ -33,3 +33,4 @@ anyhow = { workspace = true }
 ulid = { workspace = true }
 chrono = { workspace = true }
 ureq = { workspace = true }
+url = "2"

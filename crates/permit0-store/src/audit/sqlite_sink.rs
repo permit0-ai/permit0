@@ -99,8 +99,9 @@ fn tier_to_str(t: Tier) -> &'static str {
     }
 }
 
+#[async_trait::async_trait]
 impl AuditSink for SqliteAuditSink {
-    fn append(&self, entry: &AuditEntry) -> Result<(), AuditError> {
+    async fn append(&self, entry: &AuditEntry) -> Result<(), AuditError> {
         let conn = self
             .conn
             .lock()
@@ -134,7 +135,7 @@ impl AuditSink for SqliteAuditSink {
         Ok(())
     }
 
-    fn query(&self, filter: &AuditFilter) -> Result<Vec<AuditEntry>, AuditError> {
+    async fn query(&self, filter: &AuditFilter) -> Result<Vec<AuditEntry>, AuditError> {
         let conn = self
             .conn
             .lock()
@@ -200,7 +201,7 @@ impl AuditSink for SqliteAuditSink {
         Ok(out)
     }
 
-    fn verify_chain(&self, from: u64, to: u64) -> Result<ChainVerification, AuditError> {
+    async fn verify_chain(&self, from: u64, to: u64) -> Result<ChainVerification, AuditError> {
         let conn = self
             .conn
             .lock()
@@ -263,6 +264,26 @@ impl AuditSink for SqliteAuditSink {
             failure_reason: None,
         })
     }
+
+    async fn tail(&self) -> Result<Option<(u64, String)>, AuditError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AuditError::Io(e.to_string()))?;
+        let row = conn
+            .query_row(
+                "SELECT sequence, entry_hash FROM audit_entries
+                 ORDER BY sequence DESC LIMIT 1",
+                [],
+                |r| {
+                    let seq: i64 = r.get(0)?;
+                    let h: String = r.get(1)?;
+                    Ok((seq as u64, h))
+                },
+            )
+            .ok();
+        Ok(row)
+    }
 }
 
 #[cfg(test)]
@@ -318,39 +339,43 @@ mod tests {
         e
     }
 
-    #[test]
-    fn append_query_and_verify() {
+    #[tokio::test]
+    async fn append_query_and_verify() {
         let sink = SqliteAuditSink::in_memory().unwrap();
         let signer = Ed25519Signer::generate();
         let e1 = make_signed(1, GENESIS_HASH, &signer);
         let e2 = make_signed(2, &e1.entry_hash, &signer);
         let e3 = make_signed(3, &e2.entry_hash, &signer);
-        sink.append(&e1).unwrap();
-        sink.append(&e2).unwrap();
-        sink.append(&e3).unwrap();
+        sink.append(&e1).await.unwrap();
+        sink.append(&e2).await.unwrap();
+        sink.append(&e3).await.unwrap();
 
-        let all = sink.query(&AuditFilter::default()).unwrap();
+        let all = sink.query(&AuditFilter::default()).await.unwrap();
         assert_eq!(all.len(), 3);
         assert_eq!(all[0].sequence, 3);
 
-        let v = sink.verify_chain(1, 3).unwrap();
+        let v = sink.verify_chain(1, 3).await.unwrap();
         assert!(v.valid);
         assert_eq!(v.entries_checked, 3);
+
+        let (seq, hash) = sink.tail().await.unwrap().unwrap();
+        assert_eq!(seq, 3);
+        assert_eq!(hash, e3.entry_hash);
     }
 
-    #[test]
-    fn unique_sequence_constraint() {
+    #[tokio::test]
+    async fn unique_sequence_constraint() {
         let sink = SqliteAuditSink::in_memory().unwrap();
         let signer = Ed25519Signer::generate();
         let e1 = make_signed(1, GENESIS_HASH, &signer);
         let e1_dup = make_signed(1, GENESIS_HASH, &signer);
-        sink.append(&e1).unwrap();
+        sink.append(&e1).await.unwrap();
         // Same sequence should fail.
-        assert!(sink.append(&e1_dup).is_err());
+        assert!(sink.append(&e1_dup).await.is_err());
     }
 
-    #[test]
-    fn filter_by_session() {
+    #[tokio::test]
+    async fn filter_by_session() {
         let sink = SqliteAuditSink::in_memory().unwrap();
         let signer = Ed25519Signer::generate();
         let mut e1 = make_signed(1, GENESIS_HASH, &signer);
@@ -363,14 +388,15 @@ mod tests {
         e2.entry_hash = compute_entry_hash(&e2);
         e2.signature = signer.sign(&e2.entry_hash);
 
-        sink.append(&e1).unwrap();
-        sink.append(&e2).unwrap();
+        sink.append(&e1).await.unwrap();
+        sink.append(&e2).await.unwrap();
 
         let only_a = sink
             .query(&AuditFilter {
                 session_id: Some("sess-A".into()),
                 ..Default::default()
             })
+            .await
             .unwrap();
         assert_eq!(only_a.len(), 1);
         assert_eq!(only_a[0].sequence, 1);

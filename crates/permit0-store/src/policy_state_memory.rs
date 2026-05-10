@@ -35,8 +35,9 @@ impl Default for InMemoryPolicyState {
     }
 }
 
+#[async_trait::async_trait]
 impl PolicyState for InMemoryPolicyState {
-    fn denylist_check(&self, hash: &NormHash) -> Result<Option<String>, StateError> {
+    async fn denylist_check(&self, hash: &NormHash) -> Result<Option<String>, StateError> {
         let g = self
             .denylist
             .read()
@@ -44,7 +45,7 @@ impl PolicyState for InMemoryPolicyState {
         Ok(g.get(hash).cloned())
     }
 
-    fn denylist_add(&self, hash: NormHash, reason: String) -> Result<(), StateError> {
+    async fn denylist_add(&self, hash: NormHash, reason: String) -> Result<(), StateError> {
         let mut g = self
             .denylist
             .write()
@@ -53,7 +54,7 @@ impl PolicyState for InMemoryPolicyState {
         Ok(())
     }
 
-    fn denylist_remove(&self, hash: &NormHash) -> Result<(), StateError> {
+    async fn denylist_remove(&self, hash: &NormHash) -> Result<(), StateError> {
         let mut g = self
             .denylist
             .write()
@@ -62,7 +63,7 @@ impl PolicyState for InMemoryPolicyState {
         Ok(())
     }
 
-    fn denylist_list(&self) -> Result<Vec<(NormHash, String)>, StateError> {
+    async fn denylist_list(&self) -> Result<Vec<(NormHash, String)>, StateError> {
         let g = self
             .denylist
             .read()
@@ -70,7 +71,7 @@ impl PolicyState for InMemoryPolicyState {
         Ok(g.iter().map(|(k, v)| (*k, v.clone())).collect())
     }
 
-    fn allowlist_check(&self, hash: &NormHash) -> Result<bool, StateError> {
+    async fn allowlist_check(&self, hash: &NormHash) -> Result<bool, StateError> {
         let g = self
             .allowlist
             .read()
@@ -78,7 +79,7 @@ impl PolicyState for InMemoryPolicyState {
         Ok(g.contains_key(hash))
     }
 
-    fn allowlist_add(&self, hash: NormHash, j: String) -> Result<(), StateError> {
+    async fn allowlist_add(&self, hash: NormHash, j: String) -> Result<(), StateError> {
         let mut g = self
             .allowlist
             .write()
@@ -87,7 +88,7 @@ impl PolicyState for InMemoryPolicyState {
         Ok(())
     }
 
-    fn allowlist_remove(&self, hash: &NormHash) -> Result<(), StateError> {
+    async fn allowlist_remove(&self, hash: &NormHash) -> Result<(), StateError> {
         let mut g = self
             .allowlist
             .write()
@@ -96,7 +97,7 @@ impl PolicyState for InMemoryPolicyState {
         Ok(())
     }
 
-    fn allowlist_list(&self) -> Result<Vec<(NormHash, String)>, StateError> {
+    async fn allowlist_list(&self) -> Result<Vec<(NormHash, String)>, StateError> {
         let g = self
             .allowlist
             .read()
@@ -104,7 +105,7 @@ impl PolicyState for InMemoryPolicyState {
         Ok(g.iter().map(|(k, v)| (*k, v.clone())).collect())
     }
 
-    fn policy_cache_get(&self, hash: &NormHash) -> Result<Option<Permission>, StateError> {
+    async fn policy_cache_get(&self, hash: &NormHash) -> Result<Option<Permission>, StateError> {
         let g = self
             .policy_cache
             .read()
@@ -112,7 +113,7 @@ impl PolicyState for InMemoryPolicyState {
         Ok(g.get(hash).copied())
     }
 
-    fn policy_cache_set(&self, hash: NormHash, p: Permission) -> Result<(), StateError> {
+    async fn policy_cache_set(&self, hash: NormHash, p: Permission) -> Result<(), StateError> {
         let mut g = self
             .policy_cache
             .write()
@@ -121,7 +122,7 @@ impl PolicyState for InMemoryPolicyState {
         Ok(())
     }
 
-    fn policy_cache_clear(&self) -> Result<(), StateError> {
+    async fn policy_cache_clear(&self) -> Result<(), StateError> {
         let mut g = self
             .policy_cache
             .write()
@@ -130,7 +131,7 @@ impl PolicyState for InMemoryPolicyState {
         Ok(())
     }
 
-    fn policy_cache_invalidate(&self, hash: &NormHash) -> Result<(), StateError> {
+    async fn policy_cache_invalidate(&self, hash: &NormHash) -> Result<(), StateError> {
         let mut g = self
             .policy_cache
             .write()
@@ -139,7 +140,7 @@ impl PolicyState for InMemoryPolicyState {
         Ok(())
     }
 
-    fn approval_create(&self, row: PendingApprovalRow) -> Result<(), StateError> {
+    async fn approval_create(&self, row: PendingApprovalRow) -> Result<(), StateError> {
         let mut g = self
             .pending_approvals
             .write()
@@ -148,7 +149,7 @@ impl PolicyState for InMemoryPolicyState {
         Ok(())
     }
 
-    fn approval_get(&self, id: &str) -> Result<Option<PendingApprovalRow>, StateError> {
+    async fn approval_get(&self, id: &str) -> Result<Option<PendingApprovalRow>, StateError> {
         let g = self
             .pending_approvals
             .read()
@@ -156,7 +157,11 @@ impl PolicyState for InMemoryPolicyState {
         Ok(g.get(id).cloned())
     }
 
-    fn approval_resolve(&self, id: &str, decision: HumanDecisionRow) -> Result<(), StateError> {
+    async fn approval_resolve(
+        &self,
+        id: &str,
+        decision: HumanDecisionRow,
+    ) -> Result<(), StateError> {
         let mut pending = self
             .pending_approvals
             .write()
@@ -170,7 +175,7 @@ impl PolicyState for InMemoryPolicyState {
         Ok(())
     }
 
-    fn approval_list_pending(&self) -> Result<Vec<PendingApprovalRow>, StateError> {
+    async fn approval_list_pending(&self) -> Result<Vec<PendingApprovalRow>, StateError> {
         let g = self
             .pending_approvals
             .read()
@@ -187,36 +192,39 @@ mod tests {
         [0u8; 32]
     }
 
-    #[test]
-    fn denylist_crud() {
+    #[tokio::test]
+    async fn denylist_crud() {
         let s = InMemoryPolicyState::new();
-        assert!(s.denylist_check(&h()).unwrap().is_none());
-        s.denylist_add(h(), "bad".into()).unwrap();
-        assert_eq!(s.denylist_check(&h()).unwrap(), Some("bad".into()));
-        s.denylist_remove(&h()).unwrap();
-        assert!(s.denylist_check(&h()).unwrap().is_none());
+        assert!(s.denylist_check(&h()).await.unwrap().is_none());
+        s.denylist_add(h(), "bad".into()).await.unwrap();
+        assert_eq!(s.denylist_check(&h()).await.unwrap(), Some("bad".into()));
+        s.denylist_remove(&h()).await.unwrap();
+        assert!(s.denylist_check(&h()).await.unwrap().is_none());
     }
 
-    #[test]
-    fn allowlist_crud() {
+    #[tokio::test]
+    async fn allowlist_crud() {
         let s = InMemoryPolicyState::new();
-        assert!(!s.allowlist_check(&h()).unwrap());
-        s.allowlist_add(h(), "ok".into()).unwrap();
-        assert!(s.allowlist_check(&h()).unwrap());
+        assert!(!s.allowlist_check(&h()).await.unwrap());
+        s.allowlist_add(h(), "ok".into()).await.unwrap();
+        assert!(s.allowlist_check(&h()).await.unwrap());
     }
 
-    #[test]
-    fn policy_cache_crud() {
+    #[tokio::test]
+    async fn policy_cache_crud() {
         let s = InMemoryPolicyState::new();
-        assert!(s.policy_cache_get(&h()).unwrap().is_none());
-        s.policy_cache_set(h(), Permission::Allow).unwrap();
-        assert_eq!(s.policy_cache_get(&h()).unwrap(), Some(Permission::Allow));
-        s.policy_cache_invalidate(&h()).unwrap();
-        assert!(s.policy_cache_get(&h()).unwrap().is_none());
+        assert!(s.policy_cache_get(&h()).await.unwrap().is_none());
+        s.policy_cache_set(h(), Permission::Allow).await.unwrap();
+        assert_eq!(
+            s.policy_cache_get(&h()).await.unwrap(),
+            Some(Permission::Allow)
+        );
+        s.policy_cache_invalidate(&h()).await.unwrap();
+        assert!(s.policy_cache_get(&h()).await.unwrap().is_none());
     }
 
-    #[test]
-    fn approval_lifecycle() {
+    #[tokio::test]
+    async fn approval_lifecycle() {
         let s = InMemoryPolicyState::new();
         let row = PendingApprovalRow {
             approval_id: "abc".into(),
@@ -227,9 +235,9 @@ mod tests {
             norm_action_json: "{}".into(),
             risk_score_json: "{}".into(),
         };
-        s.approval_create(row).unwrap();
-        assert!(s.approval_get("abc").unwrap().is_some());
-        assert_eq!(s.approval_list_pending().unwrap().len(), 1);
+        s.approval_create(row).await.unwrap();
+        assert!(s.approval_get("abc").await.unwrap().is_some());
+        assert_eq!(s.approval_list_pending().await.unwrap().len(), 1);
 
         s.approval_resolve(
             "abc",
@@ -240,8 +248,9 @@ mod tests {
                 decided_at: "2026-01-01T00:01:00Z".into(),
             },
         )
+        .await
         .unwrap();
-        assert!(s.approval_get("abc").unwrap().is_none());
-        assert_eq!(s.approval_list_pending().unwrap().len(), 0);
+        assert!(s.approval_get("abc").await.unwrap().is_none());
+        assert_eq!(s.approval_list_pending().await.unwrap().len(), 0);
     }
 }

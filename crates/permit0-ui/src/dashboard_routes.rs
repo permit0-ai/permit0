@@ -115,7 +115,7 @@ pub async fn stats(
         ..Default::default()
     };
 
-    let entries = state.audit_sink.query(&filter).map_err(|e| {
+    let entries = state.audit_sink.query(&filter).await.map_err(|e| {
         err_response::<StatsResponse>(
             StatusCode::INTERNAL_SERVER_ERROR,
             &format!("failed to query audit entries: {e}"),
@@ -155,7 +155,7 @@ pub async fn stats(
 pub async fn list_denylist(
     State(state): State<AppState>,
 ) -> Result<Json<ApiResponse<Vec<ListEntry>>>, (StatusCode, Json<ApiResponse<Vec<ListEntry>>>)> {
-    let entries = state.state.denylist_list().map_err(|e| {
+    let entries = state.state.denylist_list().await.map_err(|e| {
         err_response::<Vec<ListEntry>>(
             StatusCode::INTERNAL_SERVER_ERROR,
             &format!("failed to list denylist: {e}"),
@@ -177,7 +177,7 @@ pub async fn list_denylist(
 pub async fn list_allowlist(
     State(state): State<AppState>,
 ) -> Result<Json<ApiResponse<Vec<ListEntry>>>, (StatusCode, Json<ApiResponse<Vec<ListEntry>>>)> {
-    let entries = state.state.allowlist_list().map_err(|e| {
+    let entries = state.state.allowlist_list().await.map_err(|e| {
         err_response::<Vec<ListEntry>>(
             StatusCode::INTERNAL_SERVER_ERROR,
             &format!("failed to list allowlist: {e}"),
@@ -203,7 +203,7 @@ pub async fn denylist_remove_entry(
     let hash = hex_to_norm_hash(&req.norm_hash_hex)
         .ok_or_else(|| err_response::<String>(StatusCode::BAD_REQUEST, "invalid norm_hash hex"))?;
 
-    state.state.denylist_remove(&hash).map_err(|e| {
+    state.state.denylist_remove(&hash).await.map_err(|e| {
         err_response::<String>(
             StatusCode::INTERNAL_SERVER_ERROR,
             &format!("store error: {e}"),
@@ -221,7 +221,7 @@ pub async fn allowlist_remove_entry(
     let hash = hex_to_norm_hash(&req.norm_hash_hex)
         .ok_or_else(|| err_response::<String>(StatusCode::BAD_REQUEST, "invalid norm_hash hex"))?;
 
-    state.state.allowlist_remove(&hash).map_err(|e| {
+    state.state.allowlist_remove(&hash).await.map_err(|e| {
         err_response::<String>(
             StatusCode::INTERNAL_SERVER_ERROR,
             &format!("store error: {e}"),
@@ -248,7 +248,7 @@ pub async fn audit_export(
         ..Default::default()
     };
 
-    let entries = state.audit_sink.query(&filter).map_err(|e| {
+    let entries = state.audit_sink.query(&filter).await.map_err(|e| {
         err_response::<String>(
             StatusCode::INTERNAL_SERVER_ERROR,
             &format!("failed to query audit entries: {e}"),
@@ -428,6 +428,7 @@ pub async fn calibration_stats(
             limit: Some(10_000),
             ..Default::default()
         })
+        .await
         .map_err(|e| {
             err_response(
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -522,6 +523,7 @@ pub async fn calibration_records(
             limit: Some(q.limit.unwrap_or(500)),
             ..Default::default()
         })
+        .await
         .map_err(|e| {
             err_response(
                 StatusCode::INTERNAL_SERVER_ERROR,
@@ -586,7 +588,7 @@ pub async fn failed_open_windows(
         limit: Some(10_000),
         ..Default::default()
     };
-    let entries = state.audit_sink.query(&filter).map_err(|e| {
+    let entries = state.audit_sink.query(&filter).await.map_err(|e| {
         err_response(
             StatusCode::INTERNAL_SERVER_ERROR,
             &format!("audit query failed: {e}"),

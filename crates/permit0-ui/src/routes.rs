@@ -67,7 +67,7 @@ pub async fn list_audit(
         limit: q.limit,
         ..Default::default()
     };
-    match state.audit_sink.query(&filter) {
+    match state.audit_sink.query(&filter).await {
         Ok(entries) => {
             // The frontend's audit table and dashboard "Recent Decisions"
             // both read flat fields (action_type, permission, tier,
@@ -160,12 +160,16 @@ pub async fn denylist_add(
             ));
         }
     };
-    state.state.denylist_add(hash, req.reason).map_err(|e| {
-        err_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            &format!("store error: {e}"),
-        )
-    })?;
+    state
+        .state
+        .denylist_add(hash, req.reason)
+        .await
+        .map_err(|e| {
+            err_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("store error: {e}"),
+            )
+        })?;
     Ok(ok_response("added to denylist".to_string()))
 }
 
@@ -183,12 +187,16 @@ pub async fn allowlist_add(
             ));
         }
     };
-    state.state.allowlist_add(hash, req.reason).map_err(|e| {
-        err_response(
-            StatusCode::INTERNAL_SERVER_ERROR,
-            &format!("store error: {e}"),
-        )
-    })?;
+    state
+        .state
+        .allowlist_add(hash, req.reason)
+        .await
+        .map_err(|e| {
+            err_response(
+                StatusCode::INTERNAL_SERVER_ERROR,
+                &format!("store error: {e}"),
+            )
+        })?;
     Ok(ok_response("added to allowlist".to_string()))
 }
 
