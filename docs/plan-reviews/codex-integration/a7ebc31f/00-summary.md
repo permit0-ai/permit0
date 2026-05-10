@@ -1,157 +1,185 @@
 # Plan Review Summary: codex-integration
 
 **Reviewer:** Cursor Agent (a7ebc31f)
-**Review date:** 2026-05-10
+**Review date:** 2026-05-10 (initial), updated for docs 06 and 07
 **Plan location:** `docs/plans/codex-integration/`
 
 ## Overall Verdict
 
-REQUEST CHANGES
+APPROVE WITH COMMENTS
 
-## Key Findings
+(Revised from REQUEST CHANGES after the implementation landed and two
+new docs — `06-real-codex-testing.md` and `07-packaging.md` — addressed
+the previous critical findings.)
 
-Ordered by severity:
+## What changed since the initial review
 
-1. **Critical — HITL wire-format mismatch the Codex remote path
-   inherits.** The daemon emits `permission: "human"` for
-   `Permission::HumanInTheLoop`
-   (`crates/permit0-cli/src/cmd/serve.rs:578` calls
-   `to_string().to_lowercase()`, and `Permission::Display::HumanInTheLoop`
-   writes `"HUMAN"` at `crates/permit0-types/src/permission.rs:17`).
-   The hook's `remote_response_to_hook_output` matcher at
-   `crates/permit0-cli/src/cmd/hook.rs:317-336` only knows
-   `"humanintheloop"`, so the daemon's `"human"` falls into the
-   `other` branch and produces "permit0 remote: unknown permission
-   value 'human'" as the deny reason. The OpenClaw TS client correctly
-   aligns with the daemon at
-   `integrations/permit0-openclaw/src/types.ts:11`
-   (`Permission = "allow" | "deny" | "human"`). The Codex plan
-   inherits this latent bug verbatim and does not mention it.
-   (See `02-review-protocol.md` Finding 1 and
-   `06-review-limitations.md` Finding 1.)
+The original review (this same subdirectory, files
+`01-review-overview.md` through `06-review-limitations.md`) issued
+REQUEST CHANGES on two critical findings against
+`02-implementation.md`:
 
-2. **Critical — Remote-mode `codex_output(result.permission, ...)`
-   does not compile as written.** `02-implementation.md` Change 6
-   shows the Codex output branch using `result.permission`, but in
-   the remote-mode block (`hook.rs:511-542`) `result` is
-   `(HookOutput, bool)` from `evaluate_remote_with_meta`, not a
-   `PermissionResult`. The plan's "Remote mode" subsection waves
-   this away as "translated through `codex_output` instead of
-   `remote_response_to_hook_output`" without showing the actual
-   wiring. (See `03-review-implementation.md` Finding 1.)
+1. The HITL wire-format mismatch (daemon emits `"human"`, hook matcher
+   expected `"humanintheloop"`).
+2. The remote-mode `codex_output(result.permission, ...)` snippet did
+   not compile because remote mode returns `(HookOutput, bool)`, not a
+   `PermissionResult`.
 
-3. **Major — v1 scope contradicts limitations doc on session-aware
-   remote mode.** `00-overview.md` lists "Maintain session context
-   for cross-call pattern detection" as a v1 goal, and
-   `03-configuration.md` "Session-Aware Mode" claims the hook passes
-   `session_id` to the daemon. But the implementation plan does NOT
-   modify the remote POST body, and `05-limitations.md` Section 7
-   correctly defers it to v2. Three docs disagree. (See
-   `01-review-overview.md` Finding 1, `04-review-configuration.md`
-   Finding 1, `06-review-limitations.md` Finding 2.)
+Both are now resolved in the merged code. Verified at
+`crates/permit0-cli/src/cmd/hook.rs`:
 
-4. **Major — Shadow mode + Codex is sketched in prose, not in code.**
-   The existing shadow path emits `HookOutput::allow()` and
-   unconditionally `println!`s the JSON envelope, which for Codex
-   would be `permissionDecision: "allow"` — exactly the form Codex
-   rejects. The plan says "exit 0 with empty stdout" but doesn't
-   show the conditional skip. (See `03-review-implementation.md`
-   Finding 2.)
+- `hook_output_to_codex(output: &HookOutput) -> Option<String>` at
+  lines 441-471 accepts a `HookOutput` (not a `Permission`), so it
+  works for both local and remote arms uniformly.
+- `emit_hook_output` at lines 480-491 routes by `OutputFormat` and
+  correctly skips the println for `OutputFormat::Codex` when there's no
+  envelope to write (no trailing newline).
+- The outer `run` at lines 831-864 wraps the whole pipeline so any
+  error in Codex mode becomes a structured deny envelope rather than a
+  silent fail-open.
+- The HITL → deny mapping appends a `CODEX_HITL_MARKER` to the reason,
+  matching the per-tier behavior table in
+  `integrations/permit0-codex/README.md:113-118`.
 
-5. **Major — `apply_unknown_policy` is not Codex-aware.** The
-   function rewrites `HookOutput`s assuming Claude envelopes. For
-   Codex, `Defer` must produce zero stdout (no envelope at all),
-   `Allow` must NOT produce `permissionDecision: "allow"`, and
-   `Ask` must produce a deny envelope. None of these branches are
-   sketched. (See `03-review-implementation.md` Finding 3.)
+The two new plan docs cover (a) the live-Codex test transcript that
+verified the implementation against Codex 0.130.0-alpha.5, and (b) the
+packaging layout under `integrations/permit0-codex/`. New findings
+below are about those two docs, not about the original implementation.
 
-6. **Major — No integration test covers `--client codex --remote`.**
-   All three proposed integration tests are local-mode. The remote-
-   mode path is exactly where findings #1 and #2 live; without an
-   integration test against a stub HTTP server, those bugs would
-   ship green. (See `05-review-testing.md` Finding 2.)
+## Key Findings (new + still-open from prior review)
 
-7. **Major — Test 8 (`codex_output_never_contains_allow`) only
-   covers `codex_output` in isolation.** Shadow mode and unknown-
-   mode-rewrite paths can re-introduce the forbidden output without
-   tripping the test, and the test's substring matching is brittle.
-   (See `05-review-testing.md` Finding 1 and
-   `06-review-limitations.md` Finding 4.)
+Ordered by severity. Items marked **(prior)** are from the original
+review and have not been addressed by the new docs; items marked
+**(new)** come from the 06/07 reviews.
 
-8. **Major — "No daemon changes" claim is misleading.** Adding
-   `Codex` to `ClientKind` (in hook.rs) transitively makes the daemon
-   accept `{"client_kind": "codex"}` because `serve.rs:35` imports
-   the same enum. This is intended but should be acknowledged as a
-   side-effect rather than denied. (See `01-review-overview.md`
-   Finding 2 and `03-review-implementation.md` Finding 6.)
+### Major
 
-9. **Major — `derive_session_id_*` snippets in protocol and
-   implementation docs disagree.** Protocol shows
-   `derive_session_id_codex(stdin, explicit) -> String`;
-   implementation shows `derive_session_id_for_format(format, stdin,
-   explicit) -> String`. Pick one. (See `02-review-protocol.md`
-   Finding 2.)
+1. **(new) `dev-test-rig/codex-demo` symlinks `~/.codex/auth.json` into
+   `/tmp/permit0-codex-test/`.** `/tmp/` is mode 1777 on macOS; any
+   local user can dereference the symlink to read the credentials.
+   `~/.codex/` is mode 700 by default. See
+   `08-review-packaging.md` Finding 4.
 
-10. **Major — Unverified Codex version claim.** Both
-    `00-overview.md` and `03-configuration.md` mention Codex 0.110+
-    without citation. If the version is wrong, users will install a
-    Codex without hook support, hook config will be silently
-    ignored, and they'll think permit0 is broken. (See
-    `02-review-protocol.md` Question 1 and
-    `04-review-configuration.md` Finding 3.)
+2. **(new) Cleanup recipe wipes the entire
+   `requirements_toml_base64` key.** Both `06-real-codex-testing.md`
+   and `integrations/permit0-codex/README.md` instruct
+   `defaults delete com.openai.codex requirements_toml_base64`, which
+   removes any non-permit0 managed config that share the key. See
+   `07-review-real-codex-testing.md` Finding 1.
 
-11. **Major — Network sandbox guidance is contradictory.**
-    `03-configuration.md` "Network Access Requirement" gives two
-    options as alternatives when only one will be true for a given
-    Codex version. (See `04-review-configuration.md` Finding 2.)
+3. **(new) `integrations/README.md` table format mismatch.**
+   `07-packaging.md` Change 4 proposes adding Codex to the primary
+   framework table; the actual file already has a separate "CLI-hook
+   integrations" table where Codex is listed. The plan would either
+   silently double-list or destroy the existing layout. See
+   `08-review-packaging.md` Finding 1.
 
-Plus several minor and nit-level findings on data-flow diagram
-omissions, test name duplication, calibration timeout behavior,
-project-local hook ergonomics, and PermissionRequest race-condition
-risk in v2 design.
+4. **(prior) v1 scope contradicts limitations doc on session-aware
+   remote mode.** `00-overview.md` lists "Maintain session context for
+   cross-call pattern detection" as a v1 goal; `05-limitations.md` §7
+   explicitly defers it to v2. The new docs do not reconcile this.
+   See `01-review-overview.md` Finding 1, `04-review-configuration.md`
+   Finding 1, `06-review-limitations.md` Finding 2.
+
+5. **(prior) Network sandbox guidance is contradictory.**
+   `03-configuration.md` "Network Access Requirement" gives two
+   options as alternatives when only one is actually required.
+   Untouched by 06/07. See `04-review-configuration.md` Finding 2.
+
+### Minor
+
+6. **(new) `--uninstall` flag claimed but not implemented.**
+   `07-packaging.md` Change 2 says `install-managed-prefs.sh` "includes
+   a `--uninstall` flag"; the committed script has no argument
+   parsing. See `08-review-packaging.md` Finding 2.
+
+7. **(new) `permission_mode` documented as parsed but absent from
+   `HookInput`.** `06-real-codex-testing.md` says permit0 ignores it
+   today and treats it as forward-compat capacity, but `HookInput` at
+   `crates/permit0-cli/src/cmd/hook.rs:252-274` does not list it.
+   Forward-compat works only because there's no
+   `#[serde(deny_unknown_fields)]`. See
+   `07-review-real-codex-testing.md` Finding 2.
+
+8. **(new) `.gitignore` "no rule needed" claim is fragile.** Plan
+   relies on scripts always writing to `/tmp/...`, but
+   `PERMIT0_TRACE_DIR` is overridable to a repo-relative path. See
+   `08-review-packaging.md` Finding 5.
+
+9. **(new) Plan mixes "to do" and "already done" without
+   indicators.** Every Change in 07-packaging.md describes work that
+   is already on disk under `integrations/permit0-codex/` (untracked
+   in git, but present). Reviewers reading top-to-bottom will miss
+   that the right question is "did the existing implementation match
+   these intents?" See `08-review-packaging.md` Finding 6.
+
+10. **(new) "Documentation updates needed" checklist mixes done with
+    TODO.** `06-real-codex-testing.md` lists 4 items as "needed";
+    item 1 (`codex_hooks` → `hooks`) is already done. See
+    `07-review-real-codex-testing.md` Finding 3.
+
+11. **(new) README is 184 lines, plan says "< 80 lines."** Cosmetic
+    delta: the bound is too tight; the README content is appropriate.
+    See `08-review-packaging.md` Finding 3.
+
+12. **(prior) Test 8 (`codex_output_never_contains_allow`) only
+    covers `codex_output` in isolation.** The new `hook_output_to_codex`
+    function does cover the previously-uncovered shadow and unknown-
+    rewrite paths transitively, but the test of the no-allow invariant
+    has not been extended to assert the property end-to-end through
+    the binary. See `05-review-testing.md` Finding 1.
+
+13. **(prior) "Codex 0.110+" version claim was not citation-backed.**
+    Now superseded by 06's verified-against-0.130.0-alpha.5 data;
+    legacy version pin in 03-configuration.md should still be
+    refreshed. See `04-review-configuration.md` Finding 3.
+
+Plus several nits on header conventions, manual-test ownership, and
+discoverability of the dev-test-rig.
 
 ## Statistics
 
-| Metric | Count |
+| Metric | Count (cumulative) |
 |--------|-------|
-| Plan docs reviewed | 6 |
-| Critical findings | 2 |
-| Major findings | 17 |
-| Minor findings | 11 |
-| Nits | 8 |
-| Verified claims | 36 |
-| Open questions | 18 |
+| Plan docs reviewed | 8 |
+| Critical findings | 2 (both addressed in implementation; closed) |
+| Major findings | 5 (3 new, 2 still-open from prior) |
+| Minor findings | 13 (8 new, 5 still-open) |
+| Nits | 9 |
+| Verified claims | 50+ |
+| Open questions | 26 |
 
-(Counts span all six per-doc reviews.)
+(Counts span all eight per-doc reviews. Critical findings from the
+prior review are now closed because the merged implementation
+addresses them.)
 
 ## Recommendation
 
-The team should **not** proceed with implementation as-is. Two
-critical issues will produce a Codex remote mode that visibly
-misroutes HITL verdicts and code that does not compile in the remote
-arm. Both can be fixed without major refactors:
+**Proceed with implementation as-is for the integration code; clean
+up the two new docs before committing the
+`integrations/permit0-codex/` tree.** Specifically:
 
-1. Fix the wire-format bug (or accept both `"human"` and
-   `"humanintheloop"` in the matcher) and update the masking tests at
-   `hook.rs:1183, 1231`. This is small enough to bundle into the
-   Codex PR and leaves Claude Code remote mode also correct.
-2. Sketch the actual remote-mode Codex output flow — either a new
-   `codex_output_from_remote(&RemoteCheckResponse) -> Option<String>`
-   or a refactor of `evaluate_remote_with_meta` to surface `Permission`
-   directly. Update `02-implementation.md` Change 6 with the real
-   `run()` body.
-3. Reconcile the v1 scope: pick whether session-aware remote mode is
-   v1 or v2, and align `00-overview.md`, `03-configuration.md`, and
-   `05-limitations.md`.
-4. Add at least one integration test that runs `permit0 hook --client
-   codex --remote http://...` against a stub server with each of the
-   three permission shapes (including `"human"`).
-5. Update `apply_unknown_policy` and shadow mode to be format-aware,
-   with explicit code in `02-implementation.md`.
+1. **Before `git add integrations/permit0-codex/`:** fix Finding 4
+   (auth.json symlink target) and Finding 1 (README table format).
+   Both are localized changes (one line in `codex-demo`, three lines
+   in `integrations/README.md`).
 
-The configuration doc, limitations doc, and the bulk of the protocol
-doc are otherwise solid. The plan's overall architecture (CLI-only
-change, reuse engine and packs, single new ClientKind variant) is
-sound — only the I/O layer specifics need tightening.
+2. **Before merging `07-packaging.md`:** address Findings 2 (add the
+   `--uninstall` flag or drop the claim), 5 (defensive `.gitignore`
+   rules), and 6 (mark which Changes are "done" vs "TODO"). These are
+   five-minute edits that bring the doc in line with the on-disk
+   state.
 
-After the above changes, this plan is a strong APPROVE candidate.
+3. **Before merging `06-real-codex-testing.md`:** soften the cleanup
+   recipe (Finding 1 of `07-review-real-codex-testing.md`) and add
+   `permission_mode` to `HookInput` (Finding 2). The latter is also
+   a five-line code change.
+
+4. **Outstanding from prior review (no new doc covers them):** the
+   v1-scope contradiction on session-aware remote mode (Major #4
+   above) and the contradictory network-sandbox guidance (Major #5)
+   should be resolved before the docs ship to external users.
+
+The implementation has caught up with — and in places improved on —
+the original plan. The remaining work is documentation hygiene, not
+core engineering.
