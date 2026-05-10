@@ -47,13 +47,13 @@ fn extract_one(
         return compute_entity(params, compute, def.args.as_deref(), helpers);
     }
 
-    // Otherwise extract from path
-    let path = match def.from.as_deref() {
-        Some(p) => p,
-        None => return Ok(None),
-    };
-    let raw = match resolve_path(params, path) {
-        Some(v) => v.clone(),
+    // Try the primary `from` path first, then any `from_any` fallbacks.
+    // The first path that resolves to a non-null value wins. This lets one
+    // normalizer accept multiple parameter spellings (e.g. `message_id`
+    // from the canonical permit0 wrapper *and* `id` from Google's
+    // official Gmail MCP).
+    let raw = match resolve_first(params, def.from.as_deref(), def.from_any.as_deref()) {
+        Some(v) => v,
         None => return Ok(None),
     };
 
@@ -68,6 +68,33 @@ fn extract_one(
     // Apply transformations
     let transformed = apply_transforms(&coerced, def);
     Ok(Some(transformed))
+}
+
+/// Resolve the first path that yields a non-null value. Tries `primary`
+/// first, then each entry in `fallbacks` in order. `Value::Null` is
+/// treated as absent so a fallback can fill in for an explicit null.
+fn resolve_first(
+    params: &Value,
+    primary: Option<&str>,
+    fallbacks: Option<&[String]>,
+) -> Option<Value> {
+    if let Some(path) = primary {
+        if let Some(v) = resolve_path(params, path) {
+            if !v.is_null() {
+                return Some(v.clone());
+            }
+        }
+    }
+    if let Some(paths) = fallbacks {
+        for path in paths {
+            if let Some(v) = resolve_path(params, path) {
+                if !v.is_null() {
+                    return Some(v.clone());
+                }
+            }
+        }
+    }
+    None
 }
 
 fn compute_entity(
@@ -174,6 +201,7 @@ mod tests {
     fn make_def(from: Option<&str>) -> EntityDef {
         EntityDef {
             from: from.map(|s| s.to_string()),
+            from_any: None,
             value_type: None,
             required: None,
             optional: None,

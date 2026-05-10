@@ -47,6 +47,12 @@ pub struct NormalizeDef {
 pub struct EntityDef {
     #[serde(default)]
     pub from: Option<String>,
+    /// Fallback paths tried in order when `from` is absent or yields no
+    /// value. Lets a normalizer accept multiple parameter spellings (e.g.
+    /// `message_id` from the canonical permit0 wrapper *and* `id` from
+    /// Google's official Gmail MCP) without forking the normalizer.
+    #[serde(default)]
+    pub from_any: Option<Vec<String>>,
     #[serde(default, rename = "type")]
     pub value_type: Option<String>,
     #[serde(default)]

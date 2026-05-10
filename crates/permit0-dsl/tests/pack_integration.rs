@@ -27,6 +27,10 @@ fn gmail_read_normalizer_yaml() -> String {
     load_test_fixture("packs/permit0/email/normalizers/gmail/read.yaml")
 }
 
+fn gmail_delete_normalizer_yaml() -> String {
+    load_test_fixture("packs/permit0/email/normalizers/gmail/delete.yaml")
+}
+
 fn outlook_normalizer_yaml() -> String {
     load_test_fixture("packs/permit0/email/normalizers/outlook/send.yaml")
 }
@@ -137,6 +141,42 @@ fn gmail_normalizes_read_message_id() {
     assert_eq!(norm.action_type.as_action_str(), "email.read");
     assert_eq!(norm.channel, "gmail");
     assert_eq!(norm.entities["message_id"], json!("19e03c9bf13c2edf"));
+}
+
+// Regression: hooks reported "missing required field 'message_id' in tool
+// call 'gmail_delete'" when the upstream MCP wrapper passed the message
+// ID as `id` (Google's official Gmail MCP) instead of `message_id` (the
+// canonical permit0 wrapper). delete.yaml hard-pinned `from: "message_id"`,
+// so any non-canonical caller blew up at the daemon. The fix wires a
+// `from_any: ["id"]` fallback so both spellings extract.
+#[test]
+fn gmail_normalizes_delete_canonical_message_id() {
+    let n = load_normalizer(&gmail_delete_normalizer_yaml());
+    let raw = RawToolCall {
+        tool_name: "gmail_delete".into(),
+        parameters: json!({ "message_id": "19e1366cc00beb46" }),
+        metadata: Default::default(),
+    };
+    assert!(n.matches(&raw));
+    let norm = n
+        .normalize(&raw, &NormalizeCtx::new())
+        .expect("canonical permit0 wrapper params must extract");
+    assert_eq!(norm.action_type.as_action_str(), "email.delete");
+    assert_eq!(norm.entities["message_id"], json!("19e1366cc00beb46"));
+}
+
+#[test]
+fn gmail_normalizes_delete_google_id_fallback() {
+    let n = load_normalizer(&gmail_delete_normalizer_yaml());
+    let raw = RawToolCall {
+        tool_name: "gmail_delete".into(),
+        parameters: json!({ "id": "19e1366cc00beb46" }),
+        metadata: Default::default(),
+    };
+    let norm = n
+        .normalize(&raw, &NormalizeCtx::new())
+        .expect("Google-style `id` parameter must fall back from `from_any`");
+    assert_eq!(norm.entities["message_id"], json!("19e1366cc00beb46"));
 }
 
 #[test]

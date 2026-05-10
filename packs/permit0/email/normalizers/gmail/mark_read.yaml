@@ -11,6 +11,7 @@ normalize:
   entities:
     message_id:
       from: "message_id"
+      from_any: ["id"]
       type: "string"
       required: true
     read:
