@@ -31,6 +31,9 @@ allow = [
     "OpenSSL",
     "Zlib",
     "CC0-1.0",
+    # webpki-roots ships Mozilla's CA bundle; the bundle metadata is
+    # CDLA-Permissive-2.0 (data-license, code is MPL-2.0).
+    "CDLA-Permissive-2.0",
 ]
 
 [bans]

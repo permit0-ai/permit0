@@ -850,11 +850,11 @@ mod tests {
             "POST http://127.0.0.1:9090/api/v1/check: Connection refused".to_string(),
         );
         let (output, is_unknown) = remote_error_to_hook_output(&err);
-        assert!(!is_unknown, "transport errors must not flow through --unknown");
-        assert_eq!(
-            output.hook_specific_output.permission_decision,
-            Some("ask"),
+        assert!(
+            !is_unknown,
+            "transport errors must not flow through --unknown"
         );
+        assert_eq!(output.hook_specific_output.permission_decision, Some("ask"),);
         let reason = output
             .hook_specific_output
             .permission_decision_reason

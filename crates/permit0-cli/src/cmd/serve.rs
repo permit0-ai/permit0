@@ -165,8 +165,6 @@ async fn check_handler(
     )
 }
 
-
-
 /// Pull a string field out of the metadata map, ignoring non-string types.
 fn extract_string_field(
     metadata: &serde_json::Map<String, serde_json::Value>,
