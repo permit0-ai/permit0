@@ -31,6 +31,10 @@ allow = [
     "OpenSSL",
     "Zlib",
     "CC0-1.0",
+    # webpki-roots ships Mozilla's root cert bundle under CDLA-Permissive-2.0
+    # (a permissive data-sharing license). Pulled in transitively via ureq;
+    # no policy concern beyond the data-vs-code license category mismatch.
+    "CDLA-Permissive-2.0",
 ]
 
 [bans]
