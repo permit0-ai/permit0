@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+#
+# watch — live, human-readable view of permit0 hook fires.
+#
+# Tails $TRACE_DIR/events.log and prints one colored row per
+# invocation. Run this in a second terminal while Codex is open in
+# the first. Ctrl-C to stop.
+
+set -uo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+TRACE_DIR="${PERMIT0_TRACE_DIR:-/tmp/permit0-codex-test}"
+RENDER="$SCRIPT_DIR/_watch_render.py"
+
+if [[ ! -f "$RENDER" ]]; then
+    echo "watch: missing renderer at $RENDER" >&2
+    exit 2
+fi
+
+mkdir -p "$TRACE_DIR"
+touch "$TRACE_DIR/events.log"
+
+echo "Watching $TRACE_DIR/events.log — Ctrl-C to stop"
+if [[ -s "$TRACE_DIR/events.log" ]]; then
+    echo "── existing fires ──"
+else
+    echo "(no fires yet — open Codex in another terminal and use a tool)"
+fi
+echo
+
+exec tail -F -n +1 "$TRACE_DIR/events.log" 2>/dev/null | python3 -u "$RENDER"
