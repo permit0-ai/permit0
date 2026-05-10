@@ -3,17 +3,38 @@ name: reviewing-plan-docs
 description: >-
   Review planning documents by reading the plan docs and doing a thorough
   codebase walkthrough, then writing detailed review docs. Use when the user
-  asks to review, audit, critique, or validate a plan, design doc, or spec
-  in the permit0 repository.
+  asks to review, audit, critique, or validate a plan, design doc, or spec.
 ---
 
-# Reviewing Plan Docs for permit0
+# Reviewing Plan Docs
+
+For repo-specific paths, conventions, and architecture, read
+[context.md](../context.md).
 
 ## When to Use
 
 Use this skill when the user asks you to review, audit, critique, or validate
 planning documents under `docs/plans/<feature>/`. The output is a set of
-review docs written to `docs/plan-reviews/<feature>/`.
+review docs written to a **reviewer-specific subdirectory**:
+
+```
+docs/plan-reviews/<feature>/<reviewer-id>/
+```
+
+The `<reviewer-id>` must be unique per agent so that parallel reviewers do
+not overwrite each other. **Derive it automatically** -- do not ask the user.
+
+To generate the reviewer ID: run `uuidgen | head -c 8` in a shell to get
+an 8-character random hex string (e.g. `a3f1b20c`). Use that as the
+subdirectory name. Do this once at the start of the review, before writing
+any files.
+
+Example: two parallel reviews would write to:
+
+```
+docs/plan-reviews/<feature>/a3f1b20c/
+docs/plan-reviews/<feature>/7e42d9f1/
+```
 
 ## Workflow
 
@@ -31,31 +52,28 @@ note:
 Do a thorough read of the actual source code that the plan references. This
 is not optional -- you must verify claims against real code.
 
-For integration plans, always read:
+Always read:
 
-1. **The reference implementation** the plan says it is based on. For example,
-   if the plan says "replicate the Claude Code integration," read
-   `crates/permit0-cli/src/cmd/hook.rs` end to end.
-2. **The crate(s) the plan says it will modify.** Read every file in those
-   crates, not just the ones the plan mentions.
-3. **The crates the plan says are NOT modified.** Spot-check at least the
-   public API surface to verify the plan's claim that no changes are needed.
-4. **Packs and risk rules** if the feature touches normalization or scoring
-   (read `packs/permit0/email/` as the reference pack).
-5. **The daemon/serve code** if the feature involves `--remote` mode
-   (`crates/permit0-cli/src/cmd/serve.rs`).
-6. **Tests** -- read existing test files to understand current coverage and
+1. **The reference implementation** the plan says it is based on.
+2. **The modules the plan says it will modify.** Read every file in those
+   modules, not just the ones the plan mentions.
+3. **The modules the plan says are NOT modified.** Spot-check at least the
+   public API surface to verify no changes are needed.
+4. **Tests** -- read existing test files to understand current coverage and
    what the plan's new tests need to complement.
+
+Consult [context.md](../context.md) for key paths and architecture if you
+need to orient yourself in the codebase.
 
 ### Phase 3: Write the Review
 
-Write review docs to `docs/plan-reviews/<feature>/`. One review file per
-plan doc, plus a summary.
+Write review docs to the reviewer subdirectory. One review file per plan
+doc, plus a summary.
 
 ## Output Structure
 
 ```
-docs/plan-reviews/<feature>/
+docs/plan-reviews/<feature>/<reviewer-id>/
   00-summary.md               # Overall verdict and key findings
   01-review-overview.md       # Review of 00-overview.md
   02-review-protocol.md       # Review of 01-protocol.md
@@ -64,6 +82,9 @@ docs/plan-reviews/<feature>/
   05-review-testing.md        # Review of 04-testing.md
   06-review-limitations.md    # Review of 05-limitations.md
 ```
+
+Each reviewer writes to its own subdirectory. This prevents parallel agents
+from overwriting each other's output.
 
 Skip review files for plan docs that don't exist (e.g. if there is no
 `01-protocol.md`, skip `02-review-protocol.md`).
@@ -75,7 +96,7 @@ Every review doc must follow this structure:
 ```markdown
 # Review: <plan doc title>
 
-**Reviewer:** Cursor Agent (session <timestamp or ID>)
+**Reviewer:** Cursor Agent (<reviewer-id>)
 **Plan doc:** `docs/plans/<feature>/<filename>`
 **Review date:** <date>
 
@@ -116,7 +137,7 @@ reading the code.
 ```markdown
 # Plan Review Summary: <feature>
 
-**Reviewer:** Cursor Agent (session <timestamp or ID>)
+**Reviewer:** Cursor Agent (<reviewer-id>)
 **Review date:** <date>
 **Plan location:** `docs/plans/<feature>/`
 
@@ -149,12 +170,13 @@ or are changes needed first?
 
 ## Distinguishing Your Review
 
-Multiple agents may review the same plan. To make your review
-distinguishable:
+Multiple agents may review the same plan in parallel. Reviews are kept
+separate by writing to different subdirectories (see Output Structure).
+
+Additionally:
 
 1. **Always include the reviewer line:** `**Reviewer:** Cursor Agent
-   (session <unique identifier>)` -- use the current timestamp or
-   conversation ID.
+   (<reviewer-id>)` -- use the same hex string as the subdirectory name.
 2. **Cite specific file paths and line numbers** from the codebase when
    verifying or disputing claims. Other reviewers may make the same point
    but your evidence trail will differ.
@@ -170,16 +192,14 @@ distinguishable:
   signatures or module structure.
 - **Check for missing error handling.** Plans often describe the happy path
   and skip what happens on failure.
-- **Validate the "files NOT changed" list.** If the plan claims the engine
-  is untouched, confirm no engine changes are actually needed.
-- **Look for wire-format mismatches.** If the plan describes a JSON schema
-  for communication between two components, verify both sides agree. This is
-  where bugs hide (e.g. one side sends `"human"`, the other expects
-  `"humanintheloop"`).
+- **Validate the "files NOT changed" list.** If the plan claims a module
+  is untouched, confirm no changes are actually needed.
+- **Look for wire-format mismatches.** If the plan describes a schema
+  for communication between two components, verify both sides agree.
 - **Check that test coverage matches the claimed behavior.** If the plan
-  says "HITL maps to deny," there should be a test for that.
-- **Flag implicit assumptions.** If the plan assumes network access in a
-  sandboxed environment, call it out.
+  says "X maps to Y," there should be a test for that.
+- **Flag implicit assumptions.** If the plan assumes a capability that
+  the environment may not provide, call it out.
 
 ### DON'T
 
@@ -194,7 +214,7 @@ distinguishable:
 
 | Severity | Meaning |
 |----------|---------|
-| Critical | The plan is wrong in a way that would cause a security hole, data loss, or silent governance bypass if implemented as written. |
+| Critical | The plan is wrong in a way that would cause a security hole, data loss, or silent failure if implemented as written. |
 | Major | The plan has a significant gap or incorrect assumption that would cause bugs or user confusion, but not a security issue. |
 | Minor | The plan is imprecise or incomplete in a way that would slow down implementation but not cause defects. |
 | Nit | Style, naming, or documentation improvement. |

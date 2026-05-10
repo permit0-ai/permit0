@@ -5,10 +5,13 @@ description: >-
   docs, critically assesses each finding (agree or disagree with reasoning),
   then edits the plan docs accordingly or explains why no change is needed.
   Use when the user asks to revise, update, address feedback, or incorporate
-  review comments into plan docs in the permit0 repository.
+  review comments into plan docs.
 ---
 
-# Revising Plan Docs for permit0
+# Revising Plan Docs
+
+For repo-specific paths, conventions, and architecture, read
+[context.md](../context.md).
 
 ## When to Use
 
@@ -24,8 +27,10 @@ deliverable.
 
 ### Phase 1: Read the Reviews
 
-Read every file in `docs/plan-reviews/<feature>/` in order, starting with
-`00-summary.md`. For each finding, note:
+Read every reviewer subdirectory under `docs/plan-reviews/<feature>/`.
+Each subdirectory (e.g. `a3f1b20c/`, `7e42d9f1/`) is one reviewer's
+output. Read each in order, starting with `00-summary.md`. For each
+finding, note:
 
 - The severity (Critical / Major / Minor / Nit).
 - The specific claim the reviewer disputes.
@@ -58,8 +63,8 @@ recommendation is wrong or disproportionate.
 Rules for critical assessment:
 
 1. **Never agree just because the reviewer said so.** Read the actual code.
-   Reviewers make mistakes -- they may misread a function signature, miss a
-   serde attribute, or confuse two similar types.
+   Reviewers make mistakes -- they may misread a function signature, miss
+   an attribute, or confuse two similar types.
 2. **Never disagree just to preserve the plan.** If the reviewer found a
    real bug (e.g. a wire-format mismatch between two components), the plan
    must be fixed regardless of how much work it creates.
@@ -76,10 +81,9 @@ Process findings in severity order (Critical first, Nits last).
 
 For each finding, do one of:
 
-- **Edit the plan doc** -- Make the change directly with StrReplace. Keep
-  edits minimal and targeted. Do not rewrite sections unaffected by the
-  finding. Add a `**Revised:** <date>` line to the metadata header of any
-  doc you modify.
+- **Edit the plan doc** -- Make the change directly. Keep edits minimal and
+  targeted. Do not rewrite sections unaffected by the finding. Add a
+  `**Revised:** <date>` line to the metadata header of any doc you modify.
 
 - **Do nothing and explain why** -- Tell the user your verdict, what you
   checked, and why the plan stands. This is a normal outcome -- not every
@@ -108,8 +112,8 @@ When multiple review sets exist (e.g. from parallel agents):
 - The plan claims a file is not modified but evidence shows it must be.
 - The plan omits an error case or failure mode that the reviewer identified
   with concrete evidence.
-- The plan's JSON schema does not match the actual wire format.
-- A test in the testing doc would not compile or tests the wrong thing.
+- The plan's schema does not match the actual wire format.
+- A test in the testing doc would not work correctly based on current types.
 
 ### DO NOT change the plan when:
 
