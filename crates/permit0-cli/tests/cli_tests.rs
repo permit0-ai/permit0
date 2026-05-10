@@ -154,10 +154,7 @@ fn hook_with_safe_email() {
     // allow / deny / ask, or absent for `defer` (let Claude Code decide).
     let decision = &parsed["hookSpecificOutput"]["permissionDecision"];
     assert!(
-        decision.is_null()
-            || decision == "allow"
-            || decision == "ask"
-            || decision == "deny",
+        decision.is_null() || decision == "allow" || decision == "ask" || decision == "deny",
         "unexpected hook output: {stdout}",
     );
 }
