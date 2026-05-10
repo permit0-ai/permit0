@@ -225,6 +225,7 @@ mod tests {
             "test".into(),
             EntityDef {
                 from: None,
+                from_any: None,
                 value_type: None,
                 required: None,
                 optional: None,
@@ -251,6 +252,7 @@ mod tests {
             "test".into(),
             EntityDef {
                 from: None,
+                from_any: None,
                 value_type: None,
                 required: None,
                 optional: None,
@@ -277,6 +279,7 @@ mod tests {
             "test".into(),
             EntityDef {
                 from: Some("field".into()),
+                from_any: None,
                 value_type: Some("invalid_type".into()),
                 required: None,
                 optional: None,
@@ -303,6 +306,7 @@ mod tests {
             "test".into(),
             EntityDef {
                 from: Some("field".into()),
+                from_any: None,
                 value_type: None,
                 required: Some(true),
                 optional: Some(true),
@@ -329,6 +333,7 @@ mod tests {
             "test".into(),
             EntityDef {
                 from: Some("field".into()),
+                from_any: None,
                 value_type: None,
                 required: Some(true),
                 optional: None,
