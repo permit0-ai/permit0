@@ -75,8 +75,8 @@ impl Normalizer for DslNormalizer {
         let effective_params = inject_ctx_into_params(&raw.parameters, ctx);
 
         // Extract entities
-        let entity_map = extract_entities(&effective_params, &norm.entities, &self.helpers).map_err(
-            |e| match e {
+        let entity_map = extract_entities(&effective_params, &norm.entities, &self.helpers)
+            .map_err(|e| match e {
                 EntityError::MissingRequired(field) => NormalizeError::MissingRequiredField {
                     tool_name: raw.tool_name.clone(),
                     field,
@@ -93,8 +93,7 @@ impl Normalizer for DslNormalizer {
                     helper,
                     reason: format!("expected {expected} args, got {got}"),
                 },
-            },
-        )?;
+            })?;
 
         // Convert HashMap<String, Value> → Entities (serde_json::Map)
         let mut entities = Entities::new();
@@ -118,10 +117,7 @@ impl Normalizer for DslNormalizer {
 /// resolve them via path arguments. ctx fields overwrite any user-supplied
 /// keys of the same name — `org_domain` is a trust-boundary input and must
 /// not be spoofable by the caller.
-fn inject_ctx_into_params(
-    params: &serde_json::Value,
-    ctx: &NormalizeCtx,
-) -> serde_json::Value {
+fn inject_ctx_into_params(params: &serde_json::Value, ctx: &NormalizeCtx) -> serde_json::Value {
     let mut obj = match params {
         serde_json::Value::Object(m) => m.clone(),
         other => {
@@ -131,7 +127,10 @@ fn inject_ctx_into_params(
         }
     };
     if let Some(domain) = &ctx.org_domain {
-        obj.insert("org_domain".into(), serde_json::Value::String(domain.clone()));
+        obj.insert(
+            "org_domain".into(),
+            serde_json::Value::String(domain.clone()),
+        );
     }
     serde_json::Value::Object(obj)
 }
