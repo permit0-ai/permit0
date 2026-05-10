@@ -187,6 +187,27 @@ fn resolve_packs_dir(state: &AppState) -> Result<PathBuf, (StatusCode, Json<ApiR
     })
 }
 
+/// Resolve a pack name to its on-disk directory, supporting both the
+/// flat layout (`<root>/<pack>/pack.yaml`) and the owner-namespaced
+/// layout (`<root>/<owner>/<pack>/pack.yaml`). Walks `discover_packs`
+/// and matches on `manifest.name`.
+fn resolve_pack_dir(packs_dir: &Path, pack_name: &str) -> Option<PathBuf> {
+    let dirs = permit0_dsl::discover_packs(packs_dir).ok()?;
+    for path in dirs {
+        let manifest_path = path.join("pack.yaml");
+        let Ok(content) = std::fs::read_to_string(&manifest_path) else {
+            continue;
+        };
+        let Ok(manifest) = serde_yaml::from_str::<PackManifest>(&content) else {
+            continue;
+        };
+        if manifest.name == pack_name {
+            return Some(path);
+        }
+    }
+    None
+}
+
 fn list_yaml_files(dir: &Path) -> Vec<String> {
     let mut files = Vec::new();
     if let Ok(entries) = std::fs::read_dir(dir) {
@@ -268,7 +289,12 @@ pub async fn get_pack(
         )
     })?;
 
-    let pack_path = packs_dir.join(pack_name);
+    let pack_path = resolve_pack_dir(&packs_dir, pack_name).ok_or_else(|| {
+        err_response::<PackDetail>(
+            StatusCode::NOT_FOUND,
+            &format!("pack not found: {pack_name}"),
+        )
+    })?;
     let manifest_path = pack_path.join("pack.yaml");
 
     let content = std::fs::read_to_string(&manifest_path).map_err(|e| {
@@ -316,7 +342,13 @@ pub async fn get_normalizer(
         )
     })?;
 
-    let file_path = packs_dir.join(pack_name).join("normalizers").join(filename);
+    let pack_path = resolve_pack_dir(&packs_dir, pack_name).ok_or_else(|| {
+        err_response::<FileDetail<NormalizerMeta>>(
+            StatusCode::NOT_FOUND,
+            &format!("pack not found: {pack_name}"),
+        )
+    })?;
+    let file_path = pack_path.join("normalizers").join(filename);
 
     let yaml = std::fs::read_to_string(&file_path).map_err(|e| {
         err_response::<FileDetail<NormalizerMeta>>(
@@ -361,7 +393,13 @@ pub async fn get_risk_rule(
         )
     })?;
 
-    let file_path = packs_dir.join(pack_name).join("risk_rules").join(filename);
+    let pack_path = resolve_pack_dir(&packs_dir, pack_name).ok_or_else(|| {
+        err_response::<FileDetail<RiskRuleMeta>>(
+            StatusCode::NOT_FOUND,
+            &format!("pack not found: {pack_name}"),
+        )
+    })?;
+    let file_path = pack_path.join("risk_rules").join(filename);
 
     let yaml = std::fs::read_to_string(&file_path).map_err(|e| {
         err_response::<FileDetail<RiskRuleMeta>>(
@@ -416,7 +454,13 @@ pub async fn update_normalizer(
         ));
     }
 
-    let file_path = packs_dir.join(pack_name).join("normalizers").join(filename);
+    let pack_path = resolve_pack_dir(&packs_dir, pack_name).ok_or_else(|| {
+        err_response::<String>(
+            StatusCode::NOT_FOUND,
+            &format!("pack not found: {pack_name}"),
+        )
+    })?;
+    let file_path = pack_path.join("normalizers").join(filename);
 
     std::fs::write(&file_path, &req.yaml).map_err(|e| {
         err_response::<String>(
@@ -459,7 +503,13 @@ pub async fn update_risk_rule(
         ));
     }
 
-    let file_path = packs_dir.join(pack_name).join("risk_rules").join(filename);
+    let pack_path = resolve_pack_dir(&packs_dir, pack_name).ok_or_else(|| {
+        err_response::<String>(
+            StatusCode::NOT_FOUND,
+            &format!("pack not found: {pack_name}"),
+        )
+    })?;
+    let file_path = pack_path.join("risk_rules").join(filename);
 
     std::fs::write(&file_path, &req.yaml).map_err(|e| {
         err_response::<String>(
