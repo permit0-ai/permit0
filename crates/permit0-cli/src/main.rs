@@ -34,7 +34,9 @@ enum Commands {
         #[arg(long, default_value = "default.org")]
         org_domain: String,
     },
-    /// Claude Code PreToolUse hook adapter (reads JSON from stdin)
+    /// PreToolUse hook adapter for Claude Code, Claude Desktop, OpenClaw,
+    /// and OpenAI Codex (reads JSON from stdin; output format varies by
+    /// `--client`).
     Hook {
         /// Domain profile to use
         #[arg(long)]
@@ -45,7 +47,9 @@ enum Commands {
         /// SQLite database path for session persistence
         #[arg(long)]
         db: Option<String>,
-        /// Session ID (default: derived from CLAUDE_SESSION_ID or PPID)
+        /// Session ID. Default: derived from the client-specific source
+        /// (CLAUDE_SESSION_ID for Claude Code; stdin `session_id` then
+        /// CODEX_THREAD_ID for Codex), falling back to PPID/cwd.
         #[arg(long)]
         session_id: Option<String>,
         /// Path to packs directory (default: ./packs/ or ~/.permit0/packs/)
@@ -57,15 +61,18 @@ enum Commands {
         #[arg(long)]
         shadow: bool,
         /// Which MCP host (agent) is calling the hook. Controls how
-        /// MCP tool-name prefixes are stripped before normalization.
-        /// Supported: claude-code (default), claude-desktop, raw.
-        /// Override via PERMIT0_CLIENT env var.
+        /// MCP tool-name prefixes are stripped and how verdicts are
+        /// serialized to stdout. Supported: claude-code (default),
+        /// claude-desktop, openclaw, codex, raw. Override via
+        /// PERMIT0_CLIENT env var.
         #[arg(long, value_name = "CLIENT")]
         client: Option<String>,
         /// Delegate evaluation to a running `permit0 serve --ui` daemon at
         /// the given URL instead of evaluating in-process. The hook POSTs
         /// to `<URL>/api/v1/check` and translates the response into the
-        /// Claude Code hookSpecificOutput envelope.
+        /// `--client`-appropriate envelope (Claude Code-shaped for Claude
+        /// Code, Claude Desktop, OpenClaw, Raw; Codex-shaped or empty
+        /// stdout for Codex).
         ///
         /// Pairs with `serve --ui --calibrate` to centralize approvals
         /// through the dashboard. When set, --profile / --packs-dir / --db
@@ -79,11 +86,15 @@ enum Commands {
         /// (i.e. the action normalizes to `unknown.unclassified` and the
         /// engine's verdict is the fallback "ask"). One of:
         ///
-        ///   ask    — prompt the user with permit0's reasoning
-        ///   allow  — let the tool run unprompted
-        ///   deny   — block the tool
-        ///   defer  — emit no permissionDecision; Claude Code's own
-        ///            permission flow handles it (default)
+        ///   ask    — prompt the user with permit0's reasoning (Claude
+        ///            Code: ask envelope; Codex: deny envelope, since
+        ///            Codex PreToolUse has no `ask` verdict)
+        ///   allow  — let the tool run unprompted (Claude Code: allow
+        ///            envelope; Codex: empty stdout)
+        ///   deny   — block the tool (deny envelope on every client)
+        ///   defer  — fall through to the client's native flow (Claude
+        ///            Code: no permissionDecision; Codex: empty stdout)
+        ///            — default
         ///
         /// Override via PERMIT0_UNKNOWN env var.
         #[arg(long, value_name = "MODE")]
