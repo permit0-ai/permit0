@@ -23,6 +23,10 @@ hex = "0.4"
 regex = { workspace = true }
 rand = { workspace = true }
 tracing = { workspace = true }
+ulid = { workspace = true }
+opentelemetry = { workspace = true }
+opentelemetry_sdk = { workspace = true }
+opentelemetry-otlp = { workspace = true }
 
 [dev-dependencies]
 tempfile = "3"

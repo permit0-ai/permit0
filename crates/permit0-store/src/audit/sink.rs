@@ -38,4 +38,33 @@ pub trait AuditSink: Send + Sync {
     /// restart doesn't break `prev_hash` linkage. `Ok(None)` means the
     /// sink is empty — engine starts the chain from `GENESIS_HASH`.
     async fn tail(&self) -> Result<Option<(u64, String)>, AuditError>;
+
+    /// Return entries in `[from, to]` (inclusive) sorted by `sequence`
+    /// ascending. Used by `DigestWriter` to batch-hash a contiguous
+    /// range; `query` doesn't fit because its filters are
+    /// content-oriented and `limit` doesn't pin which sequences land.
+    /// Default implementation is generic (uses `query`) — sinks that
+    /// can do the bounded range natively (Postgres, SQLite) override
+    /// it for an indexed read.
+    async fn query_sequence_range(
+        &self,
+        from: u64,
+        to: u64,
+    ) -> Result<Vec<crate::audit::types::AuditEntry>, AuditError> {
+        if to < from {
+            return Ok(Vec::new());
+        }
+        let want = (to - from + 1) as u32;
+        // Generic fallback: pull a fat batch and trim. Correct but
+        // wasteful at scale; sinks override this.
+        let mut entries = self
+            .query(&AuditFilter {
+                limit: Some(want.saturating_mul(8).max(1024)),
+                ..Default::default()
+            })
+            .await?;
+        entries.retain(|e| e.sequence >= from && e.sequence <= to);
+        entries.sort_by_key(|e| e.sequence);
+        Ok(entries)
+    }
 }

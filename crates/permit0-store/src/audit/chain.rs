@@ -1,7 +1,8 @@
 #![forbid(unsafe_code)]
 
-use sha2::{Digest, Sha256};
+use sha2::{Digest as _, Sha256};
 
+use crate::audit::digest::Digest;
 use crate::audit::types::AuditEntry;
 
 /// The genesis hash for the first entry in the chain.
@@ -110,6 +111,44 @@ pub fn verify_chain_link(prev: &AuditEntry, current: &AuditEntry) -> bool {
     current.prev_hash == prev.entry_hash
         // Sequence must be monotonically increasing
         && current.sequence == prev.sequence + 1
+}
+
+/// SHA-256 over the concatenated `entry_hash` bytes of every entry in
+/// the slice, hex-encoded. The slice should already be sorted by
+/// sequence — pinning order is what makes the root reproducible at
+/// verification time.
+pub fn compute_entry_hashes_root(entries: &[AuditEntry]) -> String {
+    let mut hasher = Sha256::new();
+    for e in entries {
+        hasher.update(e.entry_hash.as_bytes());
+    }
+    hex::encode(hasher.finalize())
+}
+
+/// Compute the content hash for a digest. Hashes every field except
+/// `digest_hash` and `signature` so re-running the helper on a digest
+/// loaded from disk reproduces the same value.
+pub fn compute_digest_hash(d: &Digest) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(d.digest_id.as_bytes());
+    hasher.update(d.created_at.as_bytes());
+    hasher.update(d.sequence_from.to_le_bytes());
+    hasher.update(d.sequence_to.to_le_bytes());
+    hasher.update(d.entry_hashes_root.as_bytes());
+    hasher.update(d.prev_digest_hash.as_bytes());
+    hex::encode(hasher.finalize())
+}
+
+/// Verify a digest's content hash is consistent with its other fields.
+pub fn verify_digest_hash(d: &Digest) -> bool {
+    compute_digest_hash(d) == d.digest_hash
+}
+
+/// Verify two consecutive digests link properly.
+pub fn verify_digest_link(prev: &Digest, current: &Digest) -> bool {
+    current.prev_digest_hash == prev.digest_hash
+        // Digests must cover contiguous, non-overlapping sequence ranges.
+        && current.sequence_from == prev.sequence_to + 1
 }
 
 #[cfg(test)]

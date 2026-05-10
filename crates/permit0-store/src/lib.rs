@@ -13,9 +13,11 @@ pub use policy_state_memory::InMemoryPolicyState;
 pub use policy_state_sqlite::SqlitePolicyState;
 
 // Re-export key audit types at crate root for convenience.
+pub use audit::pg_sink::PostgresDigestStore;
 pub use audit::{
     AuditEntry, AuditError, AuditFilter, AuditPolicy, AuditSigner, AuditSink, BuiltinRedactor,
-    ChainVerification, DecisionStage, Ed25519Signer, Ed25519Verifier, FileKeyStore, HumanReview,
-    InMemoryAuditSink, KeyStoreError, PostgresAuditSink, Redactor, ScoringDetail, SqliteAuditSink,
-    StdoutAuditSink,
+    ChainVerification, DecisionStage, Digest, DigestStore, DigestWriter, Ed25519Signer,
+    Ed25519Verifier, FileDigestStore, FileKeyStore, HumanReview, InMemoryAuditSink, KeyStoreError,
+    OtelAuditSink, PostgresAuditSink, Redactor, ScoringDetail, SqliteAuditSink, StdoutAuditSink,
+    TeeAuditSink,
 };

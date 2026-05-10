@@ -606,34 +606,66 @@ pub fn run(
                 }
             };
 
-            let audit_sink: Arc<dyn AuditSink> = match audit_url.as_deref() {
-                Some(url) => {
-                    eprintln!("  audit DB: postgres ({})", redact_url(url));
-                    let pg = permit0_store::PostgresAuditSink::connect(url)
-                        .await
-                        .with_context(|| "connecting to audit DB")?;
-                    pg.migrate()
-                        .await
-                        .with_context(|| "running audit DB migrations")?;
-                    Arc::new(pg)
-                }
-                None => {
-                    let audit_db_path = db_dir.join("audit.db");
-                    eprintln!(
-                        "  audit DB: sqlite at {} (set PERMIT0_AUDIT_URL for Postgres)",
-                        audit_db_path.display()
-                    );
-                    match SqliteAuditSink::open(&audit_db_path) {
-                        Ok(s) => Arc::new(s),
-                        Err(e) => {
-                            eprintln!(
-                                "  warning: failed to open audit DB ({e}), falling back to in-memory"
-                            );
-                            Arc::new(permit0_store::InMemoryAuditSink::new())
-                        }
+            // Build the *primary* audit sink first. We keep the
+            // concrete `PostgresAuditSink` alongside its `dyn AuditSink`
+            // erasure so the digest writer can build a sibling
+            // `PostgresDigestStore` from the same connection pool
+            // without serve.rs naming sqlx types directly.
+            let pg_audit: Option<Arc<permit0_store::PostgresAuditSink>> =
+                match audit_url.as_deref() {
+                    Some(url) => {
+                        eprintln!("  audit DB: postgres ({})", redact_url(url));
+                        let pg = permit0_store::PostgresAuditSink::connect(url)
+                            .await
+                            .with_context(|| "connecting to audit DB")?;
+                        pg.migrate()
+                            .await
+                            .with_context(|| "running audit DB migrations")?;
+                        Some(Arc::new(pg))
+                    }
+                    None => None,
+                };
+            let primary_audit: Arc<dyn AuditSink> = if let Some(ref pg) = pg_audit {
+                pg.clone()
+            } else {
+                let audit_db_path = db_dir.join("audit.db");
+                eprintln!(
+                    "  audit DB: sqlite at {} (set PERMIT0_AUDIT_URL for Postgres)",
+                    audit_db_path.display()
+                );
+                match SqliteAuditSink::open(&audit_db_path) {
+                    Ok(s) => Arc::new(s),
+                    Err(e) => {
+                        eprintln!(
+                            "  warning: failed to open audit DB ({e}), falling back to in-memory"
+                        );
+                        Arc::new(permit0_store::InMemoryAuditSink::new())
                     }
                 }
             };
+
+            // Optionally tee every audit write to an OpenTelemetry
+            // collector (typically forwarded to S3 / Datadog / Splunk).
+            // The primary stays the source of truth for queries; OTel
+            // failures are logged and never block the engine.
+            let audit_sink: Arc<dyn AuditSink> =
+                if let Ok(endpoint) = std::env::var("PERMIT0_OTLP_ENDPOINT") {
+                    eprintln!("  audit OTLP drain: {endpoint}");
+                    match permit0_store::OtelAuditSink::http(&endpoint, true) {
+                        Ok(otel) => Arc::new(permit0_store::TeeAuditSink::new(
+                            primary_audit.clone(),
+                            Arc::new(otel),
+                        )),
+                        Err(e) => {
+                            eprintln!(
+                                "  warning: failed to build OTel sink ({e}); skipping drain"
+                            );
+                            primary_audit.clone()
+                        }
+                    }
+                } else {
+                    primary_audit.clone()
+                };
 
             // Persistent ed25519 signing key — preserved across restarts so
             // signatures remain verifiable with the same public key. The
@@ -662,12 +694,54 @@ pub fn run(
                 None,
             )?
             .with_policy_state(policy_state.clone())
-            .with_audit(audit_sink.clone(), audit_signer);
+            .with_audit(audit_sink.clone(), audit_signer.clone());
             if let Some((seq, prev)) = seed {
                 eprintln!("  audit chain resuming at sequence {seq}");
                 builder = builder.with_audit_seed(seq, prev);
             }
             let engine = builder.build()?;
+
+            // CloudTrail-style batch digests. Opt in by setting
+            // `PERMIT0_DIGEST_DIR` (the directory absorbs one signed
+            // digest file per batch). The Postgres path also pins each
+            // digest in the audit DB so the dashboard can list them
+            // without rescanning the disk.
+            if let Ok(dir) = std::env::var("PERMIT0_DIGEST_DIR") {
+                let interval_secs = std::env::var("PERMIT0_DIGEST_INTERVAL_SECS")
+                    .ok()
+                    .and_then(|s| s.parse::<u64>().ok())
+                    .unwrap_or(300);
+                let batch_max = std::env::var("PERMIT0_DIGEST_BATCH_MAX")
+                    .ok()
+                    .and_then(|s| s.parse::<usize>().ok())
+                    .unwrap_or(1000);
+
+                match permit0_store::FileDigestStore::new(&dir) {
+                    Ok(file_store) => {
+                        let mut stores: Vec<Arc<dyn permit0_store::DigestStore>> =
+                            vec![Arc::new(file_store)];
+                        if let Some(ref pg) = pg_audit {
+                            stores.push(Arc::new(
+                                permit0_store::PostgresDigestStore::from_pool(
+                                    pg.pool().clone(),
+                                ),
+                            ));
+                        }
+                        let writer = permit0_store::DigestWriter::new(
+                            primary_audit.clone(),
+                            audit_signer.clone(),
+                            stores,
+                            std::time::Duration::from_secs(interval_secs),
+                            batch_max,
+                        );
+                        writer.spawn();
+                        eprintln!(
+                            "  digest writer: dir={dir} interval={interval_secs}s batch_max={batch_max}"
+                        );
+                    }
+                    Err(e) => eprintln!("  warning: digest dir {dir} unavailable ({e})"),
+                }
+            }
 
             // Shared approval manager so the daemon's calibration handler and
             // the dashboard's /api/v1/approvals/decide endpoint resolve the

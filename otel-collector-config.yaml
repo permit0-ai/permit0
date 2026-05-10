@@ -1,0 +1,63 @@
+# Example OpenTelemetry Collector config for the permit0 audit drain.
+#
+# permit0-engine ships every audit entry to this collector via OTLP/HTTP
+# when `PERMIT0_OTLP_ENDPOINT=http://otel-collector:4318` is set. The
+# collector then forwards the records to one or more durable backends
+# (S3, Datadog, Splunk HEC, …). The local Postgres audit DB stays the
+# source of truth — collector outages don't block the engine.
+#
+# Bring up by uncommenting the `otel-collector` service in
+# docker-compose.yml. Edit the `exporters` block below to match your
+# environment (S3 bucket name, Datadog API key, etc.) before deploying
+# anywhere real.
+
+receivers:
+  otlp:
+    protocols:
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  batch:
+    # Flush at most every 10s or when 1MB has accumulated, whichever
+    # hits first. Tune up if you ship to S3 (where small object writes
+    # are expensive) or down if you want lower-latency Datadog search.
+    timeout: 10s
+    send_batch_size: 1024
+    send_batch_max_size: 8192
+
+exporters:
+  # Catch-all for local development: writes JSON-formatted records to
+  # the collector's stdout. Replace with one of the production
+  # exporters below for real deployments.
+  debug:
+    verbosity: detailed
+
+  # ── Production examples (commented; pick the ones you need) ──
+  #
+  # awss3:
+  #   s3uploader:
+  #     region: us-east-1
+  #     s3_bucket: permit0-audit
+  #     s3_prefix: audit/
+  #     s3_partition: minute
+  #     # Optional KMS encryption:
+  #     # kms_key_id: alias/permit0-audit
+  #
+  # datadog:
+  #   api:
+  #     key: ${env:DD_API_KEY}
+  #     site: datadoghq.com
+  #
+  # splunk_hec:
+  #   token: ${env:SPLUNK_HEC_TOKEN}
+  #   endpoint: https://splunk.example.com:8088/services/collector
+  #   index: permit0_audit
+
+service:
+  pipelines:
+    logs:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [debug]
+      # exporters: [debug, awss3, datadog]

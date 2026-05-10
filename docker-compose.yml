@@ -62,13 +62,25 @@ services:
       PERMIT0_AUDIT_URL: postgres://permit0:permit0_dev_audit@permit0-audit-db:5432/permit0_audit
       PERMIT0_AUDIT_KEY_PATH: /var/lib/permit0/audit_signing.key
       PERMIT0_PACKS_DIR: /etc/permit0/packs
+      # CloudTrail-style batch digests. Files land in this directory
+      # and are also pinned in the audit DB. Verify offline with
+      # `permit0 digest verify --digests-dir <dir> --audit-jsonl <file>
+      #     --public-key <hex>`.
+      PERMIT0_DIGEST_DIR: /var/lib/permit0/digests
+      PERMIT0_DIGEST_INTERVAL_SECS: "300"
+      PERMIT0_DIGEST_BATCH_MAX: "1000"
+      # Uncomment to also tee every audit entry to an OpenTelemetry
+      # collector (S3 / Datadog / Splunk via the otel-collector service
+      # below). The Postgres audit DB remains the source of truth;
+      # collector outages don't block the engine.
+      # PERMIT0_OTLP_ENDPOINT: http://otel-collector:4318
       RUST_LOG: info
     ports:
       - "9090:9090"
     volumes:
-      # Persist the ed25519 audit signing seed so chain signatures stay
-      # verifiable across container recreates. Back this up with the
-      # audit-db-data volume.
+      # Persist the ed25519 audit signing seed + digest files so the
+      # chain stays verifiable across container recreates. Back up the
+      # whole `audit-key` volume alongside `audit-db-data`.
       - audit-key:/var/lib/permit0
       # Optional: mount your own packs to override the bundled ones.
       # - ./packs:/etc/permit0/packs:ro
@@ -77,6 +89,26 @@ services:
       interval: 30s
       timeout: 5s
       retries: 3
+
+  # Optional: OpenTelemetry collector for off-box audit drains
+  # (S3 / Datadog / Splunk). Uncomment together with
+  # PERMIT0_OTLP_ENDPOINT on the engine service.
+  #
+  # otel-collector:
+  #   image: otel/opentelemetry-collector-contrib:0.116.0
+  #   container_name: permit0-otel-collector
+  #   restart: unless-stopped
+  #   command: ["--config=/etc/otelcol-contrib/config.yaml"]
+  #   volumes:
+  #     - ./otel-collector-config.yaml:/etc/otelcol-contrib/config.yaml:ro
+  #   ports:
+  #     - "4318:4318"  # OTLP HTTP
+  #   # If you enable the awss3 / datadog exporters in
+  #   # otel-collector-config.yaml, pass their secrets here:
+  #   # environment:
+  #   #   AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+  #   #   AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+  #   #   DD_API_KEY: ${DD_API_KEY}
 
 volumes:
   state-db-data:

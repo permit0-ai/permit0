@@ -5,6 +5,7 @@ use sqlx::postgres::{PgPool, PgPoolOptions};
 use permit0_types::{Permission, Tier};
 
 use crate::audit::chain::{verify_chain_link, verify_entry_hash};
+use crate::audit::digest::{Digest, DigestStore};
 use crate::audit::sink::{AuditError, AuditSink};
 use crate::audit::types::{AuditEntry, AuditFilter, ChainVerification};
 
@@ -58,6 +59,83 @@ impl PostgresAuditSink {
         .await
         .map_err(|e| AuditError::Io(e.to_string()))?;
         Ok(())
+    }
+
+    /// Borrow the underlying pool to build a sibling [`PostgresDigestStore`]
+    /// without re-opening a second connection pool.
+    pub fn pool(&self) -> &PgPool {
+        &self.pool
+    }
+}
+
+/// `DigestStore` backed by the `digests` table in the audit DB. Built
+/// from the same `PgPool` as [`PostgresAuditSink`] so they share a
+/// connection pool — and so digests live in the same database that
+/// holds the entries they cover, which is the natural blast radius.
+pub struct PostgresDigestStore {
+    pool: PgPool,
+}
+
+impl PostgresDigestStore {
+    pub fn from_pool(pool: PgPool) -> Self {
+        Self { pool }
+    }
+}
+
+#[async_trait::async_trait]
+impl DigestStore for PostgresDigestStore {
+    async fn append(&self, d: &Digest) -> Result<(), AuditError> {
+        sqlx::query(
+            "INSERT INTO digests
+                (digest_id, sequence_from, sequence_to, prev_digest_hash,
+                 entry_hashes_root, digest_hash, signature, created_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+        )
+        .bind(&d.digest_id)
+        .bind(d.sequence_from as i64)
+        .bind(d.sequence_to as i64)
+        .bind(&d.prev_digest_hash)
+        .bind(&d.entry_hashes_root)
+        .bind(&d.digest_hash)
+        .bind(&d.signature)
+        .bind(&d.created_at)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| AuditError::Io(e.to_string()))?;
+        Ok(())
+    }
+
+    async fn tail(&self) -> Result<Option<Digest>, AuditError> {
+        let row: Option<(String, i64, i64, String, String, String, String, String)> =
+            sqlx::query_as(
+                "SELECT digest_id, sequence_from, sequence_to, prev_digest_hash,
+                        entry_hashes_root, digest_hash, signature, created_at
+                 FROM digests ORDER BY sequence_to DESC LIMIT 1",
+            )
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|e| AuditError::Io(e.to_string()))?;
+        Ok(row.map(
+            |(
+                digest_id,
+                sequence_from,
+                sequence_to,
+                prev_digest_hash,
+                entry_hashes_root,
+                digest_hash,
+                signature,
+                created_at,
+            )| Digest {
+                digest_id,
+                created_at,
+                sequence_from: sequence_from as u64,
+                sequence_to: sequence_to as u64,
+                entry_hashes_root,
+                prev_digest_hash,
+                digest_hash,
+                signature,
+            },
+        ))
     }
 }
 
@@ -253,5 +331,31 @@ impl AuditSink for PostgresAuditSink {
         .await
         .map_err(|e| AuditError::Io(e.to_string()))?;
         Ok(row.map(|(s, h)| (s as u64, h)))
+    }
+
+    async fn query_sequence_range(
+        &self,
+        from: u64,
+        to: u64,
+    ) -> Result<Vec<AuditEntry>, AuditError> {
+        if to < from {
+            return Ok(Vec::new());
+        }
+        let rows: Vec<(serde_json::Value,)> = sqlx::query_as(
+            "SELECT entry_json FROM audit_entries
+             WHERE sequence >= $1 AND sequence <= $2
+             ORDER BY sequence ASC",
+        )
+        .bind(from as i64)
+        .bind(to as i64)
+        .fetch_all(&self.pool)
+        .await
+        .map_err(|e| AuditError::Io(e.to_string()))?;
+
+        let mut out = Vec::with_capacity(rows.len());
+        for (json,) in rows {
+            out.push(serde_json::from_value(json).map_err(|e| AuditError::Io(e.to_string()))?);
+        }
+        Ok(out)
     }
 }

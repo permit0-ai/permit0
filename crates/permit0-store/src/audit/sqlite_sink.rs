@@ -284,6 +284,38 @@ impl AuditSink for SqliteAuditSink {
             .ok();
         Ok(row)
     }
+
+    async fn query_sequence_range(
+        &self,
+        from: u64,
+        to: u64,
+    ) -> Result<Vec<AuditEntry>, AuditError> {
+        if to < from {
+            return Ok(Vec::new());
+        }
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| AuditError::Io(e.to_string()))?;
+        let mut stmt = conn
+            .prepare(
+                "SELECT entry_json FROM audit_entries
+                 WHERE sequence >= ?1 AND sequence <= ?2
+                 ORDER BY sequence ASC",
+            )
+            .map_err(|e| AuditError::Io(e.to_string()))?;
+        let rows = stmt
+            .query_map(params![from as i64, to as i64], |row| {
+                row.get::<_, String>(0)
+            })
+            .map_err(|e| AuditError::Io(e.to_string()))?;
+        let mut out = Vec::new();
+        for r in rows {
+            let j = r.map_err(|e| AuditError::Io(e.to_string()))?;
+            out.push(Self::deserialize_entry(&j)?);
+        }
+        Ok(out)
+    }
 }
 
 #[cfg(test)]
