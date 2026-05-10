@@ -1,0 +1,19 @@
+{
+  "_comment": "permit0 hook for Codex — alternative to inline [hooks] in config.toml. Save as ~/.codex/hooks.json. Replace /abs/path/to/permit0 with your actual checkout. After saving, launch codex once interactively and /hooks to mark it trusted.",
+
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/abs/path/to/permit0/target/release/permit0 hook --client codex --packs-dir /abs/path/to/permit0/packs --unknown defer",
+            "timeout": 30,
+            "statusMessage": "permit0 safety check"
+          }
+        ]
+      }
+    ]
+  }
+}

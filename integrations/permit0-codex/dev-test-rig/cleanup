@@ -1,0 +1,101 @@
+#!/usr/bin/env bash
+#
+# cleanup — undo the permit0+Codex demo setup.
+#
+# Removes the macOS managed-prefs hook so Codex stops firing permit0
+# on tool calls. Refuses to delete a managed-prefs value that wasn't
+# installed by permit0 (e.g. an enterprise MDM policy) unless --force
+# is passed.
+#
+# Usage:
+#   cleanup                  # delete only if stamped by permit0
+#   cleanup --force          # delete any value (no stamp check)
+#   cleanup --help           # show this help
+#
+# After cleanup, normal `codex` sessions no longer fire permit0.
+#
+# To restore a prior MDM/managed value that you backed up via the
+# installer, use:
+#   integrations/permit0-codex/examples/install-managed-prefs.sh --uninstall
+
+set -uo pipefail
+
+DEFAULTS_DOMAIN="com.openai.codex"
+DEFAULTS_KEY="requirements_toml_base64"
+STAMP="# permit0-managed: installed by integrations/permit0-codex"
+BACKUP_DIR="$HOME/.permit0"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+INSTALLER="$SCRIPT_DIR/../examples/install-managed-prefs.sh"
+TRACE_DIR="${PERMIT0_TRACE_DIR:-/tmp/permit0-codex-test}"
+
+print_help() {
+    cat <<'EOF'
+cleanup — remove the permit0+Codex managed-prefs hook.
+
+USAGE:
+  cleanup                  delete only if the value bears permit0's stamp
+  cleanup --force          delete any value (no stamp check)
+  cleanup --help           this message
+
+ALSO SEE:
+  install-managed-prefs.sh --uninstall
+    Same delete behavior plus auto-restores the most recent backup at
+    ~/.permit0/managed-prefs-backup-<TIMESTAMP>.toml — use this if you
+    overwrote an existing MDM value with --force.
+EOF
+}
+
+FORCE=0
+for arg in "$@"; do
+    case "$arg" in
+        --force)    FORCE=1 ;;
+        -h|--help)  print_help; exit 0 ;;
+        *)
+            echo "error: unknown flag: $arg" >&2
+            print_help
+            exit 2
+            ;;
+    esac
+done
+
+echo "Removing permit0 hook from macOS managed preferences..."
+
+if ! defaults read "$DEFAULTS_DOMAIN" "$DEFAULTS_KEY" >/dev/null 2>&1; then
+    echo "  (already absent)"
+    exit 0
+fi
+
+EXISTING=$(defaults read "$DEFAULTS_DOMAIN" "$DEFAULTS_KEY" | base64 -d)
+
+if ! grep -qF "$STAMP" <<<"$EXISTING"; then
+    if [[ "$FORCE" != "1" ]]; then
+        echo "error: managed-prefs value present but NOT stamped by permit0." >&2
+        echo "       Refusing to delete — this may be your enterprise MDM's policy." >&2
+        echo "       Re-run with --force to remove it anyway." >&2
+        echo "       First 5 lines:" >&2
+        printf '%s\n' "$EXISTING" | head -5 | sed 's/^/         | /' >&2
+        exit 2
+    fi
+    echo "WARNING: deleting unstamped value (--force given)."
+fi
+
+defaults delete "$DEFAULTS_DOMAIN" "$DEFAULTS_KEY"
+echo "  ✓ removed"
+
+# Mention restorable backups so the user has one canonical recovery path.
+if compgen -G "$BACKUP_DIR/managed-prefs-backup-*.toml" >/dev/null 2>&1; then
+    echo
+    echo "Found backup(s) at $BACKUP_DIR/managed-prefs-backup-*.toml"
+    echo "To restore the most recent one:"
+    echo "  bash $INSTALLER --uninstall"
+fi
+
+cat <<EOF
+
+permit0 hook detached from Codex. Normal codex sessions will no longer
+fire permit0. Demo scripts stay in place — re-run codex-demo any time.
+
+Trace state still on disk under $TRACE_DIR (events.log, inv-*/,
+mock-mcp.log). Remove with:
+  rm -rf "$TRACE_DIR"
+EOF

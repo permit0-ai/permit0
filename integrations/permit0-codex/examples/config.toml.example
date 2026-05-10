@@ -1,0 +1,49 @@
+# permit0 hook for Codex — append this block to ~/.codex/config.toml
+#
+# Verified against Codex 0.130.0-alpha.5. Older Codex versions used
+# `codex_hooks = true`; the current name is `hooks = true`.
+#
+# After saving, launch `codex` interactively once and run /hooks to
+# mark this hook trusted. Future codex sessions (interactive and
+# `codex exec`) will then honor it.
+#
+# Replace `/abs/path/to/permit0` with the actual checkout path (the
+# `command` field does not expand `~` or shell vars).
+
+[features]
+hooks = true
+
+[[hooks.PreToolUse]]
+matcher = ".*"
+
+[[hooks.PreToolUse.hooks]]
+type = "command"
+command = "/abs/path/to/permit0/target/release/permit0 hook --client codex --packs-dir /abs/path/to/permit0/packs --unknown defer"
+timeout = 30
+statusMessage = "permit0 safety check"
+
+# ── Alternative configurations ─────────────────────────────────────
+
+# Restrict the hook to specific tool kinds (matcher is a regex applied
+# to tool_name and Codex's matcher aliases):
+#
+#   matcher = "^Bash$"                          # Bash only
+#   matcher = "^(Bash|apply_patch)$"            # Bash + file edits
+#   matcher = "^mcp__.*"                        # all MCP tools
+#   matcher = "^mcp__permit0-gmail__.*"         # one specific MCP server
+
+# Remote mode — point the hook at a running daemon instead of
+# evaluating in-process. Useful for centralized dashboards / audit:
+#
+#   command = "/abs/path/to/permit0 hook --client codex --remote http://127.0.0.1:9090 --unknown defer"
+#
+# Then in a separate process:
+#
+#   cargo run --release -p permit0-cli -- serve --ui --port 9090
+
+# Shadow mode — observe without blocking. permit0 logs the verdict to
+# stderr but never returns a deny envelope. Append --shadow:
+#
+#   command = "/abs/path/to/permit0 hook --client codex --shadow --unknown defer"
+#
+# Equivalently, set PERMIT0_SHADOW=1 in the environment that runs codex.

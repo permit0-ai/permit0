@@ -8,9 +8,16 @@ Reusable, framework-native packages that integrate permit0 with specific agent f
 |---------|-----------|----------|---------|---------|
 | [`permit0-openclaw/`](./permit0-openclaw/) | [OpenClaw](https://github.com/openclaw/openclaw) | TypeScript | `npm install @permit0/openclaw` | `permit0Middleware(...)` over the gateway dispatch (recommended); `permit0Skill(...)` HOF for advanced cases |
 
-### Also supported, different shape
+### CLI-hook integrations (no separate library; config + docs only)
 
-- **[Claude Code](https://docs.claude.com/en/docs/claude-code/overview)** — gated via `permit0 hook`, a CLI subcommand of the `permit0` binary that's invoked from Claude Code's `PreToolUse` hook in `~/.claude/settings.json`. No separate package; the integration ships with the workspace.
+These frameworks expose a tool-invocation hook of their own. permit0 plugs
+in via the same `permit0 hook` CLI subcommand with a `--client` flag — no
+library to publish, just a copy-paste config block.
+
+| Folder | Framework | Hook config lives in |
+|---|---|---|
+| [`permit0-codex/`](./permit0-codex/) | [OpenAI Codex CLI](https://developers.openai.com/codex) | `~/.codex/config.toml` `[hooks]` or `~/.codex/hooks.json` |
+| — (no folder yet) | [Claude Code](https://docs.claude.com/en/docs/claude-code/overview) | `~/.claude/settings.json` `PreToolUse` |
 
 ## The wrapper pattern in one sentence
 
@@ -23,6 +30,7 @@ Every integration follows the same three-step pattern, regardless of language:
 What changes between integrations is *how* you hook in:
 
 - **OpenClaw (TypeScript)** → compose `permit0Middleware(...)` over the gateway dispatch — OpenClaw routes every skill through that chain, so one composition gates all of them. The per-skill `permit0Skill(...)` HOF is the underlying primitive, available for advanced cases. See [`permit0-openclaw/`](./permit0-openclaw/).
+- **OpenAI Codex CLI** → wire `permit0 hook --client codex` as a `PreToolUse` hook in `~/.codex/config.toml`; gates every Bash, `apply_patch`, and MCP tool call before Codex runs it. See [`permit0-codex/`](./permit0-codex/).
 - **Claude Code (CLI)** → wire `permit0 hook` as a `PreToolUse` hook in `~/.claude/settings.json`; the hook adjudicates every built-in and MCP tool call before Claude Code runs it.
 - **CrewAI** → subclass `crewai.tools.BaseTool` and override `_run`.
 - **OpenAI Agents SDK** → wrap around the `@function_tool` decorator.

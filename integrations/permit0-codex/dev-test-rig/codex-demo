@@ -1,0 +1,172 @@
+#!/usr/bin/env bash
+#
+# codex-demo — launch Codex with everything wired up for the permit0 demo.
+#
+# Sets CODEX_HOME to a fresh trace dir (default /tmp/permit0-codex-test/),
+# wires the mock-gmail MCP server, installs the macOS managed-prefs hook
+# (auto-trusted, no /hooks review needed), and launches Codex
+# interactively. Type prompts as you would in any normal Codex session.
+#
+# By default the hook runs in ENFORCEMENT mode — permit0 actually blocks
+# risky tool calls. Pass --shadow to flip to observe-only mode:
+#
+#     bash codex-demo            # enforces
+#     bash codex-demo --shadow   # observes only
+#
+# Customize the trace dir with PERMIT0_TRACE_DIR=/path/to/dir if you
+# want to keep traces somewhere other than /tmp/permit0-codex-test.
+
+set -euo pipefail
+
+# ── Locate ourselves and the repo root ──────────────────────────────
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
+
+# Resolve the codex binary: $CODEX env override > PATH > macOS app bundle.
+# PATH comes before the bundle path because it's portable beyond macOS;
+# on macOS both typically resolve to the same binary anyway.
+CODEX="${CODEX:-}"
+if [[ -z "$CODEX" ]]; then
+    if command -v codex >/dev/null 2>&1; then
+        CODEX="$(command -v codex)"
+    elif [[ -x /Applications/Codex.app/Contents/Resources/codex ]]; then
+        CODEX=/Applications/Codex.app/Contents/Resources/codex
+    fi
+fi
+
+PERMIT0="$REPO_ROOT/target/release/permit0"
+TRACE_DIR="${PERMIT0_TRACE_DIR:-/tmp/permit0-codex-test}"
+
+# Optional --shadow flag.
+SHADOW=0
+for arg in "$@"; do
+    if [[ "$arg" == "--shadow" ]]; then
+        SHADOW=1
+    fi
+done
+
+# ── Sanity checks ───────────────────────────────────────────────────
+if [[ -z "$CODEX" || ! -x "$CODEX" ]]; then
+    echo "error: Codex binary not found." >&2
+    echo "  Tried: \$CODEX env var, \`command -v codex\` on PATH," >&2
+    echo "         and /Applications/Codex.app/Contents/Resources/codex" >&2
+    echo "  Fix:   set CODEX=/path/to/codex, or install Codex" >&2
+    echo "         (npm install -g @openai/codex, or the desktop app)" >&2
+    exit 2
+fi
+if [[ ! -x "$PERMIT0" ]]; then
+    echo "error: permit0 binary missing at $PERMIT0" >&2
+    echo "       build it first: cd $REPO_ROOT && cargo build --release" >&2
+    exit 2
+fi
+for f in wrap-permit0.sh mock-gmail-mcp.py watch _watch_render.py cleanup; do
+    if [[ ! -f "$SCRIPT_DIR/$f" ]]; then
+        echo "error: dev-test-rig file missing: $SCRIPT_DIR/$f" >&2
+        exit 2
+    fi
+done
+
+# ── Install the managed-prefs hook (auto-trusted) ───────────────────
+# Demo-flavored variant: the hook command points at our instrumented
+# wrap-permit0.sh wrapper (which captures forensics into $TRACE_DIR)
+# rather than calling the permit0 binary directly. We use the same
+# safety machinery as the production installer — stamp, detect, backup —
+# but inline-write the body so we can substitute the wrapper path.
+STAMP="# permit0-managed: installed by integrations/permit0-codex"
+DEMO_TOML="$STAMP
+[features]
+hooks = true
+
+[hooks]
+managed_dir = \"$SCRIPT_DIR\"
+windows_managed_dir = \"$SCRIPT_DIR\"
+
+[[hooks.PreToolUse]]
+matcher = \".*\"
+
+[[hooks.PreToolUse.hooks]]
+type = \"command\"
+command = \"$SCRIPT_DIR/wrap-permit0.sh\"
+timeout = 30
+statusMessage = \"permit0 safety check\"
+"
+
+# Refuse to clobber a non-permit0 managed-prefs value (e.g. enterprise
+# MDM) — same safety model as install-managed-prefs.sh.
+if EXISTING=$(defaults read com.openai.codex requirements_toml_base64 2>/dev/null | base64 -d); then
+    if ! grep -qF "$STAMP" <<<"$EXISTING"; then
+        echo "error: a NON-permit0 managed-prefs value is set under" >&2
+        echo "       com.openai.codex/requirements_toml_base64." >&2
+        echo "       Refusing to overwrite it. If this is safe to replace, run:" >&2
+        echo "         bash $SCRIPT_DIR/../examples/install-managed-prefs.sh --force" >&2
+        echo "       (which backs up the prior value) and then re-run this demo." >&2
+        exit 2
+    fi
+    # Stamped — re-installing demo over previous demo. Backup just in case.
+    mkdir -p "$HOME/.permit0"
+    TS="$(date +%Y%m%d-%H%M%S)"
+    printf '%s' "$EXISTING" > "$HOME/.permit0/managed-prefs-backup-$TS.toml"
+fi
+defaults write com.openai.codex requirements_toml_base64 \
+    -string "$(echo -n "$DEMO_TOML" | base64)"
+
+# ── Build CODEX_HOME config: mock-gmail MCP wired in ────────────────
+mkdir -p "$TRACE_DIR"
+cat > "$TRACE_DIR/config.toml" <<EOF
+model = "gpt-5.5"
+model_reasoning_effort = "medium"
+approval_policy = "never"
+sandbox_mode = "workspace-write"
+
+[mcp_servers.mock-gmail]
+command = "$SCRIPT_DIR/mock-gmail-mcp.py"
+EOF
+
+# Link auth.json and the models_cache from the user's real Codex home
+# so login carries over without copying secrets.
+ln -sf ~/.codex/auth.json "$TRACE_DIR/auth.json" 2>/dev/null || true
+ln -sf ~/.codex/models_cache.json "$TRACE_DIR/models_cache.json" 2>/dev/null || true
+
+# Reset trace so this session starts fresh.
+find "$TRACE_DIR" -maxdepth 1 -name 'inv-*' -exec rm -rf {} + 2>/dev/null
+: > "$TRACE_DIR/events.log"
+: > "$TRACE_DIR/mock-mcp.log"
+
+# ── Banner ──────────────────────────────────────────────────────────
+MODE_BANNER="ENFORCE  ← permit0 will block risky tool calls"
+SHADOW_EXPORT=""
+if [[ "$SHADOW" == "1" ]]; then
+    MODE_BANNER="SHADOW   ← permit0 watches but never blocks"
+    SHADOW_EXPORT="PERMIT0_SHADOW=1"
+fi
+
+cat <<EOF
+
+╔══════════════════════════════════════════════════════════════════╗
+║              permit0 + Codex live demo (Codex 0.130)             ║
+╠══════════════════════════════════════════════════════════════════╣
+║                                                                  ║
+║  Mode:        $MODE_BANNER  ║
+║  Repo root:   $REPO_ROOT
+║  Trace dir:   $TRACE_DIR
+║  Mock MCP:    mock-gmail (exposes a fake gmail_send tool)        ║
+║                                                                  ║
+║  Try in a SECOND terminal:                                       ║
+║    bash $SCRIPT_DIR/watch
+║  …to watch permit0 fire in real time as Codex uses tools.        ║
+║                                                                  ║
+║  Try these prompts inside Codex:                                 ║
+║    • Run 'ls -la' and tell me what files you see                 ║
+║    • Use the gmail_send tool to email                            ║
+║      alice@external-customer.com about tomorrow's 2pm meeting    ║
+║    • Run 'date' three times and report the output                ║
+║                                                                  ║
+║  When done, exit Codex (Ctrl-C twice) then run:                  ║
+║    bash $SCRIPT_DIR/cleanup
+║                                                                  ║
+╚══════════════════════════════════════════════════════════════════╝
+
+EOF
+
+# ── Launch Codex interactively ──────────────────────────────────────
+exec env CODEX_HOME="$TRACE_DIR" PERMIT0_TRACE_DIR="$TRACE_DIR" $SHADOW_EXPORT "$CODEX"

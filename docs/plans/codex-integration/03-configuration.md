@@ -4,6 +4,14 @@
 **Revised:** 2026-05-10
 **Depends on:** 02-implementation
 
+> **User-facing setup lives at [`integrations/permit0-codex/README.md`](../../../integrations/permit0-codex/README.md).**
+> This file is the original planning doc and goes deeper on every config
+> permutation. The integrations folder has the verified, paste-ready
+> setup recipe; copy-paste examples in
+> [`integrations/permit0-codex/examples/`](../../../integrations/permit0-codex/examples/);
+> and the runnable live-demo rig in
+> [`integrations/permit0-codex/dev-test-rig/`](../../../integrations/permit0-codex/dev-test-rig/).
+
 ## Prerequisites
 
 1. Build permit0 from source:
