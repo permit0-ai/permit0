@@ -24,8 +24,10 @@ deliverable.
 
 ### Phase 1: Read the Reviews
 
-Read every file in `docs/plan-reviews/<feature>/` in order, starting with
-`00-summary.md`. For each finding, note:
+Read every reviewer subdirectory under `docs/plan-reviews/<feature>/`.
+Each subdirectory (e.g. `review-a/`, `review-b/`) is one reviewer's
+output. Read each in order, starting with `00-summary.md`. For each
+finding, note:
 
 - The severity (Critical / Major / Minor / Nit).
 - The specific claim the reviewer disputes.
