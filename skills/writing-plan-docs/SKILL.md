@@ -1,19 +1,21 @@
 ---
 name: writing-plan-docs
 description: >-
-  Write planning documents for new permit0 features, integrations, or
-  significant changes. Use when the user asks to plan, design, spec, or
-  write a plan for a new integration, pack, feature, or architectural
-  change in the permit0 repository.
+  Write planning documents for new features, integrations, or significant
+  changes. Use when the user asks to plan, design, spec, or write a plan
+  for a new feature, integration, or architectural change.
 ---
 
-# Writing Plan Docs for permit0
+# Writing Plan Docs
+
+For repo-specific paths, conventions, and architecture, read
+[context.md](../context.md).
 
 ## When to Use
 
-Use this skill when the user asks you to plan a new integration (e.g. a new
-agent host like Codex, Cursor, CrewAI), a new pack, a new crate, or any
-multi-step change that benefits from upfront design before code.
+Use this skill when the user asks you to plan a new integration, a new
+module, or any multi-step change that benefits from upfront design before
+code.
 
 ## Where to Place Plans
 
@@ -43,13 +45,12 @@ reading only this file.
 Cover:
 
 1. **Goal** -- What this feature does, in one paragraph. If it replicates an
-   existing integration, say so and link to the reference implementation.
+   existing feature, say so and link to the reference implementation.
 2. **Data flow** -- ASCII or mermaid diagram showing the end-to-end path.
-3. **Comparison table** -- If a similar feature exists (e.g. Claude Code
-   integration), a side-by-side table of what is the same and what differs.
+3. **Comparison table** -- If a similar feature exists, a side-by-side table
+   of what is the same and what differs.
 4. **Scope** -- Bullet list of what is in v1 vs deferred to v2+.
-5. **Crate dependencies** -- Which crates are touched and which are not.
-   permit0's architecture makes most features crate-local; call that out.
+5. **Dependencies** -- Which modules/packages are touched and which are not.
 
 Header template:
 
@@ -68,10 +69,9 @@ Exact schemas for any JSON, TOML, HTTP, or stdin/stdout contract.
 Cover:
 
 1. **Input schema** -- Every field, type, whether always present or optional.
-2. **Output schema** -- Every possible response shape. Show concrete JSON
-   examples for each verdict/outcome.
-3. **Mapping table** -- How permit0 types (`Permission`, `Tier`, etc.) map
-   to the external system's values.
+2. **Output schema** -- Every possible response shape. Show concrete examples
+   for each outcome.
+3. **Mapping table** -- How internal types map to the external system's values.
 4. **Error handling matrix** -- What happens on crash, timeout, malformed
    output, transport failure. Table format works well.
 5. **Session / identity extraction** -- Where session IDs come from, fallback
@@ -87,12 +87,11 @@ and what to add after reading this.
 Cover:
 
 1. **Changes** -- Numbered list of specific code changes. Include the file
-   path and a Rust/TS/Python snippet showing the type or function signature.
+   path and a snippet showing the type or function signature.
 2. **Files changed vs not changed** -- Table format. Explicitly listing files
-   NOT changed is important in permit0 because most features are I/O-layer
-   changes with no engine/scoring/pack impact.
+   NOT changed is important in well-layered architectures.
 3. **Key decisions** -- If there were architectural choices (new file vs extend
-   existing, new enum variant vs trait impl), state the decision and the
+   existing, new variant vs new trait impl), state the decision and the
    reasoning in one sentence.
 4. **Migration path** -- What existing users need to do (usually nothing).
 5. **Risk assessment** -- What breaks if this goes wrong, what the blast
@@ -106,12 +105,10 @@ Cover:
 
 1. **Prerequisites** -- What to install, build, or configure first.
 2. **Step-by-step** -- Numbered steps with copy-pasteable config snippets.
-   Show both JSON and TOML if the external system supports both.
-3. **Configuration variants** -- One subsection per mode (local, remote,
-   session-aware, shadow, calibration, project-local, with-profile).
+3. **Configuration variants** -- One subsection per mode or deployment option.
 4. **Environment variable overrides** -- Table of env vars, what they
    override, and example values.
-5. **Verification** -- How to confirm the integration works end-to-end.
+5. **Verification** -- How to confirm the feature works end-to-end.
 
 Important: use **absolute paths** in examples. Note when `~` does not expand.
 
@@ -120,16 +117,14 @@ Important: use **absolute paths** in examples. Note when `~` does not expand.
 Cover:
 
 1. **Unit tests** -- List each test by name with a one-line description and
-   a code snippet showing the assertion. Group by concern (parsing, output
-   serialization, session ID, edge cases).
+   a code snippet showing the assertion. Group by concern.
 2. **Regression tests** -- Explicit list of existing tests that must still
    pass unchanged.
-3. **Integration tests** -- Shell commands that pipe input through the binary
-   and assert stdout/exit code.
-4. **Manual test script** -- A `scripts/test-<feature>.sh` that a developer
-   can run interactively.
+3. **Integration tests** -- Commands that exercise the feature end-to-end
+   and assert outputs.
+4. **Manual test script** -- A script a developer can run interactively.
 5. **Edge case matrix** -- Table of scenarios and expected behavior (timeout,
-   large input, missing fields, daemon down, etc.).
+   large input, missing fields, service down, etc.).
 
 ### 05-limitations.md (when there are known gaps)
 
@@ -167,34 +162,22 @@ Write docs in dependency order. The typical graph:
   02-implementation +-> 05-limitations
 ```
 
-Start with `00-overview` and `01-protocol` (can be parallel), then
-`02-implementation`, then `03-configuration` / `04-testing` / `05-limitations`
-(can be parallel).
-
 ## Research Before Writing
 
 Before writing any plan doc:
 
-1. **Read the reference implementation** if one exists. For integrations,
-   read `crates/permit0-cli/src/cmd/hook.rs` (the Claude Code hook) end to
-   end. Understand the existing I/O protocol, not just the engine.
-2. **Research the external system's hook/plugin docs.** Use web search. Read
-   the actual schema, not just summaries. Pay attention to what is supported
-   vs "parsed but not implemented."
-3. **Identify the critical difference.** Most integrations share 90% of the
-   flow. Find the 10% that differs and make that the focus of the plan.
+1. **Read the reference implementation** if one exists. Understand the
+   existing I/O protocol, not just the core logic.
+2. **Research the external system's docs.** Use web search. Read the actual
+   schema, not just summaries. Pay attention to what is supported vs "parsed
+   but not implemented."
+3. **Identify the critical difference.** Most similar features share 90% of
+   the flow. Find the 10% that differs and make that the focus of the plan.
 
 ## Style
 
 - No emojis in plan docs.
 - Use tables for comparisons and matrices.
-- Use fenced code blocks for JSON/TOML/Rust with the language tag.
+- Use fenced code blocks with the language tag.
 - Keep each doc under 300 lines. If it grows beyond that, split.
-- Link to source files using relative paths from the doc location
-  (e.g. `[hook.rs](../../../crates/permit0-cli/src/cmd/hook.rs)`).
-
-## Reference Example
-
-The Codex CLI integration plan at `docs/plans/codex-integration/` is the
-reference for this skill. Read those files for concrete examples of each
-document type.
+- Link to source files using relative paths from the doc location.
