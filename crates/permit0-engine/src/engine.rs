@@ -16,8 +16,8 @@ use permit0_store::audit::{
     Redactor,
     chain::{GENESIS_HASH, compute_entry_hash},
 };
-use permit0_store::{InMemoryStore, Store};
-use permit0_types::{DecisionRecord, NormAction, Permission, RawToolCall, RiskScore, Tier};
+use permit0_store::{InMemoryPolicyState, PolicyState};
+use permit0_types::{NormAction, Permission, RawToolCall, RiskScore, Tier};
 
 use crate::context::PermissionCtx;
 use crate::error::EngineError;
@@ -74,13 +74,14 @@ impl DecisionSource {
 
 /// The permit0 permission engine.
 ///
-/// Owns the normalizer registry, risk rules, scoring config, and store.
-/// Immutable after construction via `EngineBuilder`.
+/// Owns the normalizer registry, risk rules, scoring config, and policy
+/// state (denylist/allowlist/cache/HITL). Decision log lives in the
+/// audit sink, not here. Immutable after construction via `EngineBuilder`.
 pub struct Engine {
     registry: NormalizerRegistry,
     risk_rules: HashMap<String, RiskRuleDef>,
     config: ScoringConfig,
-    store: Arc<dyn Store>,
+    state: Arc<dyn PolicyState>,
     reviewer: Option<AgentReviewer>,
     // Audit subsystem (optional)
     audit_sink: Option<Arc<dyn AuditSink>>,
@@ -162,7 +163,7 @@ impl Engine {
         ));
 
         // Step 2: Denylist
-        if self.store.denylist_check(&norm_hash)?.is_some() {
+        if self.state.denylist_check(&norm_hash)?.is_some() {
             trace.push(stage("denylist", "hit", &redacted, None));
             let result = PermissionResult {
                 permission: Permission::Deny,
@@ -176,7 +177,7 @@ impl Engine {
         trace.push(stage("denylist", "miss", &redacted, None));
 
         // Step 3: Allowlist
-        if self.store.allowlist_check(&norm_hash)? {
+        if self.state.allowlist_check(&norm_hash)? {
             trace.push(stage("allowlist", "hit", &redacted, None));
             let result = PermissionResult {
                 permission: Permission::Allow,
@@ -190,7 +191,7 @@ impl Engine {
         trace.push(stage("allowlist", "miss", &redacted, None));
 
         // Step 4: Policy cache
-        if let Some(cached) = self.store.policy_cache_get(&norm_hash)? {
+        if let Some(cached) = self.state.policy_cache_get(&norm_hash)? {
             trace.push(stage(
                 "policy_cache",
                 "hit",
@@ -301,7 +302,7 @@ impl Engine {
         // wait would pin the cache at HumanInTheLoop and step 4 would then
         // short-circuit future calls, never re-prompting the reviewer.
         if permission != Permission::HumanInTheLoop {
-            self.store.policy_cache_set(norm_hash, permission)?;
+            self.state.policy_cache_set(norm_hash, permission)?;
         }
 
         let result = PermissionResult {
@@ -393,9 +394,9 @@ impl Engine {
         Ok(score)
     }
 
-    /// Access the underlying store (for list management).
-    pub fn store(&self) -> &dyn Store {
-        self.store.as_ref()
+    /// Access the underlying policy state (for list management).
+    pub fn state(&self) -> &dyn PolicyState {
+        self.state.as_ref()
     }
 
     /// Build and persist a decision audit record.
@@ -419,34 +420,10 @@ impl Engine {
         let now = chrono::Utc::now().to_rfc3339();
         let entry_id = ulid::Ulid::new().to_string();
 
-        // Always write the simple DecisionRecord to the Store
-        let record = DecisionRecord {
-            id: entry_id.clone(),
-            norm_hash: result.norm_action.norm_hash(),
-            action_type: result.norm_action.action_type.as_action_str(),
-            channel: result.norm_action.channel.clone(),
-            permission: result.permission,
-            source: result.source.as_str().into(),
-            tier: result.risk_score.as_ref().map(|s| s.tier),
-            risk_raw: result.risk_score.as_ref().map(|s| s.raw),
-            blocked: result.risk_score.as_ref().is_some_and(|s| s.blocked),
-            flags: result
-                .risk_score
-                .as_ref()
-                .map(|s| s.flags.clone())
-                .unwrap_or_default(),
-            timestamp: now.clone(),
-            surface_tool: result.norm_action.execution.surface_tool.clone(),
-            surface_command: result.norm_action.execution.surface_command.clone(),
-            engine_permission: None,
-            reviewer: None,
-            reason: None,
-        };
-        if let Err(e) = self.store.save_decision(record) {
-            tracing::warn!("failed to persist decision record: {e}");
-        }
-
-        // Write full AuditEntry if sink is configured
+        // Decision log lives only in the audit sink — the previous
+        // `Store::save_decision` shadow log was redundant with the
+        // hash-chained AuditEntry below. Write the full AuditEntry if
+        // a sink is configured.
         if let (Some(sink), Some(signer)) = (&self.audit_sink, &self.audit_signer) {
             let raw_tool_call = if let Some(ref redactor) = self.audit_redactor {
                 redactor.redact(&serde_json::to_value(tool_call).unwrap_or_default())
@@ -848,7 +825,7 @@ pub struct EngineBuilder {
     registry: NormalizerRegistry,
     risk_rules: HashMap<String, RiskRuleDef>,
     config: ScoringConfig,
-    store: Option<Arc<dyn Store>>,
+    state: Option<Arc<dyn PolicyState>>,
     reviewer: Option<AgentReviewer>,
     audit_sink: Option<Arc<dyn AuditSink>>,
     audit_signer: Option<Arc<dyn AuditSigner>>,
@@ -862,7 +839,7 @@ impl EngineBuilder {
             registry: NormalizerRegistry::new(),
             risk_rules: HashMap::new(),
             config: ScoringConfig::default(),
-            store: None,
+            state: None,
             reviewer: None,
             audit_sink: None,
             audit_signer: None,
@@ -877,17 +854,17 @@ impl EngineBuilder {
         self
     }
 
-    /// Set a custom store implementation.
-    pub fn with_store(mut self, store: Arc<dyn Store>) -> Self {
-        self.store = Some(store);
+    /// Set the policy state implementation (denylist/allowlist/cache/HITL).
+    pub fn with_policy_state(mut self, state: Arc<dyn PolicyState>) -> Self {
+        self.state = Some(state);
         self
     }
 
-    /// Use a SQLite store at the given path.
+    /// Use a SQLite-backed policy state at the given path.
     pub fn with_sqlite(self, path: impl AsRef<std::path::Path>) -> Result<Self, EngineError> {
-        let store = permit0_store::SqliteStore::open(path)
+        let state = permit0_store::SqlitePolicyState::open(path)
             .map_err(|e| EngineError::Build(e.to_string()))?;
-        Ok(self.with_store(Arc::new(store)))
+        Ok(self.with_policy_state(Arc::new(state)))
     }
 
     /// Set an agent reviewer for MEDIUM-tier calls.
@@ -972,15 +949,17 @@ impl EngineBuilder {
         Ok(self)
     }
 
-    /// Build the engine. Uses `InMemoryStore` if no store was provided.
+    /// Build the engine. Defaults to `InMemoryPolicyState` if none provided.
     pub fn build(self) -> Result<Engine, EngineError> {
-        let store = self.store.unwrap_or_else(|| Arc::new(InMemoryStore::new()));
+        let state = self
+            .state
+            .unwrap_or_else(|| Arc::new(InMemoryPolicyState::new()));
 
         Ok(Engine {
             registry: self.registry,
             risk_rules: self.risk_rules,
             config: self.config,
-            store,
+            state,
             reviewer: self.reviewer,
             audit_sink: self.audit_sink,
             audit_signer: self.audit_signer,
@@ -1105,8 +1084,8 @@ mod tests {
         let hash = result.norm_action.norm_hash();
 
         // Clear cache, add to denylist
-        engine.store().policy_cache_invalidate(&hash).unwrap();
-        engine.store().denylist_add(hash, "blocked".into()).unwrap();
+        engine.state().policy_cache_invalidate(&hash).unwrap();
+        engine.state().denylist_add(hash, "blocked".into()).unwrap();
 
         // Now should deny
         let result = engine
@@ -1126,9 +1105,9 @@ mod tests {
             .unwrap();
         let hash = result.norm_action.norm_hash();
 
-        engine.store().policy_cache_invalidate(&hash).unwrap();
+        engine.state().policy_cache_invalidate(&hash).unwrap();
         engine
-            .store()
+            .state()
             .allowlist_add(hash, "approved".into())
             .unwrap();
 
@@ -1149,12 +1128,12 @@ mod tests {
             .unwrap();
         let hash = result.norm_action.norm_hash();
 
-        engine.store().policy_cache_invalidate(&hash).unwrap();
+        engine.state().policy_cache_invalidate(&hash).unwrap();
         engine
-            .store()
+            .state()
             .allowlist_add(hash, "approved".into())
             .unwrap();
-        engine.store().denylist_add(hash, "blocked".into()).unwrap();
+        engine.state().denylist_add(hash, "blocked".into()).unwrap();
 
         let result = engine
             .get_permission(&gmail_send("Hello", "body"), &ctx)
@@ -1516,7 +1495,7 @@ mod tests {
 
         let hash = result.norm_action.norm_hash();
         assert_eq!(
-            engine.store().policy_cache_get(&hash).unwrap(),
+            engine.state().policy_cache_get(&hash).unwrap(),
             None,
             "HITL verdict from unknown-action path must not be cached"
         );
@@ -1540,7 +1519,7 @@ mod tests {
 
         let hash = result.norm_action.norm_hash();
         assert_eq!(
-            engine.store().policy_cache_get(&hash).unwrap(),
+            engine.state().policy_cache_get(&hash).unwrap(),
             None,
             "HITL verdict from scorer path must not be cached"
         );
@@ -1562,7 +1541,7 @@ mod tests {
 
         let hash = result.norm_action.norm_hash();
         assert_eq!(
-            engine.store().policy_cache_get(&hash).unwrap(),
+            engine.state().policy_cache_get(&hash).unwrap(),
             Some(Permission::Allow),
         );
     }
@@ -1588,7 +1567,7 @@ mod tests {
 
         // Mirror what apply_calibration does once the human approves.
         engine
-            .store()
+            .state()
             .policy_cache_set(hash, Permission::Allow)
             .unwrap();
 
@@ -1612,7 +1591,7 @@ mod tests {
         let hash = first.norm_action.norm_hash();
 
         engine
-            .store()
+            .state()
             .policy_cache_set(hash, Permission::Deny)
             .unwrap();
 
@@ -1675,8 +1654,8 @@ mod tests {
             .get_permission(&gmail_send("Hello", "body"), &ctx)
             .unwrap();
         let hash = result.norm_action.norm_hash();
-        engine.store().policy_cache_invalidate(&hash).unwrap();
-        engine.store().denylist_add(hash, "blocked".into()).unwrap();
+        engine.state().policy_cache_invalidate(&hash).unwrap();
+        engine.state().denylist_add(hash, "blocked".into()).unwrap();
 
         // Second call hits the denylist — trace must end there.
         engine
@@ -1701,8 +1680,8 @@ mod tests {
             .get_permission(&gmail_send("Hello", "body"), &ctx)
             .unwrap();
         let hash = result.norm_action.norm_hash();
-        engine.store().policy_cache_invalidate(&hash).unwrap();
-        engine.store().allowlist_add(hash, "ok".into()).unwrap();
+        engine.state().policy_cache_invalidate(&hash).unwrap();
+        engine.state().allowlist_add(hash, "ok".into()).unwrap();
 
         engine
             .get_permission(&gmail_send("Hello", "body"), &ctx)

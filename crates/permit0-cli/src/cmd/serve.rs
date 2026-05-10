@@ -22,12 +22,10 @@ use serde::{Deserialize, Serialize};
 use permit0_engine::{DecisionSource, Engine, PermissionCtx, PermissionResult};
 use permit0_normalize::NormalizeCtx;
 use permit0_session::SessionContext;
-use permit0_store::audit::{
-    AuditSigner, AuditSink, Ed25519Signer, FailedOpenContext, InMemoryAuditSink,
-};
-use permit0_store::{InMemoryStore, SqliteStore, Store};
+use permit0_store::audit::{AuditSigner, AuditSink, FailedOpenContext, FileKeyStore};
+use permit0_store::{InMemoryPolicyState, PolicyState, SqliteAuditSink, SqlitePolicyState};
 use permit0_types::{
-    ActionType, DecisionRecord, Entities, ExecutionMeta, NormAction, RawToolCall, RiskScore, Tier,
+    ActionType, Entities, ExecutionMeta, NormAction, RawToolCall, RiskScore, Tier,
 };
 use permit0_ui::{AppState, ApprovalManager, TokenStore};
 use tower_http::services::ServeDir;
@@ -41,7 +39,6 @@ use std::str::FromStr;
 struct ServerState {
     engine: Arc<Engine>,
     org_domain: String,
-    store: Option<Arc<dyn Store>>,
     /// Calibration mode: every fresh decision is escalated to human approval.
     calibrate: bool,
     /// Approval manager for the calibration synchronous wait. Shared with
@@ -145,24 +142,7 @@ async fn check_handler(
 
     let (result, meta) = apply_calibration(&state, result).await?;
 
-    let surface_command = tool_call
-        .parameters
-        .get("command")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .chars()
-        .take(200)
-        .collect();
-    let surface_tool = tool_call.tool_name.clone();
-    record_and_respond(
-        &state,
-        &result,
-        &tool_call,
-        &ctx,
-        surface_tool,
-        surface_command,
-        meta,
-    )
+    record_and_respond(&state, &result, &tool_call, &ctx, meta)
 }
 
 /// Pull a string field out of the metadata map, ignoring non-string types.
@@ -371,7 +351,7 @@ async fn check_action_handler(
     // Synthesize a raw tool call mirroring what `check_norm_action` does
     // internally, so the audit chain has something to record on calibration.
     let synthetic_tool_call = RawToolCall {
-        tool_name: surface_tool.clone(),
+        tool_name: surface_tool,
         parameters: serde_json::Value::Object(req.entities),
         metadata: Default::default(),
     };
@@ -385,15 +365,7 @@ async fn check_action_handler(
 
     let (result, meta) = apply_calibration(&state, result).await?;
 
-    record_and_respond(
-        &state,
-        &result,
-        &synthetic_tool_call,
-        &ctx,
-        surface_tool,
-        String::new(),
-        meta,
-    )
+    record_and_respond(&state, &result, &synthetic_tool_call, &ctx, meta)
 }
 
 /// In calibration mode, escalate every fresh decision (engine-produced —
@@ -488,7 +460,7 @@ async fn apply_calibration(
     // reflect the calibrated answer (overwriting the engine's recommendation).
     let _ = state
         .engine
-        .store()
+        .state()
         .policy_cache_set(norm_hash, decision.permission);
 
     let meta = CalibrationMeta {
@@ -514,47 +486,21 @@ struct CalibrationMeta {
     reason: Option<String>,
 }
 
-/// Persist the decision (if a shared store is configured) and serialize the response.
+/// Append the calibration audit entry (when applicable) and serialize the response.
+///
+/// The audit sink is the sole decision log. For ordinary requests the
+/// engine has already written through the sink in its pipeline. For
+/// calibrated requests the engine's normal audit write was suppressed
+/// via `ctx.skip_audit`; this function appends the composite entry now
+/// so the dashboard sees the human's verdict and `engine_decision`
+/// preserves the pre-calibration recommendation for override visibility.
 fn record_and_respond(
     state: &ServerState,
     result: &permit0_engine::PermissionResult,
     tool_call: &RawToolCall,
     ctx: &PermissionCtx,
-    surface_tool: String,
-    surface_command: String,
     calibration: CalibrationMeta,
 ) -> Result<Json<CheckResponse>, (StatusCode, String)> {
-    if let Some(ref store) = state.store {
-        let record = DecisionRecord {
-            id: ulid::Ulid::new().to_string(),
-            norm_hash: result.norm_action.norm_hash(),
-            action_type: result.norm_action.action_type.as_action_str().to_string(),
-            channel: result.norm_action.channel.clone(),
-            permission: result.permission,
-            source: format!("{:?}", result.source),
-            tier: result.risk_score.as_ref().map(|s| s.tier),
-            risk_raw: result.risk_score.as_ref().map(|s| s.raw),
-            blocked: result.risk_score.as_ref().is_some_and(|s| s.blocked),
-            flags: result
-                .risk_score
-                .as_ref()
-                .map_or_else(Vec::new, |s| s.flags.clone()),
-            timestamp: chrono::Utc::now().to_rfc3339(),
-            surface_tool,
-            surface_command,
-            engine_permission: calibration.engine_permission,
-            reviewer: calibration.reviewer.clone(),
-            reason: calibration.reason.clone(),
-        };
-        let _ = store.save_decision(record);
-    }
-
-    // When a human calibrated this decision, the engine's normal audit
-    // write was suppressed via `ctx.skip_audit`. Append the composite
-    // entry now so the dashboard's audit log and recent-decisions list
-    // see it. `engine_permission` is the pre-calibration verdict — the
-    // chain stores it in `engine_decision` so the dashboard can show
-    // override information ("permit0 said vs human said vs match?").
     if let (Some(engine_permission), Some(reviewer), Some(reason)) = (
         calibration.engine_permission,
         calibration.reviewer,
@@ -604,38 +550,51 @@ pub fn run(
     let rt = tokio::runtime::Runtime::new().context("creating tokio runtime")?;
     rt.block_on(async move {
         let app = if with_ui {
-            // Shared in-memory audit sink so /check and /audit/replay both
-            // write here, and the dashboard can read the same chain. This
-            // is what makes failed-open windows visible to the banner UI.
-            //
-            // For now the sink is in-memory only — it is wiped on daemon
-            // restart. Persisting the audit chain to disk is a separate
-            // hardening step (the SQLite store at db_path is for
-            // DecisionRecords only; chained AuditEntries need their own
-            // sink implementation that writes to disk).
-            let audit_sink: Arc<dyn AuditSink> = Arc::new(InMemoryAuditSink::new());
-            let audit_signer: Arc<dyn AuditSigner> = Arc::new(Ed25519Signer::generate());
-
-            let engine = engine_factory::build_engine_builder_from_packs(profile.as_deref(), None)?
-                .with_audit(audit_sink.clone(), audit_signer)
-                .build()?;
-
             let packs_dir = engine_factory::resolve_packs_dir(None);
             let db_dir = engine_factory::dirs_home()
                 .unwrap_or_else(|| std::path::PathBuf::from("."))
                 .join(".permit0");
             std::fs::create_dir_all(&db_dir).ok();
-            let db_path = db_dir.join("permit0.db");
-            eprintln!("  database at {}", db_path.display());
-            let shared_store: Arc<dyn Store> = match SqliteStore::open(&db_path) {
+
+            // Persistent split: state DB owns denylist/allowlist/cache/HITL;
+            // audit DB owns the chained decision log.
+            let state_db_path = db_dir.join("state.db");
+            let audit_db_path = db_dir.join("audit.db");
+            eprintln!("  state DB at {}", state_db_path.display());
+            eprintln!("  audit DB at {}", audit_db_path.display());
+
+            let policy_state: Arc<dyn PolicyState> = match SqlitePolicyState::open(&state_db_path) {
                 Ok(s) => Arc::new(s),
                 Err(e) => {
                     eprintln!(
-                        "  warning: failed to open SQLite store ({e}), falling back to in-memory"
+                        "  warning: failed to open state DB ({e}), falling back to in-memory"
                     );
-                    Arc::new(InMemoryStore::new())
+                    Arc::new(InMemoryPolicyState::new())
                 }
             };
+
+            let audit_sink: Arc<dyn AuditSink> = match SqliteAuditSink::open(&audit_db_path) {
+                Ok(s) => Arc::new(s),
+                Err(e) => {
+                    eprintln!(
+                        "  warning: failed to open audit DB ({e}), falling back to in-memory"
+                    );
+                    Arc::new(permit0_store::InMemoryAuditSink::new())
+                }
+            };
+
+            // Persistent ed25519 signing key — preserved across restarts so
+            // signatures remain verifiable with the same public key.
+            let key_path = db_dir.join("audit_signing.key");
+            let signer = FileKeyStore::load_or_generate(&key_path)
+                .with_context(|| format!("loading audit signing key at {}", key_path.display()))?;
+            let audit_signer: Arc<dyn AuditSigner> = Arc::new(signer);
+            eprintln!("  audit signing pubkey: {}", audit_signer.public_key_hex());
+
+            let engine = engine_factory::build_engine_builder_from_packs(profile.as_deref(), None)?
+                .with_policy_state(policy_state.clone())
+                .with_audit(audit_sink.clone(), audit_signer)
+                .build()?;
 
             // Shared approval manager so the daemon's calibration handler and
             // the dashboard's /api/v1/approvals/decide endpoint resolve the
@@ -645,7 +604,6 @@ pub fn run(
             let server_state = ServerState {
                 engine: Arc::new(engine),
                 org_domain: org_domain.into(),
-                store: Some(shared_store.clone()),
                 calibrate,
                 approval_manager: Some(approval_manager.clone()),
             };
@@ -656,8 +614,8 @@ pub fn run(
                 .with_state(server_state);
 
             let ui_state = AppState {
-                store: shared_store,
-                audit_sink: Some(audit_sink),
+                state: policy_state,
+                audit_sink,
                 token_store: Arc::new(TokenStore::new()),
                 approval_manager,
                 packs_dir: packs_dir.clone(),
@@ -683,7 +641,6 @@ pub fn run(
             let server_state = ServerState {
                 engine: Arc::new(engine),
                 org_domain: org_domain.into(),
-                store: None,
                 calibrate: false,
                 approval_manager: None,
             };

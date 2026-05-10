@@ -1,7 +1,7 @@
 #![forbid(unsafe_code)]
 
 use permit0_normalize::NormalizeError;
-use permit0_store::StoreError;
+use permit0_store::StateError;
 
 /// Errors returned by the permission engine.
 #[derive(Debug, thiserror::Error)]
@@ -9,8 +9,8 @@ pub enum EngineError {
     #[error("normalization failed: {0}")]
     Normalize(#[from] NormalizeError),
 
-    #[error("store error: {0}")]
-    Store(#[from] StoreError),
+    #[error("policy state error: {0}")]
+    State(#[from] StateError),
 
     #[error("no risk rule found for action type: {0}")]
     NoRiskRule(String),

@@ -2,17 +2,17 @@
 #![doc = "Storage traits and implementations for permit0."]
 
 pub mod audit;
-mod memory;
-mod sqlite;
-mod traits;
+mod policy_state;
+mod policy_state_memory;
+mod policy_state_sqlite;
 
-pub use memory::InMemoryStore;
-pub use sqlite::SqliteStore;
-pub use traits::{Store, StoreError};
+pub use policy_state::{HumanDecisionRow, PendingApprovalRow, PolicyState, StateError};
+pub use policy_state_memory::InMemoryPolicyState;
+pub use policy_state_sqlite::SqlitePolicyState;
 
 // Re-export key audit types at crate root for convenience.
 pub use audit::{
     AuditEntry, AuditError, AuditFilter, AuditPolicy, AuditSigner, AuditSink, BuiltinRedactor,
-    ChainVerification, DecisionStage, Ed25519Signer, Ed25519Verifier, HumanReview,
-    InMemoryAuditSink, Redactor, ScoringDetail, StdoutAuditSink,
+    ChainVerification, DecisionStage, Ed25519Signer, Ed25519Verifier, FileKeyStore, HumanReview,
+    InMemoryAuditSink, KeyStoreError, Redactor, ScoringDetail, SqliteAuditSink, StdoutAuditSink,
 };

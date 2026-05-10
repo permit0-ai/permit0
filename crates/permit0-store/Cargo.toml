@@ -19,3 +19,6 @@ ed25519-dalek = { workspace = true }
 hex = "0.4"
 regex = { workspace = true }
 rand = { workspace = true }
+
+[dev-dependencies]
+tempfile = "3"

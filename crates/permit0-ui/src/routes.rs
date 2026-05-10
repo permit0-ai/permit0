@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use permit0_store::AuditFilter;
 use permit0_store::audit::AuditEntry;
-use permit0_types::{DecisionFilter, Permission};
+use permit0_types::Permission;
 
 use crate::approval::HumanDecision;
 use crate::state::AppState;
@@ -58,55 +58,31 @@ pub async fn list_audit(
     Json<ApiResponse<Vec<serde_json::Value>>>,
     (StatusCode, Json<ApiResponse<Vec<serde_json::Value>>>),
 > {
-    if let Some(ref sink) = state.audit_sink {
-        let filter = AuditFilter {
-            action_type: q.action_type,
-            decision: q.decision.as_deref().and_then(parse_permission),
-            session_id: q.session_id,
-            since: q.since,
-            until: q.until,
-            limit: q.limit,
-            ..Default::default()
-        };
-        match sink.query(&filter) {
-            Ok(entries) => {
-                // The frontend's audit table and dashboard "Recent Decisions"
-                // both read flat fields (action_type, permission, tier,
-                // risk_raw, ...) shaped like DecisionRecord. AuditEntry has a
-                // nested shape (norm_action.action_type, decision,
-                // risk_score.tier). Project to the flat shape so both views
-                // render correctly without reaching into nested objects.
-                let json_entries: Vec<serde_json::Value> =
-                    entries.iter().map(flatten_audit_entry).collect();
-                Ok(ok_response(json_entries))
-            }
-            Err(e) => Err(err_response(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                &format!("audit query failed: {e}"),
-            )),
+    let filter = AuditFilter {
+        action_type: q.action_type,
+        decision: q.decision.as_deref().and_then(parse_permission),
+        session_id: q.session_id,
+        since: q.since,
+        until: q.until,
+        limit: q.limit,
+        ..Default::default()
+    };
+    match state.audit_sink.query(&filter) {
+        Ok(entries) => {
+            // The frontend's audit table and dashboard "Recent Decisions"
+            // both read flat fields (action_type, permission, tier,
+            // risk_raw, ...) shaped like the legacy DecisionRecord.
+            // AuditEntry has a nested shape (norm_action.action_type,
+            // decision, risk_score.tier). Project to the flat shape so
+            // both views render without reaching into nested objects.
+            let json_entries: Vec<serde_json::Value> =
+                entries.iter().map(flatten_audit_entry).collect();
+            Ok(ok_response(json_entries))
         }
-    } else {
-        // Fall back to simple decision records from store
-        let filter = DecisionFilter {
-            action_type: q.action_type,
-            permission: q.decision.as_deref().and_then(parse_permission),
-            since: q.since,
-            limit: q.limit,
-            ..Default::default()
-        };
-        match state.store.query_decisions(&filter) {
-            Ok(records) => {
-                let json_records: Vec<serde_json::Value> = records
-                    .iter()
-                    .filter_map(|r| serde_json::to_value(r).ok())
-                    .collect();
-                Ok(ok_response(json_records))
-            }
-            Err(e) => Err(err_response(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                &format!("decision query failed: {e}"),
-            )),
-        }
+        Err(e) => Err(err_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &format!("audit query failed: {e}"),
+        )),
     }
 }
 
@@ -184,7 +160,7 @@ pub async fn denylist_add(
             ));
         }
     };
-    state.store.denylist_add(hash, req.reason).map_err(|e| {
+    state.state.denylist_add(hash, req.reason).map_err(|e| {
         err_response(
             StatusCode::INTERNAL_SERVER_ERROR,
             &format!("store error: {e}"),
@@ -207,7 +183,7 @@ pub async fn allowlist_add(
             ));
         }
     };
-    state.store.allowlist_add(hash, req.reason).map_err(|e| {
+    state.state.allowlist_add(hash, req.reason).map_err(|e| {
         err_response(
             StatusCode::INTERNAL_SERVER_ERROR,
             &format!("store error: {e}"),

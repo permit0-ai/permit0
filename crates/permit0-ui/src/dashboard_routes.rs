@@ -7,8 +7,8 @@ use axum::http::{StatusCode, header};
 use axum::response::{IntoResponse, Json, Response};
 use serde::{Deserialize, Serialize};
 
-use permit0_store::audit::AuditFilter;
-use permit0_types::{DecisionFilter, Permission};
+use permit0_store::audit::{AuditFilter, export_csv, export_jsonl};
+use permit0_types::Permission;
 
 use crate::state::AppState;
 
@@ -110,32 +110,32 @@ fn sanitize_profile_name(name: &str) -> Result<&str, String> {
 pub async fn stats(
     State(state): State<AppState>,
 ) -> Result<Json<ApiResponse<StatsResponse>>, (StatusCode, Json<ApiResponse<StatsResponse>>)> {
-    let filter = DecisionFilter {
+    let filter = AuditFilter {
         limit: Some(10_000),
         ..Default::default()
     };
 
-    let records = state.store.query_decisions(&filter).map_err(|e| {
+    let entries = state.audit_sink.query(&filter).map_err(|e| {
         err_response::<StatsResponse>(
             StatusCode::INTERNAL_SERVER_ERROR,
-            &format!("failed to query decisions: {e}"),
+            &format!("failed to query audit entries: {e}"),
         )
     })?;
 
-    let total_decisions = records.len();
+    let total_decisions = entries.len();
     let mut allow_count = 0usize;
     let mut deny_count = 0usize;
     let mut human_count = 0usize;
     let mut tier_distribution: HashMap<String, usize> = HashMap::new();
 
-    for record in &records {
-        match record.permission {
+    for entry in &entries {
+        match entry.decision {
             Permission::Allow => allow_count += 1,
             Permission::Deny => deny_count += 1,
             Permission::HumanInTheLoop => human_count += 1,
         }
-        if let Some(ref tier) = record.tier {
-            *tier_distribution.entry(tier.to_string()).or_insert(0) += 1;
+        if let Some(rs) = entry.risk_score.as_ref() {
+            *tier_distribution.entry(rs.tier.to_string()).or_insert(0) += 1;
         }
     }
 
@@ -155,7 +155,7 @@ pub async fn stats(
 pub async fn list_denylist(
     State(state): State<AppState>,
 ) -> Result<Json<ApiResponse<Vec<ListEntry>>>, (StatusCode, Json<ApiResponse<Vec<ListEntry>>>)> {
-    let entries = state.store.denylist_list().map_err(|e| {
+    let entries = state.state.denylist_list().map_err(|e| {
         err_response::<Vec<ListEntry>>(
             StatusCode::INTERNAL_SERVER_ERROR,
             &format!("failed to list denylist: {e}"),
@@ -177,7 +177,7 @@ pub async fn list_denylist(
 pub async fn list_allowlist(
     State(state): State<AppState>,
 ) -> Result<Json<ApiResponse<Vec<ListEntry>>>, (StatusCode, Json<ApiResponse<Vec<ListEntry>>>)> {
-    let entries = state.store.allowlist_list().map_err(|e| {
+    let entries = state.state.allowlist_list().map_err(|e| {
         err_response::<Vec<ListEntry>>(
             StatusCode::INTERNAL_SERVER_ERROR,
             &format!("failed to list allowlist: {e}"),
@@ -203,7 +203,7 @@ pub async fn denylist_remove_entry(
     let hash = hex_to_norm_hash(&req.norm_hash_hex)
         .ok_or_else(|| err_response::<String>(StatusCode::BAD_REQUEST, "invalid norm_hash hex"))?;
 
-    state.store.denylist_remove(&hash).map_err(|e| {
+    state.state.denylist_remove(&hash).map_err(|e| {
         err_response::<String>(
             StatusCode::INTERNAL_SERVER_ERROR,
             &format!("store error: {e}"),
@@ -221,7 +221,7 @@ pub async fn allowlist_remove_entry(
     let hash = hex_to_norm_hash(&req.norm_hash_hex)
         .ok_or_else(|| err_response::<String>(StatusCode::BAD_REQUEST, "invalid norm_hash hex"))?;
 
-    state.store.allowlist_remove(&hash).map_err(|e| {
+    state.state.allowlist_remove(&hash).map_err(|e| {
         err_response::<String>(
             StatusCode::INTERNAL_SERVER_ERROR,
             &format!("store error: {e}"),
@@ -232,33 +232,44 @@ pub async fn allowlist_remove_entry(
 }
 
 /// GET /api/v1/audit/export?format=jsonl|csv
+///
+/// Exports the full hash-chained audit log straight from `AuditSink`.
+/// JSONL preserves every `AuditEntry` field (including `prev_hash` /
+/// `entry_hash` / `signature`) so the export can be re-verified offline
+/// with `permit0 audit verify`.
 pub async fn audit_export(
     State(state): State<AppState>,
     Query(q): Query<ExportQuery>,
 ) -> Result<Response, (StatusCode, Json<ApiResponse<String>>)> {
     let format = q.format.unwrap_or_else(|| "jsonl".to_string());
 
-    let filter = DecisionFilter {
+    let filter = AuditFilter {
         limit: Some(100_000),
         ..Default::default()
     };
 
-    let records = state.store.query_decisions(&filter).map_err(|e| {
+    let entries = state.audit_sink.query(&filter).map_err(|e| {
         err_response::<String>(
             StatusCode::INTERNAL_SERVER_ERROR,
-            &format!("failed to query decisions: {e}"),
+            &format!("failed to query audit entries: {e}"),
         )
     })?;
 
     match format.as_str() {
         "jsonl" => {
-            let mut body = String::new();
-            for record in &records {
-                if let Ok(line) = serde_json::to_string(record) {
-                    body.push_str(&line);
-                    body.push('\n');
-                }
-            }
+            let mut buf: Vec<u8> = Vec::new();
+            export_jsonl(&entries, &mut buf).map_err(|e| {
+                err_response::<String>(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    &format!("export failed: {e}"),
+                )
+            })?;
+            let body = String::from_utf8(buf).map_err(|e| {
+                err_response::<String>(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    &format!("export utf8: {e}"),
+                )
+            })?;
             Ok((
                 StatusCode::OK,
                 [
@@ -273,35 +284,19 @@ pub async fn audit_export(
                 .into_response())
         }
         "csv" => {
-            let mut body = String::new();
-            body.push_str(
-                "id,norm_hash,action_type,channel,permission,source,tier,risk_raw,blocked,flags,timestamp,surface_tool,surface_command\n",
-            );
-            for record in &records {
-                let tier_str = record
-                    .tier
-                    .as_ref()
-                    .map(|t| t.to_string())
-                    .unwrap_or_default();
-                let risk_str = record.risk_raw.map(|r| r.to_string()).unwrap_or_default();
-                let flags_str = record.flags.join(";");
-                body.push_str(&format!(
-                    "{},{},{},{},{},{},{},{},{},{},{},{},{}\n",
-                    record.id,
-                    hex::encode(record.norm_hash),
-                    record.action_type,
-                    record.channel,
-                    record.permission,
-                    record.source,
-                    tier_str,
-                    risk_str,
-                    record.blocked,
-                    flags_str,
-                    record.timestamp,
-                    record.surface_tool,
-                    record.surface_command,
-                ));
-            }
+            let mut buf: Vec<u8> = Vec::new();
+            export_csv(&entries, &mut buf).map_err(|e| {
+                err_response::<String>(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    &format!("export failed: {e}"),
+                )
+            })?;
+            let body = String::from_utf8(buf).map_err(|e| {
+                err_response::<String>(
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    &format!("export utf8: {e}"),
+                )
+            })?;
             Ok((
                 StatusCode::OK,
                 [
@@ -418,33 +413,39 @@ pub struct ActionOverrideCount {
     pub count: usize,
 }
 
-/// GET /api/v1/calibration/stats — aggregate stats over calibration records.
+/// GET /api/v1/calibration/stats — aggregate stats over calibration entries.
+///
+/// A calibration entry is an `AuditEntry` whose `human_review` field is
+/// populated. The engine's pre-review verdict (when it differs from the
+/// reviewer's) is captured in `engine_decision`.
 pub async fn calibration_stats(
     State(state): State<AppState>,
 ) -> Result<Json<ApiResponse<CalibrationStats>>, (StatusCode, Json<ApiResponse<CalibrationStats>>)>
 {
-    let records = state
-        .store
-        .query_decisions(&DecisionFilter {
-            limit: Some(10000),
+    let entries = state
+        .audit_sink
+        .query(&AuditFilter {
+            limit: Some(10_000),
             ..Default::default()
         })
         .map_err(|e| {
             err_response(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                &format!("query failed: {e}"),
+                &format!("audit query failed: {e}"),
             )
         })?;
 
-    // Calibration records = those with a reviewer set.
-    let calib: Vec<_> = records.iter().filter(|r| r.reviewer.is_some()).collect();
+    let calib: Vec<_> = entries
+        .iter()
+        .filter(|e| e.human_review.is_some())
+        .collect();
     let total = calib.len();
 
     let mut matched = 0;
     let mut overridden = 0;
-    for r in &calib {
-        if let Some(eng) = r.engine_permission {
-            if eng == r.permission {
+    for e in &calib {
+        if let Some(eng) = e.engine_decision {
+            if eng == e.decision {
                 matched += 1;
             } else {
                 overridden += 1;
@@ -453,9 +454,9 @@ pub async fn calibration_stats(
     }
 
     let mut by_reviewer_map: HashMap<String, usize> = HashMap::new();
-    for r in &calib {
-        if let Some(rev) = &r.reviewer {
-            *by_reviewer_map.entry(rev.clone()).or_insert(0) += 1;
+    for e in &calib {
+        if let Some(hr) = e.human_review.as_ref() {
+            *by_reviewer_map.entry(hr.reviewer.clone()).or_insert(0) += 1;
         }
     }
     let mut by_reviewer: Vec<ReviewerCount> = by_reviewer_map
@@ -466,12 +467,11 @@ pub async fn calibration_stats(
     by_reviewer.truncate(10);
 
     let mut overridden_action_map: HashMap<String, usize> = HashMap::new();
-    for r in &calib {
-        if let Some(eng) = r.engine_permission {
-            if eng != r.permission {
-                *overridden_action_map
-                    .entry(r.action_type.clone())
-                    .or_insert(0) += 1;
+    for e in &calib {
+        if let Some(eng) = e.engine_decision {
+            if eng != e.decision {
+                let at = e.norm_action.action_type.as_action_str();
+                *overridden_action_map.entry(at).or_insert(0) += 1;
             }
         }
     }
@@ -516,36 +516,34 @@ pub async fn calibration_records(
     Json<ApiResponse<Vec<serde_json::Value>>>,
     (StatusCode, Json<ApiResponse<Vec<serde_json::Value>>>),
 > {
-    let records = state
-        .store
-        .query_decisions(&DecisionFilter {
+    let entries = state
+        .audit_sink
+        .query(&AuditFilter {
             limit: Some(q.limit.unwrap_or(500)),
             ..Default::default()
         })
         .map_err(|e| {
             err_response(
                 StatusCode::INTERNAL_SERVER_ERROR,
-                &format!("query failed: {e}"),
+                &format!("audit query failed: {e}"),
             )
         })?;
 
-    let filtered: Vec<serde_json::Value> = records
+    let filtered: Vec<serde_json::Value> = entries
         .into_iter()
-        .filter(|r| r.reviewer.is_some())
-        .filter(|r| match q.reviewer.as_deref() {
-            Some(rev) => r.reviewer.as_deref() == Some(rev),
+        .filter(|e| e.human_review.is_some())
+        .filter(|e| match q.reviewer.as_deref() {
+            Some(rev) => e.human_review.as_ref().map(|h| h.reviewer.as_str()) == Some(rev),
             None => true,
         })
-        .filter(|r| match q.agreement.as_deref() {
-            Some("matched") => {
-                r.engine_permission.is_some() && r.engine_permission == Some(r.permission)
-            }
+        .filter(|e| match q.agreement.as_deref() {
+            Some("matched") => e.engine_decision.is_some() && e.engine_decision == Some(e.decision),
             Some("overridden") => {
-                r.engine_permission.is_some() && r.engine_permission != Some(r.permission)
+                e.engine_decision.is_some() && e.engine_decision != Some(e.decision)
             }
             _ => true,
         })
-        .filter_map(|r| serde_json::to_value(&r).ok())
+        .filter_map(|e| serde_json::to_value(&e).ok())
         .collect();
 
     Ok(ok_response(filtered))
@@ -581,15 +579,6 @@ pub async fn failed_open_windows(
     Json<ApiResponse<Vec<FailedOpenWindow>>>,
     (StatusCode, Json<ApiResponse<Vec<FailedOpenWindow>>>),
 > {
-    let sink = match state.audit_sink {
-        Some(ref s) => s,
-        None => {
-            // No audit sink wired — banner has nothing to show. Return
-            // an empty list so the frontend can render "no incidents".
-            return Ok(ok_response(Vec::new()));
-        }
-    };
-
     // Pull a generous batch of recent audit entries. The query path uses
     // an AuditFilter that doesn't currently support filter-by-source, so
     // we filter client-side.
@@ -597,7 +586,7 @@ pub async fn failed_open_windows(
         limit: Some(10_000),
         ..Default::default()
     };
-    let entries = sink.query(&filter).map_err(|e| {
+    let entries = state.audit_sink.query(&filter).map_err(|e| {
         err_response(
             StatusCode::INTERNAL_SERVER_ERROR,
             &format!("audit query failed: {e}"),
