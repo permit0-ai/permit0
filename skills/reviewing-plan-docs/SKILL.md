@@ -13,7 +13,26 @@ description: >-
 
 Use this skill when the user asks you to review, audit, critique, or validate
 planning documents under `docs/plans/<feature>/`. The output is a set of
-review docs written to `docs/plan-reviews/<feature>/`.
+review docs written to a **reviewer-specific subdirectory**:
+
+```
+docs/plan-reviews/<feature>/<reviewer-id>/
+```
+
+The `<reviewer-id>` must be unique per agent so that parallel reviewers do
+not overwrite each other. **Derive it automatically** -- do not ask the user.
+
+To generate the reviewer ID: run `uuidgen | head -c 8` in a shell to get
+an 8-character random hex string (e.g. `a3f1b20c`). Use that as the
+subdirectory name. Do this once at the start of the review, before writing
+any files.
+
+Example: two parallel reviews of the Codex integration would write to:
+
+```
+docs/plan-reviews/codex-integration/a3f1b20c/
+docs/plan-reviews/codex-integration/7e42d9f1/
+```
 
 ## Workflow
 
@@ -55,7 +74,7 @@ plan doc, plus a summary.
 ## Output Structure
 
 ```
-docs/plan-reviews/<feature>/
+docs/plan-reviews/<feature>/<reviewer-id>/
   00-summary.md               # Overall verdict and key findings
   01-review-overview.md       # Review of 00-overview.md
   02-review-protocol.md       # Review of 01-protocol.md
@@ -64,6 +83,9 @@ docs/plan-reviews/<feature>/
   05-review-testing.md        # Review of 04-testing.md
   06-review-limitations.md    # Review of 05-limitations.md
 ```
+
+Each reviewer writes to its own subdirectory. This prevents parallel agents
+from overwriting each other's output.
 
 Skip review files for plan docs that don't exist (e.g. if there is no
 `01-protocol.md`, skip `02-review-protocol.md`).
@@ -149,12 +171,13 @@ or are changes needed first?
 
 ## Distinguishing Your Review
 
-Multiple agents may review the same plan. To make your review
-distinguishable:
+Multiple agents may review the same plan in parallel. Reviews are kept
+separate by writing to different subdirectories (see Output Structure).
+
+Additionally:
 
 1. **Always include the reviewer line:** `**Reviewer:** Cursor Agent
-   (session <unique identifier>)` -- use the current timestamp or
-   conversation ID.
+   (<reviewer-id>)` -- use the same hex string as the subdirectory name.
 2. **Cite specific file paths and line numbers** from the codebase when
    verifying or disputing claims. Other reviewers may make the same point
    but your evidence trail will differ.
