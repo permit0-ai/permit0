@@ -1,3 +1,3 @@
-"""permit0-outlook-mcp: MCP server exposing Outlook tools, each gated by permit0."""
+"""permit0-outlook-mcp: plain MCP server exposing Outlook tools."""
 
 __version__ = "0.1.0"

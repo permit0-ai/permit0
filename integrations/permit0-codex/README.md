@@ -15,8 +15,9 @@ Model proposes a tool call (Bash, apply_patch, mcp__<server>__<tool>)
    ↓
 Codex fires PreToolUse hook → spawns `permit0 hook --client codex`
    ↓
-permit0 normalizes the tool call through packs, scores it, returns
-either empty stdout (no objection) or a deny envelope
+permit0 forwards the tool call to the daemon, which normalizes it
+through packs, scores it, records the decision for the dashboard, and
+returns either empty stdout (no objection) or a deny envelope
    ↓
 Codex either runs the tool or blocks it with permit0's reason
 ```
@@ -34,9 +35,20 @@ Codex either runs the tool or blocks it with permit0's reason
   # produces ./target/release/permit0
   ```
 
-## Setup (production-ish)
+## Setup (dashboard-visible enforcement)
 
-Add the hook to your Codex config and trust it once via the TUI.
+Start the permit0 daemon, then add the hook to your Codex config and
+trust it once via the TUI. Remote daemon mode is the recommended setup:
+it gives one enforcement point, one approval flow, and one dashboard
+record for every Codex tool decision.
+
+0. Start the daemon:
+
+   ```bash
+   cargo run -p permit0-cli -- serve --ui --port 9090
+   ```
+
+   Open <http://127.0.0.1:9090/ui/> to watch decisions and approvals.
 
 1. Append this block to `~/.codex/config.toml`:
 
@@ -49,7 +61,7 @@ Add the hook to your Codex config and trust it once via the TUI.
 
    [[hooks.PreToolUse.hooks]]
    type = "command"
-   command = "/absolute/path/to/permit0/target/release/permit0 hook --client codex --packs-dir /absolute/path/to/permit0/packs --unknown defer"
+   command = "/absolute/path/to/permit0/target/release/permit0 hook --client codex --remote http://127.0.0.1:9090 --unknown deny"
    timeout = 30
    statusMessage = "permit0 safety check"
    ```
@@ -70,8 +82,14 @@ Add the hook to your Codex config and trust it once via the TUI.
    Exit Codex.
 
 3. From now on every `codex` and `codex exec` session fires permit0 on
-   every tool call. Re-trust is required if you edit the hook command
+   every tool call. If the daemon is down, remote mode fails closed and
+   blocks the tool. Re-trust is required if you edit the hook command
    (Codex tracks a content hash).
+
+Local hook mode (`--packs-dir ...`) still exists for offline development
+and synthetic smoke tests, but it evaluates in the hook process and does
+not write decisions to the daemon dashboard. Do not use local mode when
+you expect dashboard-visible enforcement.
 
 ## Setup (unattended — macOS auto-trust)
 
@@ -80,14 +98,17 @@ via macOS managed preferences. Codex treats these as MDM-sourced =
 always trusted, no review needed.
 
 ```bash
+cargo run -p permit0-cli -- serve --ui --port 9090
 bash integrations/permit0-codex/examples/install-managed-prefs.sh
 ```
 
 The script reads the same TOML config layered into macOS user defaults
-under `com.openai.codex/requirements_toml_base64`. To uninstall:
+under `com.openai.codex/requirements_toml_base64`. By default it installs
+remote daemon mode against `http://127.0.0.1:9090`; override with
+`PERMIT0_URL=http://host:port` if your daemon runs elsewhere. To uninstall:
 
 ```bash
-defaults delete com.openai.codex requirements_toml_base64
+bash integrations/permit0-codex/examples/install-managed-prefs.sh --uninstall
 ```
 
 This is the path the live-demo launcher in `dev-test-rig/codex-demo`
@@ -114,8 +135,8 @@ enforcement boundary." permit0 inherits them.
 |---|---|---|
 | `Allow` / `Defer` | Zero stdout bytes | Tool runs |
 | `Deny` | `permissionDecision: "deny"` envelope with reason | Tool blocked, model sees the reason |
-| `HumanInTheLoop` (Medium/High tier) | `permissionDecision: "deny"` envelope with `" — requires human review"` marker appended to the reason | Tool blocked; the marker tells users this was a HITL action under Claude Code, not a hard Critical block |
-| Internal error in permit0 | `permissionDecision: "deny"` envelope with `"permit0 internal error: <msg>"` | Tool blocked (fail-closed) |
+| `HumanInTheLoop` (Medium/High tier) | `permissionDecision: "deny"` envelope with `" — requires human review"` marker appended to the reason | Tool blocked; the marker tells users this was a HITL action, not a hard Critical block |
+| Daemon unavailable / internal error | `permissionDecision: "deny"` envelope with the failure reason | Tool blocked (fail-closed) |
 
 Codex `PreToolUse` does **not** support `permissionDecision: "allow"` or
 `"ask"`; both are explicitly rejected. permit0 never emits either.

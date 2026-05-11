@@ -10,9 +10,9 @@
 # Codex's TUI first.
 #
 # Usage:
-#   install-managed-prefs.sh [--force]       install (refuses if an
-#                                            unstamped value is already
-#                                            present)
+#   install-managed-prefs.sh [--force]       install a daemon-backed hook
+#                                            (refuses if an unstamped value
+#                                            is already present)
 #   install-managed-prefs.sh --uninstall     remove permit0's value; if a
 #                                            backup exists, restore the
 #                                            most recent one
@@ -44,7 +44,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/../../.." && pwd)"
 PERMIT0_BIN="$REPO_ROOT/target/release/permit0"
-PACKS_DIR="$REPO_ROOT/packs"
+PERMIT0_URL="${PERMIT0_URL:-http://127.0.0.1:9090}"
 
 DEFAULTS_DOMAIN="com.openai.codex"
 DEFAULTS_KEY="requirements_toml_base64"
@@ -57,11 +57,18 @@ print_help() {
 install-managed-prefs.sh — install the permit0+Codex managed-prefs hook.
 
 USAGE:
-  install-managed-prefs.sh                    # install (refuses if unstamped)
+  install-managed-prefs.sh                    # install daemon-backed hook
   install-managed-prefs.sh --force            # overwrite (backs up first)
   install-managed-prefs.sh --uninstall        # remove permit0 value; restore last backup
   install-managed-prefs.sh --uninstall --force  # remove any value (no stamp check)
   install-managed-prefs.sh --help             # this message
+
+CONFIG:
+  PERMIT0_URL=http://127.0.0.1:9090           # daemon used by the hook
+
+  The installed hook uses remote daemon mode so enforcement decisions land
+  in the same permit0 server and dashboard. Start it with:
+    cargo run -p permit0-cli -- serve --ui --port 9090
 
 SAFETY:
   This script writes to macOS user defaults at
@@ -137,7 +144,7 @@ matcher = ".*"
 
 [[hooks.PreToolUse.hooks]]
 type = "command"
-command = "$PERMIT0_BIN hook --client codex --packs-dir $PACKS_DIR --unknown defer"
+command = "$PERMIT0_BIN hook --client codex --remote $PERMIT0_URL --unknown deny"
 timeout = 30
 statusMessage = "permit0 safety check"
 EOF
@@ -148,10 +155,6 @@ do_install() {
     if [[ ! -x "$PERMIT0_BIN" ]]; then
         echo "error: $PERMIT0_BIN not found or not executable" >&2
         echo "       run: cd $REPO_ROOT && cargo build --release" >&2
-        exit 2
-    fi
-    if [[ ! -d "$PACKS_DIR" ]]; then
-        echo "error: $PACKS_DIR missing" >&2
         exit 2
     fi
 
@@ -184,10 +187,14 @@ do_install() {
     defaults write "$DEFAULTS_DOMAIN" "$DEFAULTS_KEY" -string "$(printf '%s' "$body" | base64)"
 
     echo "✓ permit0 managed-prefs installed."
+    echo "  daemon URL: $PERMIT0_URL"
     echo
     cat <<EOF
 Verify:
   defaults read $DEFAULTS_DOMAIN $DEFAULTS_KEY | base64 -d
+
+Run the daemon before starting Codex:
+  cd $REPO_ROOT && cargo run -p permit0-cli -- serve --ui --port 9090
 
 Uninstall (and restore the most recent backup if any):
   $0 --uninstall

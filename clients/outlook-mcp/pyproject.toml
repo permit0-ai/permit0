@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "permit0-outlook-mcp"
 version = "0.1.0"
-description = "MCP server exposing Outlook (Microsoft Graph) tools, each gated by permit0"
+description = "Plain MCP server exposing Outlook (Microsoft Graph) tools for host-level permit0 hooks"
 readme = "README.md"
 requires-python = ">=3.10"
 license = {text = "MIT"}

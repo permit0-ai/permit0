@@ -1,21 +1,28 @@
 # permit0-gmail-mcp
 
-MCP server that exposes Gmail tools (Gmail API v1) to Claude Code, **each
-call gated by permit0**. Mirrors `clients/outlook-mcp` — same 13 tools, same
-norm actions, same risk rules.
+MCP server that exposes Gmail tools (Gmail API v1) to agent hosts. With
+Codex and Claude Code, permit0 enforcement happens at the host
+`PreToolUse` hook layer: the host proposes
+`mcp__permit0-gmail__gmail_send`, the permit0 hook sends it to the
+daemon, and the Gmail API call only runs when the hook allows it.
+Mirrors `clients/outlook-mcp` — same 13 tools, same norm actions, same
+risk rules.
 
 ## Architecture
 
+```text
+Agent host ──PreToolUse hook──▶ permit0 hook --client <host> --remote :9090
+   │                                  │
+   │                                  └─▶ permit0 daemon/dashboard
+   │                                        (allow/deny/human)
+   │
+   └─MCP/stdio, only if allowed──────▶ permit0-gmail-mcp
+                                          └─▶ Gmail API
 ```
-Claude Code  ──MCP/stdio──▶  permit0-gmail-mcp
-                               │
-                               ├─▶ @permit0.guard("email.X")
-                               │    └─ POST /api/v1/check_action ──▶ permit0 daemon
-                               │                                       (allow/deny/human)
-                               │
-                               └─▶ Gmail API (gmail.googleapis.com/gmail/v1)
-                                    (only on allow)
-```
+
+For hosts without a hook layer, add an equivalent pre-tool gate before
+starting this MCP server. The server itself is plain MCP and does not
+call permit0 internally.
 
 ## Tools exposed
 
@@ -72,28 +79,76 @@ and silent-refreshes after that.
 python -c "from permit0_gmail_mcp.auth import get_token; print(bool(get_token()))"
 ```
 
-### 4. Wire into Claude Code
+### 4. Wire into Codex or Claude Code
 
-Add to `~/.claude.json` under top-level `mcpServers`:
+Both Codex and Claude Code enforce Gmail tools through a host-level
+`PreToolUse` hook. The MCP server config only exposes the tools; the hook
+is what calls permit0 before Gmail runs.
+
+#### Codex
+
+Start the permit0 daemon and install the Codex hook in remote mode:
+
+```bash
+cd /path/to/permit0
+cargo run -p permit0-cli -- serve --ui --port 9090
+PERMIT0_URL=http://127.0.0.1:9090 bash integrations/permit0-codex/examples/install-managed-prefs.sh
+```
+
+Add the Gmail MCP server to your Codex config:
+
+```toml
+[mcp_servers.permit0-gmail]
+command = "/absolute/path/to/permit0-gmail-mcp"
+```
+
+Restart Codex. The 13 `gmail_*` tools appear, and every Gmail MCP tool
+call is enforced by the daemon-backed Codex hook before the MCP server
+is called.
+
+#### Claude Code
+
+Start the same daemon:
+
+```bash
+cd /path/to/permit0
+cargo run -p permit0-cli -- serve --ui --port 9090
+```
+
+Add the permit0 hook to Claude Code, for example in
+`~/.claude/settings.json`:
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [{ "hooks": [{
+      "type": "command",
+      "command": "/absolute/path/to/permit0/target/release/permit0 hook --remote http://127.0.0.1:9090 --unknown defer"
+    }]}]
+  }
+}
+```
+
+If you are using Claude Code, wire the server under top-level
+`mcpServers`:
 
 ```json
 {
   "mcpServers": {
     "permit0-gmail": {
-      "command": "permit0-gmail-mcp",
-      "env": {
-        "PERMIT0_URL": "http://localhost:9090"
-      }
+      "command": "permit0-gmail-mcp"
     }
   }
 }
 ```
 
-Restart Claude Code. The 13 `gmail_*` tools appear.
+Restart Claude Code. The same `gmail_*` tools appear, and the hook gates
+each call before it reaches Gmail.
 
 You can have **both** `permit0-outlook` and `permit0-gmail` configured at
-the same time — both gate through the same permit0 daemon, both lower to
-the same `email.*` norm actions, same risk rules.
+the same time. With the host's permit0 hook configured, both lower to the
+same `email.*` norm actions and are evaluated by the same daemon, using
+the same risk rules.
 
 ## Try it
 
@@ -102,7 +157,8 @@ In Claude Code:
 > Search my Gmail for "newsletter" emails from the past 7 days and archive all results.
 
 Claude Code will call `gmail_search(query="newsletter newer_than:7d")` →
-permit0 evaluates each result's `gmail_archive(message_id=...)`.
+the host hook evaluates each `gmail_archive(message_id=...)` before it
+reaches the MCP server.
 
 > Read that entire thread.
 
@@ -123,12 +179,12 @@ conversationId stitching needed).
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `PERMIT0_URL` | `http://localhost:9090` | permit0 daemon URL |
 | `GMAIL_CREDENTIALS` | `~/.permit0/gmail_credentials.json` | OAuth app credentials |
 
 ## Cross-backend invariant
 
-If you have both Gmail and Outlook MCP servers configured, **both** lower
-to the same `email.*` norm actions. permit0 sees one unified IR. The
-dashboard's audit log shows `channel=gmail` vs `channel=outlook`, but the
-risk rule and the human reviewer's decision applies regardless.
+If you have both Gmail and Outlook MCP servers configured behind a
+permit0 hook, **both** lower to the same `email.*` norm actions. permit0
+sees one unified IR. The dashboard's audit log shows `channel=gmail` vs
+`channel=outlook`, but the risk rule and the human reviewer's decision
+applies regardless.
