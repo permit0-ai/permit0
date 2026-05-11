@@ -106,7 +106,7 @@ pub struct Maintainer {
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct ChannelMeta {
     /// Path to the MCP server adapter for this channel, e.g.
-    /// `clients/gmail-mcp`.
+    /// `permit0-mcp/gmail-mcp`.
     #[serde(default)]
     pub mcp_server: Option<String>,
     /// Display name (UI-facing).
@@ -241,10 +241,10 @@ maintainers:
   - github: "@permit0-team"
 channels:
   gmail:
-    mcp_server: clients/gmail-mcp
+    mcp_server: permit0-mcp/gmail-mcp
     display_name: "Gmail"
   outlook:
-    mcp_server: clients/outlook-mcp
+    mcp_server: permit0-mcp/outlook-mcp
 action_types:
   - email.send
   - email.archive
@@ -260,7 +260,7 @@ content_hash: ""
             m.channels
                 .get("gmail")
                 .and_then(|c| c.mcp_server.as_deref()),
-            Some("clients/gmail-mcp")
+            Some("permit0-mcp/gmail-mcp")
         );
         assert_eq!(m.action_types, vec!["email.send", "email.archive"]);
     }

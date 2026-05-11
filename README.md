@@ -37,9 +37,10 @@ cargo run -p permit0-cli -- serve --ui --port 9090
 
 # Open http://localhost:9090/ui/
 
-# 3. MCP servers (in another terminal)
-pip install -e clients/outlook-mcp        # 13 outlook_* tools
-pip install -e clients/gmail-mcp          # 13 gmail_*  tools  (skip if unused)
+# 3. MCP servers (in another terminal — see github.com/permit0-ai/permit0-mcp)
+git clone https://github.com/permit0-ai/permit0-mcp.git
+pip install -e permit0-mcp/outlook-mcp    # 13 outlook_* tools
+pip install -e permit0-mcp/gmail-mcp      # 13 gmail_*  tools  (skip if unused)
 
 # 4. One-time auth (zero-config for Outlook; Gmail needs a Google OAuth app)
 python -c "from permit0_outlook_mcp.auth import get_token; get_token()"

@@ -5,7 +5,7 @@
 
 channel: outlook
 display_name: "Outlook (Microsoft 365)"
-mcp_server: clients/outlook-mcp
+mcp_server: permit0-mcp/outlook-mcp
 auth: oauth_user
 api_docs: https://learn.microsoft.com/en-us/graph/api/resources/mail-api-overview
 tool_pattern: "outlook_*"

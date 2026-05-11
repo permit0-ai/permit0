@@ -55,10 +55,10 @@ action_types:
 # create one directory + drop in 16 verbs.
 channels:
   gmail:
-    mcp_server: clients/gmail-mcp
+    mcp_server: permit0-mcp/gmail-mcp
     display_name: "Gmail (Google)"
   outlook:
-    mcp_server: clients/outlook-mcp
+    mcp_server: permit0-mcp/outlook-mcp
     display_name: "Outlook (Microsoft 365)"
 
 # Phase 2 forward-compat. Empty in Phase 1; populated when the

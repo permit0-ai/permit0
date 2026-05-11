@@ -11,7 +11,7 @@
 
 channel: gmail
 display_name: "Gmail (Google)"
-mcp_server: clients/gmail-mcp
+mcp_server: permit0-mcp/gmail-mcp
 auth: oauth_user
 api_docs: https://developers.google.com/gmail/api
 tool_pattern: "gmail_*"

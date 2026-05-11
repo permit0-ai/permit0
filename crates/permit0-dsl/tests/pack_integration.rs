@@ -120,7 +120,7 @@ fn gmail_recipient_scope_uses_org_domain_from_ctx() {
 }
 
 // Regression: the canonical `permit0-gmail` MCP wrapper sends `gmail_read`
-// with parameter `message_id` (see clients/gmail-mcp/.../server.py:46).
+// with parameter `message_id` (see permit0-mcp/gmail-mcp/.../server.py:46).
 // An earlier version of gmail/read.yaml read `from: "id"` and dropped the
 // value, causing the engine to fail with `missing required field 'message_id'`.
 #[test]
