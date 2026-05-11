@@ -16,8 +16,8 @@ use permit0_store::audit::{
     Redactor,
     chain::{GENESIS_HASH, compute_entry_hash},
 };
-use permit0_store::{InMemoryStore, Store};
-use permit0_types::{DecisionRecord, NormAction, Permission, RawToolCall, RiskScore, Tier};
+use permit0_store::{InMemoryPolicyState, PolicyState};
+use permit0_types::{NormAction, Permission, RawToolCall, RiskScore, Tier};
 
 use crate::context::PermissionCtx;
 use crate::error::EngineError;
@@ -74,13 +74,14 @@ impl DecisionSource {
 
 /// The permit0 permission engine.
 ///
-/// Owns the normalizer registry, risk rules, scoring config, and store.
-/// Immutable after construction via `EngineBuilder`.
+/// Owns the normalizer registry, risk rules, scoring config, and policy
+/// state (denylist/allowlist/cache/HITL). Decision log lives in the
+/// audit sink, not here. Immutable after construction via `EngineBuilder`.
 pub struct Engine {
     registry: NormalizerRegistry,
     risk_rules: HashMap<String, RiskRuleDef>,
     config: ScoringConfig,
-    store: Arc<dyn Store>,
+    state: Arc<dyn PolicyState>,
     reviewer: Option<AgentReviewer>,
     // Audit subsystem (optional)
     audit_sink: Option<Arc<dyn AuditSink>>,
@@ -92,51 +93,64 @@ pub struct Engine {
 }
 
 impl Engine {
-    /// Evaluate a raw tool call and return a permission decision.
+    /// Evaluate a raw tool call and return a permission decision (async).
     ///
-    /// Implements the §10 decision pipeline:
-    /// 1. Normalize via registry
-    /// 2. Denylist check
-    /// 3. Allowlist check
-    /// 4. Policy cache check
-    /// 5. Unknown action type check
-    /// 6. Risk scoring
-    /// 7. Score → permission routing
+    /// Implements the §10 decision pipeline. Used directly by the axum
+    /// handlers in `permit0-cli`'s serve mode. Sync callers (CLI
+    /// subcommands, language bindings) use [`Engine::get_permission`],
+    /// which wraps this with `block_on`.
+    pub async fn get_permission_async(
+        &self,
+        tool_call: &RawToolCall,
+        ctx: &PermissionCtx,
+    ) -> Result<PermissionResult, EngineError> {
+        let norm = self.registry.normalize(tool_call, &ctx.normalize_ctx)?;
+        self.run_pipeline(norm, tool_call, ctx).await
+    }
+
+    /// Sync wrapper around [`Engine::get_permission_async`].
+    ///
+    /// Routes the future through `tokio::task::block_in_place` when
+    /// already inside a multi-threaded tokio runtime (e.g. axum handlers
+    /// that opt to call the sync API), or through a process-wide shared
+    /// runtime otherwise (CLI subcommands, `permit0-py`/`permit0-node`
+    /// bindings). Will panic if invoked from inside a single-threaded
+    /// tokio runtime — use the `_async` variant in that case.
     pub fn get_permission(
         &self,
         tool_call: &RawToolCall,
         ctx: &PermissionCtx,
     ) -> Result<PermissionResult, EngineError> {
-        // Step 1: Normalize
-        let norm = self.registry.normalize(tool_call, &ctx.normalize_ctx)?;
-        self.run_pipeline(norm, tool_call, ctx)
+        block_on(self.get_permission_async(tool_call, ctx))
     }
 
-    /// Check a pre-built `NormAction` directly, skipping the normalizer step.
-    ///
-    /// Used by clients (e.g. language SDKs) that produce norm actions inline
-    /// rather than going through a YAML normalizer. A synthetic raw tool call
-    /// is constructed from the norm action's entities for risk-rule evaluation
-    /// and audit logging.
-    pub fn check_norm_action(
+    /// Check a pre-built `NormAction` directly, skipping the normalizer step
+    /// (async). See [`Engine::check_norm_action`] for the sync wrapper.
+    pub async fn check_norm_action_async(
         &self,
         norm: NormAction,
         ctx: &PermissionCtx,
     ) -> Result<PermissionResult, EngineError> {
-        // Synthesize a raw tool call from the entities so the post-normalize
-        // pipeline (which expects raw_params for risk rules and tool_call for
-        // audit) has something to work with.
         let synthetic = RawToolCall {
             tool_name: format!("__action:{}", norm.action_type.as_action_str()),
             parameters: serde_json::Value::Object(norm.entities.clone()),
             metadata: Default::default(),
         };
-        self.run_pipeline(norm, &synthetic, ctx)
+        self.run_pipeline(norm, &synthetic, ctx).await
+    }
+
+    /// Sync wrapper around [`Engine::check_norm_action_async`].
+    pub fn check_norm_action(
+        &self,
+        norm: NormAction,
+        ctx: &PermissionCtx,
+    ) -> Result<PermissionResult, EngineError> {
+        block_on(self.check_norm_action_async(norm, ctx))
     }
 
     /// Steps 2–7 of the decision pipeline, shared between `get_permission`
     /// (which normalizes first) and `check_norm_action` (which doesn't).
-    fn run_pipeline(
+    async fn run_pipeline(
         &self,
         norm: NormAction,
         tool_call: &RawToolCall,
@@ -162,7 +176,7 @@ impl Engine {
         ));
 
         // Step 2: Denylist
-        if self.store.denylist_check(&norm_hash)?.is_some() {
+        if self.state.denylist_check(&norm_hash).await?.is_some() {
             trace.push(stage("denylist", "hit", &redacted, None));
             let result = PermissionResult {
                 permission: Permission::Deny,
@@ -170,13 +184,13 @@ impl Engine {
                 risk_score: None,
                 source: DecisionSource::Denylist,
             };
-            self.log_decision(&result, tool_call, ctx, trace)?;
+            self.log_decision(&result, tool_call, ctx, trace).await?;
             return Ok(result);
         }
         trace.push(stage("denylist", "miss", &redacted, None));
 
         // Step 3: Allowlist
-        if self.store.allowlist_check(&norm_hash)? {
+        if self.state.allowlist_check(&norm_hash).await? {
             trace.push(stage("allowlist", "hit", &redacted, None));
             let result = PermissionResult {
                 permission: Permission::Allow,
@@ -184,13 +198,13 @@ impl Engine {
                 risk_score: None,
                 source: DecisionSource::Allowlist,
             };
-            self.log_decision(&result, tool_call, ctx, trace)?;
+            self.log_decision(&result, tool_call, ctx, trace).await?;
             return Ok(result);
         }
         trace.push(stage("allowlist", "miss", &redacted, None));
 
         // Step 4: Policy cache
-        if let Some(cached) = self.store.policy_cache_get(&norm_hash)? {
+        if let Some(cached) = self.state.policy_cache_get(&norm_hash).await? {
             trace.push(stage(
                 "policy_cache",
                 "hit",
@@ -203,7 +217,7 @@ impl Engine {
                 risk_score: None,
                 source: DecisionSource::PolicyCache,
             };
-            self.log_decision(&result, tool_call, ctx, trace)?;
+            self.log_decision(&result, tool_call, ctx, trace).await?;
             return Ok(result);
         }
         trace.push(stage("policy_cache", "miss", &redacted, None));
@@ -240,7 +254,7 @@ impl Engine {
                 // "permit0 has no opinion about this tool".
                 source: DecisionSource::UnknownFallback,
             };
-            self.log_decision(&result, tool_call, ctx, trace)?;
+            self.log_decision(&result, tool_call, ctx, trace).await?;
             return Ok(result);
         }
         trace.push(stage("unknown_action", "miss", &redacted, None));
@@ -301,7 +315,7 @@ impl Engine {
         // wait would pin the cache at HumanInTheLoop and step 4 would then
         // short-circuit future calls, never re-prompting the reviewer.
         if permission != Permission::HumanInTheLoop {
-            self.store.policy_cache_set(norm_hash, permission)?;
+            self.state.policy_cache_set(norm_hash, permission).await?;
         }
 
         let result = PermissionResult {
@@ -310,7 +324,7 @@ impl Engine {
             risk_score: Some(risk_score),
             source,
         };
-        self.log_decision(&result, tool_call, ctx, trace)?;
+        self.log_decision(&result, tool_call, ctx, trace).await?;
         Ok(result)
     }
 
@@ -393,9 +407,9 @@ impl Engine {
         Ok(score)
     }
 
-    /// Access the underlying store (for list management).
-    pub fn store(&self) -> &dyn Store {
-        self.store.as_ref()
+    /// Access the underlying policy state (for list management).
+    pub fn state(&self) -> &dyn PolicyState {
+        self.state.as_ref()
     }
 
     /// Build and persist a decision audit record.
@@ -404,7 +418,7 @@ impl Engine {
     /// as `decision_trace`. Empty for callers that bypass the pipeline
     /// (none today, but the field is `#[serde(default)]` so legacy entries
     /// continue to deserialize).
-    fn log_decision(
+    async fn log_decision(
         &self,
         result: &PermissionResult,
         tool_call: &RawToolCall,
@@ -419,34 +433,10 @@ impl Engine {
         let now = chrono::Utc::now().to_rfc3339();
         let entry_id = ulid::Ulid::new().to_string();
 
-        // Always write the simple DecisionRecord to the Store
-        let record = DecisionRecord {
-            id: entry_id.clone(),
-            norm_hash: result.norm_action.norm_hash(),
-            action_type: result.norm_action.action_type.as_action_str(),
-            channel: result.norm_action.channel.clone(),
-            permission: result.permission,
-            source: result.source.as_str().into(),
-            tier: result.risk_score.as_ref().map(|s| s.tier),
-            risk_raw: result.risk_score.as_ref().map(|s| s.raw),
-            blocked: result.risk_score.as_ref().is_some_and(|s| s.blocked),
-            flags: result
-                .risk_score
-                .as_ref()
-                .map(|s| s.flags.clone())
-                .unwrap_or_default(),
-            timestamp: now.clone(),
-            surface_tool: result.norm_action.execution.surface_tool.clone(),
-            surface_command: result.norm_action.execution.surface_command.clone(),
-            engine_permission: None,
-            reviewer: None,
-            reason: None,
-        };
-        if let Err(e) = self.store.save_decision(record) {
-            tracing::warn!("failed to persist decision record: {e}");
-        }
-
-        // Write full AuditEntry if sink is configured
+        // Decision log lives only in the audit sink — the previous
+        // `Store::save_decision` shadow log was redundant with the
+        // hash-chained AuditEntry below. Write the full AuditEntry if
+        // a sink is configured.
         if let (Some(sink), Some(signer)) = (&self.audit_sink, &self.audit_signer) {
             let raw_tool_call = if let Some(ref redactor) = self.audit_redactor {
                 redactor.redact(&serde_json::to_value(tool_call).unwrap_or_default())
@@ -504,7 +494,7 @@ impl Engine {
                 *guard = entry.entry_hash.clone();
             }
 
-            match sink.append(&entry) {
+            match sink.append(&entry).await {
                 Ok(()) => {}
                 Err(e) => match self.audit_policy {
                     AuditPolicy::Strict => {
@@ -534,7 +524,7 @@ impl Engine {
     /// dashboard).
     ///
     /// No-op if no audit sink is configured.
-    pub fn log_calibrated_audit(
+    pub async fn log_calibrated_audit(
         &self,
         result: &PermissionResult,
         tool_call: &RawToolCall,
@@ -611,7 +601,7 @@ impl Engine {
             *guard = entry.entry_hash.clone();
         }
 
-        match sink.append(&entry) {
+        match sink.append(&entry).await {
             Ok(()) => Ok(()),
             Err(e) => match self.audit_policy {
                 AuditPolicy::Strict => Err(EngineError::AuditFailure(format!(
@@ -639,7 +629,7 @@ impl Engine {
     /// with either is detectable. Returns the entry_id used (a fresh ULID
     /// independent of the client's event_id, which is captured separately
     /// inside `failed_open_context` for forensic linkage).
-    pub fn log_failed_open_replay(
+    pub async fn log_failed_open_replay(
         &self,
         tool_call: &RawToolCall,
         ctx: &PermissionCtx,
@@ -710,7 +700,7 @@ impl Engine {
                 *guard = entry.entry_hash.clone();
             }
 
-            match sink.append(&entry) {
+            match sink.append(&entry).await {
                 Ok(()) => {}
                 Err(e) => match self.audit_policy {
                     AuditPolicy::Strict => {
@@ -726,6 +716,48 @@ impl Engine {
         }
 
         Ok(entry_id)
+    }
+}
+
+/// Bridge a sync caller into the async pipeline.
+///
+/// Three cases:
+/// 1. Already inside a multi-thread tokio runtime (e.g. an axum handler
+///    that opted to call the sync API): use `block_in_place` so the
+///    blocking wait doesn't starve the executor.
+/// 2. No runtime active (CLI subcommands like `check`, `permit0-py` /
+///    `permit0-node` bindings): block on a process-wide multi-thread
+///    runtime kept alive by `OnceLock`.
+/// 3. Inside a single-thread tokio runtime: panics. Callers in that
+///    situation must use the `_async` variant.
+fn block_on<F>(fut: F) -> F::Output
+where
+    F: std::future::Future,
+{
+    use std::sync::OnceLock;
+    use tokio::runtime::{Handle, Runtime, RuntimeFlavor};
+
+    static SHARED_RT: OnceLock<Runtime> = OnceLock::new();
+
+    if let Ok(handle) = Handle::try_current() {
+        match handle.runtime_flavor() {
+            RuntimeFlavor::MultiThread => tokio::task::block_in_place(|| handle.block_on(fut)),
+            other => panic!(
+                "Engine sync API called from inside a {:?} tokio runtime — \
+                 use Engine::get_permission_async / check_norm_action_async instead",
+                other
+            ),
+        }
+    } else {
+        let rt = SHARED_RT.get_or_init(|| {
+            tokio::runtime::Builder::new_multi_thread()
+                .worker_threads(2)
+                .enable_all()
+                .thread_name("permit0-bridge")
+                .build()
+                .expect("build permit0 sync-bridge tokio runtime")
+        });
+        rt.block_on(fut)
     }
 }
 
@@ -848,12 +880,16 @@ pub struct EngineBuilder {
     registry: NormalizerRegistry,
     risk_rules: HashMap<String, RiskRuleDef>,
     config: ScoringConfig,
-    store: Option<Arc<dyn Store>>,
+    state: Option<Arc<dyn PolicyState>>,
     reviewer: Option<AgentReviewer>,
     audit_sink: Option<Arc<dyn AuditSink>>,
     audit_signer: Option<Arc<dyn AuditSigner>>,
     audit_redactor: Option<Arc<dyn Redactor>>,
     audit_policy: AuditPolicy,
+    /// Optional `(sequence, prev_hash)` to seed the audit chain head with
+    /// at construction time. Used by `serve` to resume the chain across
+    /// daemon restarts when a persistent audit sink is configured.
+    audit_seed: Option<(u64, String)>,
 }
 
 impl EngineBuilder {
@@ -862,12 +898,13 @@ impl EngineBuilder {
             registry: NormalizerRegistry::new(),
             risk_rules: HashMap::new(),
             config: ScoringConfig::default(),
-            store: None,
+            state: None,
             reviewer: None,
             audit_sink: None,
             audit_signer: None,
             audit_redactor: None,
             audit_policy: AuditPolicy::default(),
+            audit_seed: None,
         }
     }
 
@@ -877,17 +914,17 @@ impl EngineBuilder {
         self
     }
 
-    /// Set a custom store implementation.
-    pub fn with_store(mut self, store: Arc<dyn Store>) -> Self {
-        self.store = Some(store);
+    /// Set the policy state implementation (denylist/allowlist/cache/HITL).
+    pub fn with_policy_state(mut self, state: Arc<dyn PolicyState>) -> Self {
+        self.state = Some(state);
         self
     }
 
-    /// Use a SQLite store at the given path.
+    /// Use a SQLite-backed policy state at the given path.
     pub fn with_sqlite(self, path: impl AsRef<std::path::Path>) -> Result<Self, EngineError> {
-        let store = permit0_store::SqliteStore::open(path)
+        let state = permit0_store::SqlitePolicyState::open(path)
             .map_err(|e| EngineError::Build(e.to_string()))?;
-        Ok(self.with_store(Arc::new(store)))
+        Ok(self.with_policy_state(Arc::new(state)))
     }
 
     /// Set an agent reviewer for MEDIUM-tier calls.
@@ -900,6 +937,18 @@ impl EngineBuilder {
     pub fn with_audit(mut self, sink: Arc<dyn AuditSink>, signer: Arc<dyn AuditSigner>) -> Self {
         self.audit_sink = Some(sink);
         self.audit_signer = Some(signer);
+        self
+    }
+
+    /// Seed the audit chain head with `(last_sequence, last_entry_hash)`.
+    ///
+    /// Call this on engine startup with the result of `audit_sink.tail()`
+    /// so the next entry the engine writes continues the chain across
+    /// daemon restarts. Without seeding, the engine starts from sequence
+    /// 0 and `GENESIS_HASH` — which would create a second, disconnected
+    /// chain in the same audit DB.
+    pub fn with_audit_seed(mut self, sequence: u64, prev_hash: String) -> Self {
+        self.audit_seed = Some((sequence, prev_hash));
         self
     }
 
@@ -972,22 +1021,35 @@ impl EngineBuilder {
         Ok(self)
     }
 
-    /// Build the engine. Uses `InMemoryStore` if no store was provided.
+    /// Build the engine. Defaults to `InMemoryPolicyState` if none provided.
     pub fn build(self) -> Result<Engine, EngineError> {
-        let store = self.store.unwrap_or_else(|| Arc::new(InMemoryStore::new()));
+        let state = self
+            .state
+            .unwrap_or_else(|| Arc::new(InMemoryPolicyState::new()));
+
+        let (audit_sequence, audit_prev_hash) = match self.audit_seed {
+            Some((seq, hash)) => (
+                std::sync::atomic::AtomicU64::new(seq),
+                std::sync::Mutex::new(hash),
+            ),
+            None => (
+                std::sync::atomic::AtomicU64::new(0),
+                std::sync::Mutex::new(GENESIS_HASH.into()),
+            ),
+        };
 
         Ok(Engine {
             registry: self.registry,
             risk_rules: self.risk_rules,
             config: self.config,
-            store,
+            state,
             reviewer: self.reviewer,
             audit_sink: self.audit_sink,
             audit_signer: self.audit_signer,
             audit_redactor: self.audit_redactor,
             audit_policy: self.audit_policy,
-            audit_sequence: std::sync::atomic::AtomicU64::new(0),
-            audit_prev_hash: std::sync::Mutex::new(GENESIS_HASH.into()),
+            audit_sequence,
+            audit_prev_hash,
         })
     }
 }
@@ -1051,8 +1113,8 @@ mod tests {
         PermissionCtx::new(NormalizeCtx::new().with_org_domain("acme.com"))
     }
 
-    #[test]
-    fn score_to_permission_mapping() {
+    #[tokio::test(flavor = "multi_thread")]
+    async fn score_to_permission_mapping() {
         assert_eq!(score_to_permission(Tier::Minimal, false), Permission::Allow);
         assert_eq!(score_to_permission(Tier::Low, false), Permission::Allow);
         assert_eq!(
@@ -1068,8 +1130,8 @@ mod tests {
         assert_eq!(score_to_permission(Tier::Minimal, true), Permission::Deny);
     }
 
-    #[test]
-    fn engine_build_and_score() {
+    #[tokio::test(flavor = "multi_thread")]
+    async fn engine_build_and_score() {
         let engine = build_test_engine();
         let ctx = default_ctx();
 
@@ -1081,8 +1143,8 @@ mod tests {
         assert!(result.risk_score.is_some());
     }
 
-    #[test]
-    fn outlook_normalizer_works() {
+    #[tokio::test(flavor = "multi_thread")]
+    async fn outlook_normalizer_works() {
         let engine = build_test_engine();
         let ctx = default_ctx();
 
@@ -1093,8 +1155,8 @@ mod tests {
         assert_eq!(result.norm_action.channel, "outlook");
     }
 
-    #[test]
-    fn denylist_blocks() {
+    #[tokio::test(flavor = "multi_thread")]
+    async fn denylist_blocks() {
         let engine = build_test_engine();
         let ctx = default_ctx();
 
@@ -1105,8 +1167,12 @@ mod tests {
         let hash = result.norm_action.norm_hash();
 
         // Clear cache, add to denylist
-        engine.store().policy_cache_invalidate(&hash).unwrap();
-        engine.store().denylist_add(hash, "blocked".into()).unwrap();
+        engine.state().policy_cache_invalidate(&hash).await.unwrap();
+        engine
+            .state()
+            .denylist_add(hash, "blocked".into())
+            .await
+            .unwrap();
 
         // Now should deny
         let result = engine
@@ -1116,8 +1182,8 @@ mod tests {
         assert_eq!(result.source, DecisionSource::Denylist);
     }
 
-    #[test]
-    fn allowlist_allows() {
+    #[tokio::test(flavor = "multi_thread")]
+    async fn allowlist_allows() {
         let engine = build_test_engine();
         let ctx = default_ctx();
 
@@ -1126,10 +1192,11 @@ mod tests {
             .unwrap();
         let hash = result.norm_action.norm_hash();
 
-        engine.store().policy_cache_invalidate(&hash).unwrap();
+        engine.state().policy_cache_invalidate(&hash).await.unwrap();
         engine
-            .store()
+            .state()
             .allowlist_add(hash, "approved".into())
+            .await
             .unwrap();
 
         let result = engine
@@ -1139,8 +1206,8 @@ mod tests {
         assert_eq!(result.source, DecisionSource::Allowlist);
     }
 
-    #[test]
-    fn denylist_wins_over_allowlist() {
+    #[tokio::test(flavor = "multi_thread")]
+    async fn denylist_wins_over_allowlist() {
         let engine = build_test_engine();
         let ctx = default_ctx();
 
@@ -1149,12 +1216,17 @@ mod tests {
             .unwrap();
         let hash = result.norm_action.norm_hash();
 
-        engine.store().policy_cache_invalidate(&hash).unwrap();
+        engine.state().policy_cache_invalidate(&hash).await.unwrap();
         engine
-            .store()
+            .state()
             .allowlist_add(hash, "approved".into())
+            .await
             .unwrap();
-        engine.store().denylist_add(hash, "blocked".into()).unwrap();
+        engine
+            .state()
+            .denylist_add(hash, "blocked".into())
+            .await
+            .unwrap();
 
         let result = engine
             .get_permission(&gmail_send("Hello", "body"), &ctx)
@@ -1163,8 +1235,8 @@ mod tests {
         assert_eq!(result.source, DecisionSource::Denylist);
     }
 
-    #[test]
-    fn policy_cache_hit() {
+    #[tokio::test(flavor = "multi_thread")]
+    async fn policy_cache_hit() {
         let engine = build_test_engine();
         let ctx = default_ctx();
 
@@ -1183,8 +1255,8 @@ mod tests {
         assert_eq!(result.permission, first_permission);
     }
 
-    #[test]
-    fn unknown_action_type_returns_human() {
+    #[tokio::test(flavor = "multi_thread")]
+    async fn unknown_action_type_returns_human() {
         let engine = build_test_engine();
         let ctx = default_ctx();
 
@@ -1204,8 +1276,8 @@ mod tests {
         assert!(result.risk_score.is_none());
     }
 
-    #[test]
-    fn unknown_fallback_source_str_is_stable() {
+    #[tokio::test(flavor = "multi_thread")]
+    async fn unknown_fallback_source_str_is_stable() {
         // The audit log persists `decision_source.as_str()` and the UI
         // pattern‑matches the exact literal "unknown_fallback" to render
         // a Fallback badge. Pin the wire format so a refactor can't
@@ -1215,8 +1287,8 @@ mod tests {
 
     // ── Session-aware scoring tests ─────────────────────────────
 
-    #[test]
-    fn session_amplifier_wired_into_scoring() {
+    #[tokio::test(flavor = "multi_thread")]
+    async fn session_amplifier_wired_into_scoring() {
         let engine = build_test_engine();
         let mut session = SessionContext::new("test-session");
 
@@ -1241,8 +1313,8 @@ mod tests {
         assert!(result.risk_score.is_some());
     }
 
-    #[test]
-    fn no_session_still_works() {
+    #[tokio::test(flavor = "multi_thread")]
+    async fn no_session_still_works() {
         // Verify that passing no session context doesn't break anything
         let engine = build_test_engine();
         let ctx = default_ctx();
@@ -1284,8 +1356,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn failed_open_replay_writes_audit_entry() {
+    #[tokio::test(flavor = "multi_thread")]
+    async fn failed_open_replay_writes_audit_entry() {
         let (engine, sink) = build_test_engine_with_audit();
         let ctx = default_ctx();
 
@@ -1299,6 +1371,7 @@ mod tests {
 
         let entry_id = engine
             .log_failed_open_replay(&tool_call, &ctx, &retro, sample_failed_open_context())
+            .await
             .unwrap();
 
         // The sink received exactly one entry, with the right flavor.
@@ -1312,8 +1385,8 @@ mod tests {
         assert_eq!(e.retroactive_decision, Some(retro.permission));
     }
 
-    #[test]
-    fn failed_open_replay_chain_is_continuous() {
+    #[tokio::test(flavor = "multi_thread")]
+    async fn failed_open_replay_chain_is_continuous() {
         let (engine, sink) = build_test_engine_with_audit();
         let ctx = default_ctx();
 
@@ -1328,6 +1401,7 @@ mod tests {
         let retro = engine.get_permission(&tc2, &retro_ctx).unwrap();
         engine
             .log_failed_open_replay(&tc2, &ctx, &retro, sample_failed_open_context())
+            .await
             .unwrap();
 
         let tc3 = gmail_send("third", "body");
@@ -1348,8 +1422,8 @@ mod tests {
         assert_ne!(entries[2].decision_source, "failed_open");
     }
 
-    #[test]
-    fn failed_open_replay_threads_session_and_task_goal() {
+    #[tokio::test(flavor = "multi_thread")]
+    async fn failed_open_replay_threads_session_and_task_goal() {
         let (engine, sink) = build_test_engine_with_audit();
         let ctx = default_ctx()
             .with_session(SessionContext::new("conv-99"))
@@ -1361,6 +1435,7 @@ mod tests {
             .unwrap();
         engine
             .log_failed_open_replay(&tool_call, &ctx, &retro, sample_failed_open_context())
+            .await
             .unwrap();
 
         let entries = sink.all_entries();
@@ -1369,8 +1444,8 @@ mod tests {
         assert_eq!(entries[0].task_goal.as_deref(), Some("send the report"));
     }
 
-    #[test]
-    fn failed_open_replay_no_op_without_audit_sink() {
+    #[tokio::test(flavor = "multi_thread")]
+    async fn failed_open_replay_no_op_without_audit_sink() {
         // No sink configured → method still succeeds and returns an
         // entry_id, but writes nothing. Mirrors log_decision behavior so
         // callers don't have to know whether audit is wired up.
@@ -1382,14 +1457,15 @@ mod tests {
             .unwrap();
         let entry_id = engine
             .log_failed_open_replay(&tool_call, &ctx, &retro, sample_failed_open_context())
+            .await
             .unwrap();
         assert!(!entry_id.is_empty()); // ULID returned even without sink
     }
 
     // ── Calibration audit path ────────────────────────────────────────
 
-    #[test]
-    fn calibrated_audit_writes_entry_with_human_review() {
+    #[tokio::test(flavor = "multi_thread")]
+    async fn calibrated_audit_writes_entry_with_human_review() {
         // Mirrors the daemon's calibration flow: get_permission with
         // skip_audit=true (suppressed engine write) → human approves →
         // log_calibrated_audit(...) appends the composite entry. The
@@ -1418,6 +1494,7 @@ mod tests {
                 "su@example.com".into(),
                 "looks fine".into(),
             )
+            .await
             .unwrap();
 
         let entries = sink.all_entries();
@@ -1432,8 +1509,8 @@ mod tests {
         assert_eq!(e.engine_decision, Some(Permission::HumanInTheLoop));
     }
 
-    #[test]
-    fn calibrated_audit_chain_links_with_normal_entries() {
+    #[tokio::test(flavor = "multi_thread")]
+    async fn calibrated_audit_chain_links_with_normal_entries() {
         // A calibrated entry must thread through the chain like any other —
         // sequence monotonic, prev_hash linking back to the previous entry.
         let (engine, sink) = build_test_engine_with_audit();
@@ -1455,6 +1532,7 @@ mod tests {
                 "su".into(),
                 "approve".into(),
             )
+            .await
             .unwrap();
 
         // Then another normal one.
@@ -1474,8 +1552,8 @@ mod tests {
         assert!(entries[2].human_review.is_none());
     }
 
-    #[test]
-    fn calibrated_audit_no_op_without_sink() {
+    #[tokio::test(flavor = "multi_thread")]
+    async fn calibrated_audit_no_op_without_sink() {
         // If audit isn't wired up, the call is a no-op and returns Ok —
         // callers don't have to branch on sink presence.
         let engine = build_test_engine();
@@ -1492,13 +1570,14 @@ mod tests {
                 "su".into(),
                 "ok".into(),
             )
+            .await
             .unwrap();
     }
 
     // ── HITL is not cached (regression: calibrate-overwrite race) ─────
 
-    #[test]
-    fn hitl_not_cached_for_unknown_action() {
+    #[tokio::test(flavor = "multi_thread")]
+    async fn hitl_not_cached_for_unknown_action() {
         // Step 5 path: a tool that normalizes but has no risk rule returns
         // HITL. The cache must NOT be populated, otherwise a request future
         // cancelled before calibrate completes would pin the cache and step 4
@@ -1516,14 +1595,14 @@ mod tests {
 
         let hash = result.norm_action.norm_hash();
         assert_eq!(
-            engine.store().policy_cache_get(&hash).unwrap(),
+            engine.state().policy_cache_get(&hash).await.unwrap(),
             None,
             "HITL verdict from unknown-action path must not be cached"
         );
     }
 
-    #[test]
-    fn hitl_not_cached_after_scorer() {
+    #[tokio::test(flavor = "multi_thread")]
+    async fn hitl_not_cached_after_scorer() {
         // Step 7 path: a known action whose scorer routes to HITL (Medium/High
         // tier). Same invariant — cache stays empty until a definitive
         // Allow/Deny is reached.
@@ -1540,14 +1619,14 @@ mod tests {
 
         let hash = result.norm_action.norm_hash();
         assert_eq!(
-            engine.store().policy_cache_get(&hash).unwrap(),
+            engine.state().policy_cache_get(&hash).await.unwrap(),
             None,
             "HITL verdict from scorer path must not be cached"
         );
     }
 
-    #[test]
-    fn allow_is_still_cached() {
+    #[tokio::test(flavor = "multi_thread")]
+    async fn allow_is_still_cached() {
         // Sanity counterpart to the HITL tests: definitive Allow verdicts
         // must still land in the cache so subsequent identical calls hit
         // step 4 and skip re-scoring. Guards against an over-eager fix that
@@ -1562,13 +1641,13 @@ mod tests {
 
         let hash = result.norm_action.norm_hash();
         assert_eq!(
-            engine.store().policy_cache_get(&hash).unwrap(),
+            engine.state().policy_cache_get(&hash).await.unwrap(),
             Some(Permission::Allow),
         );
     }
 
-    #[test]
-    fn calibration_can_overwrite_hitl_for_unknown_action() {
+    #[tokio::test(flavor = "multi_thread")]
+    async fn calibration_can_overwrite_hitl_for_unknown_action() {
         // End-to-end of the fix: caller hits HITL → no cache entry → daemon's
         // apply_calibration writes the human's verdict via policy_cache_set →
         // next call short-circuits at step 4 with the calibrated answer.
@@ -1588,8 +1667,9 @@ mod tests {
 
         // Mirror what apply_calibration does once the human approves.
         engine
-            .store()
+            .state()
             .policy_cache_set(hash, Permission::Allow)
+            .await
             .unwrap();
 
         let second = engine.get_permission(&raw, &ctx).unwrap();
@@ -1597,8 +1677,8 @@ mod tests {
         assert_eq!(second.source, DecisionSource::PolicyCache);
     }
 
-    #[test]
-    fn calibration_can_overwrite_hitl_after_scorer() {
+    #[tokio::test(flavor = "multi_thread")]
+    async fn calibration_can_overwrite_hitl_after_scorer() {
         // Same end-to-end as above, but for the post-scorer HITL path —
         // confirms a HIGH-tier scoring outcome doesn't leave the cache pinned
         // either, and the human's verdict still lands.
@@ -1612,8 +1692,9 @@ mod tests {
         let hash = first.norm_action.norm_hash();
 
         engine
-            .store()
+            .state()
             .policy_cache_set(hash, Permission::Deny)
+            .await
             .unwrap();
 
         let second = engine.get_permission(&tool_call, &ctx).unwrap();
@@ -1645,8 +1726,8 @@ mod tests {
             .collect()
     }
 
-    #[test]
-    fn trace_records_full_pipeline_for_scored_call() {
+    #[tokio::test(flavor = "multi_thread")]
+    async fn trace_records_full_pipeline_for_scored_call() {
         let (engine, sink) = build_test_engine_with_audit();
         let ctx = default_ctx();
         engine
@@ -1666,8 +1747,8 @@ mod tests {
         );
     }
 
-    #[test]
-    fn trace_terminates_at_denylist_hit() {
+    #[tokio::test(flavor = "multi_thread")]
+    async fn trace_terminates_at_denylist_hit() {
         let (engine, sink) = build_test_engine_with_audit();
         let ctx = default_ctx();
         // First call to capture the norm hash, then plant a denylist entry.
@@ -1675,8 +1756,12 @@ mod tests {
             .get_permission(&gmail_send("Hello", "body"), &ctx)
             .unwrap();
         let hash = result.norm_action.norm_hash();
-        engine.store().policy_cache_invalidate(&hash).unwrap();
-        engine.store().denylist_add(hash, "blocked".into()).unwrap();
+        engine.state().policy_cache_invalidate(&hash).await.unwrap();
+        engine
+            .state()
+            .denylist_add(hash, "blocked".into())
+            .await
+            .unwrap();
 
         // Second call hits the denylist — trace must end there.
         engine
@@ -1693,16 +1778,20 @@ mod tests {
         );
     }
 
-    #[test]
-    fn trace_records_allowlist_hit() {
+    #[tokio::test(flavor = "multi_thread")]
+    async fn trace_records_allowlist_hit() {
         let (engine, sink) = build_test_engine_with_audit();
         let ctx = default_ctx();
         let result = engine
             .get_permission(&gmail_send("Hello", "body"), &ctx)
             .unwrap();
         let hash = result.norm_action.norm_hash();
-        engine.store().policy_cache_invalidate(&hash).unwrap();
-        engine.store().allowlist_add(hash, "ok".into()).unwrap();
+        engine.state().policy_cache_invalidate(&hash).await.unwrap();
+        engine
+            .state()
+            .allowlist_add(hash, "ok".into())
+            .await
+            .unwrap();
 
         engine
             .get_permission(&gmail_send("Hello", "body"), &ctx)
@@ -1714,8 +1803,8 @@ mod tests {
         assert!(stages.contains(&("denylist".into(), "miss".into())));
     }
 
-    #[test]
-    fn trace_records_policy_cache_hit_on_replay() {
+    #[tokio::test(flavor = "multi_thread")]
+    async fn trace_records_policy_cache_hit_on_replay() {
         let (engine, sink) = build_test_engine_with_audit();
         let ctx = default_ctx();
         // Warm the cache.
@@ -1738,8 +1827,8 @@ mod tests {
         assert!(last_detail.get("cached_permission").is_some());
     }
 
-    #[test]
-    fn trace_records_unknown_action_path() {
+    #[tokio::test(flavor = "multi_thread")]
+    async fn trace_records_unknown_action_path() {
         let (engine, sink) = build_test_engine_with_audit();
         let ctx = default_ctx();
         let raw = RawToolCall {
@@ -1758,8 +1847,8 @@ mod tests {
         assert!(!stages.iter().any(|(s, _)| s == "risk_scoring"));
     }
 
-    #[test]
-    fn trace_raw_tool_call_passes_through_redactor() {
+    #[tokio::test(flavor = "multi_thread")]
+    async fn trace_raw_tool_call_passes_through_redactor() {
         // The trace's raw_tool_call snapshot must reflect the same
         // redacted JSON that the final entry's `raw_tool_call` shows —
         // the redactor is the only path to either, so they must agree.

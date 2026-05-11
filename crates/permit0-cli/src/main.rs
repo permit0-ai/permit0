@@ -127,6 +127,32 @@ enum Commands {
     /// Audit trail verification and inspection
     #[command(subcommand)]
     Audit(AuditCmd),
+    /// CloudTrail-style batch digest verification (offline forensics)
+    #[command(subcommand)]
+    Digest(DigestCmd),
+}
+
+#[derive(Subcommand)]
+enum DigestCmd {
+    /// Verify the on-disk digest chain against an exported audit JSONL.
+    ///
+    /// Works offline — only needs the digest directory, the audit JSONL,
+    /// and the ed25519 public key the engine printed at startup. No
+    /// database connection required.
+    Verify {
+        /// Directory containing `digest-*.json` files (e.g. exported
+        /// from S3 or copied from the engine container's
+        /// `PERMIT0_DIGEST_DIR`).
+        #[arg(long)]
+        digests_dir: String,
+        /// Path to the JSONL audit export.
+        #[arg(long)]
+        audit_jsonl: String,
+        /// ed25519 public key (hex). Print at engine startup or read
+        /// from the `signing_keys` table.
+        #[arg(long)]
+        public_key: String,
+    },
 }
 
 #[derive(Subcommand)]
@@ -301,6 +327,13 @@ fn main() -> anyhow::Result<()> {
             CalibrateCmd::Test { corpus } => cmd::calibrate::test_corpus(&corpus),
             CalibrateCmd::Validate { profile } => cmd::calibrate::validate_profile(&profile),
             CalibrateCmd::Diff { profile } => cmd::calibrate::diff_profile(&profile),
+        },
+        Commands::Digest(digest_cmd) => match digest_cmd {
+            DigestCmd::Verify {
+                digests_dir,
+                audit_jsonl,
+                public_key,
+            } => cmd::digest::verify(&digests_dir, &audit_jsonl, &public_key),
         },
     }
 }

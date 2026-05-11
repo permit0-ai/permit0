@@ -30,8 +30,9 @@ impl Default for InMemoryAuditSink {
     }
 }
 
+#[async_trait::async_trait]
 impl AuditSink for InMemoryAuditSink {
-    fn append(&self, entry: &AuditEntry) -> Result<(), AuditError> {
+    async fn append(&self, entry: &AuditEntry) -> Result<(), AuditError> {
         let mut guard = self
             .entries
             .write()
@@ -40,7 +41,7 @@ impl AuditSink for InMemoryAuditSink {
         Ok(())
     }
 
-    fn query(&self, filter: &AuditFilter) -> Result<Vec<AuditEntry>, AuditError> {
+    async fn query(&self, filter: &AuditFilter) -> Result<Vec<AuditEntry>, AuditError> {
         let guard = self
             .entries
             .read()
@@ -92,7 +93,18 @@ impl AuditSink for InMemoryAuditSink {
         Ok(results)
     }
 
-    fn verify_chain(&self, from: u64, to: u64) -> Result<ChainVerification, AuditError> {
+    async fn tail(&self) -> Result<Option<(u64, String)>, AuditError> {
+        let guard = self
+            .entries
+            .read()
+            .map_err(|e| AuditError::Io(e.to_string()))?;
+        Ok(guard
+            .iter()
+            .max_by_key(|e| e.sequence)
+            .map(|e| (e.sequence, e.entry_hash.clone())))
+    }
+
+    async fn verify_chain(&self, from: u64, to: u64) -> Result<ChainVerification, AuditError> {
         let guard = self
             .entries
             .read()
@@ -203,72 +215,72 @@ mod tests {
         entry
     }
 
-    #[test]
-    fn append_and_query() {
+    #[tokio::test]
+    async fn append_and_query() {
         let sink = InMemoryAuditSink::new();
         let signer = Ed25519Signer::generate();
         let e1 = make_signed_entry(1, GENESIS_HASH, &signer);
         let e2 = make_signed_entry(2, &e1.entry_hash, &signer);
 
-        sink.append(&e1).unwrap();
-        sink.append(&e2).unwrap();
+        sink.append(&e1).await.unwrap();
+        sink.append(&e2).await.unwrap();
 
-        let all = sink.query(&AuditFilter::default()).unwrap();
+        let all = sink.query(&AuditFilter::default()).await.unwrap();
         assert_eq!(all.len(), 2);
         // Newest first
         assert_eq!(all[0].sequence, 2);
         assert_eq!(all[1].sequence, 1);
     }
 
-    #[test]
-    fn verify_chain_valid() {
+    #[tokio::test]
+    async fn verify_chain_valid() {
         let sink = InMemoryAuditSink::new();
         let signer = Ed25519Signer::generate();
         let e1 = make_signed_entry(1, GENESIS_HASH, &signer);
         let e2 = make_signed_entry(2, &e1.entry_hash, &signer);
         let e3 = make_signed_entry(3, &e2.entry_hash, &signer);
 
-        sink.append(&e1).unwrap();
-        sink.append(&e2).unwrap();
-        sink.append(&e3).unwrap();
+        sink.append(&e1).await.unwrap();
+        sink.append(&e2).await.unwrap();
+        sink.append(&e3).await.unwrap();
 
-        let result = sink.verify_chain(1, 3).unwrap();
+        let result = sink.verify_chain(1, 3).await.unwrap();
         assert!(result.valid);
         assert_eq!(result.entries_checked, 3);
     }
 
-    #[test]
-    fn verify_chain_tampered_entry() {
+    #[tokio::test]
+    async fn verify_chain_tampered_entry() {
         let sink = InMemoryAuditSink::new();
         let signer = Ed25519Signer::generate();
         let e1 = make_signed_entry(1, GENESIS_HASH, &signer);
         let mut e2 = make_signed_entry(2, &e1.entry_hash, &signer);
         e2.decision = Permission::Deny; // tamper without rehashing
 
-        sink.append(&e1).unwrap();
-        sink.append(&e2).unwrap();
+        sink.append(&e1).await.unwrap();
+        sink.append(&e2).await.unwrap();
 
-        let result = sink.verify_chain(1, 2).unwrap();
+        let result = sink.verify_chain(1, 2).await.unwrap();
         assert!(!result.valid);
         assert_eq!(result.first_broken_at, Some(2));
     }
 
-    #[test]
-    fn verify_chain_broken_link() {
+    #[tokio::test]
+    async fn verify_chain_broken_link() {
         let sink = InMemoryAuditSink::new();
         let signer = Ed25519Signer::generate();
         let e1 = make_signed_entry(1, GENESIS_HASH, &signer);
         let e2 = make_signed_entry(2, "wrong_prev_hash", &signer);
 
-        sink.append(&e1).unwrap();
-        sink.append(&e2).unwrap();
+        sink.append(&e1).await.unwrap();
+        sink.append(&e2).await.unwrap();
 
-        let result = sink.verify_chain(1, 2).unwrap();
+        let result = sink.verify_chain(1, 2).await.unwrap();
         assert!(!result.valid);
     }
 
-    #[test]
-    fn query_with_filters() {
+    #[tokio::test]
+    async fn query_with_filters() {
         let sink = InMemoryAuditSink::new();
         let signer = Ed25519Signer::generate();
 
@@ -282,8 +294,8 @@ mod tests {
         e2.entry_hash = compute_entry_hash(&e2);
         e2.signature = signer.sign(&e2.entry_hash);
 
-        sink.append(&e1).unwrap();
-        sink.append(&e2).unwrap();
+        sink.append(&e1).await.unwrap();
+        sink.append(&e2).await.unwrap();
 
         // Filter by decision
         let denies = sink
@@ -291,8 +303,23 @@ mod tests {
                 decision: Some(Permission::Deny),
                 ..Default::default()
             })
+            .await
             .unwrap();
         assert_eq!(denies.len(), 1);
         assert_eq!(denies[0].sequence, 2);
+    }
+
+    #[tokio::test]
+    async fn tail_returns_max_sequence() {
+        let sink = InMemoryAuditSink::new();
+        let signer = Ed25519Signer::generate();
+        assert!(sink.tail().await.unwrap().is_none());
+        let e1 = make_signed_entry(1, GENESIS_HASH, &signer);
+        let e2 = make_signed_entry(2, &e1.entry_hash, &signer);
+        sink.append(&e1).await.unwrap();
+        sink.append(&e2).await.unwrap();
+        let (seq, hash) = sink.tail().await.unwrap().unwrap();
+        assert_eq!(seq, 2);
+        assert_eq!(hash, e2.entry_hash);
     }
 }

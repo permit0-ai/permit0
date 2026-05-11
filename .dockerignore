@@ -1,0 +1,38 @@
+# Build artifacts
+target/
+**/target/
+**/*.rs.bk
+
+# Editor / IDE
+.idea/
+.vscode/
+*.swp
+
+# Local Claude state and notes
+.claude/
+todo.org
+
+# Git metadata is large and not useful in the build context
+.git/
+
+# Frontend build artifacts
+node_modules/
+**/node_modules/
+crates/permit0-ui/static/
+
+# Test caches
+.cargo-target/
+
+# Local secrets / dotenv
+.env
+.env.*
+*.key
+*.pem
+
+# Docs / repo metadata
+docs/
+README.md
+LICENSE
+CODEOWNERS
+.github/
+.cargo/

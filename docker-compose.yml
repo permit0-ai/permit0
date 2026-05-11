@@ -1,0 +1,116 @@
+# 3-service compose for permit0:
+#   - permit0-state-db   (Postgres) — denylist / allowlist / cache / HITL queue
+#   - permit0-audit-db   (Postgres) — signed, hash-chained decision log
+#   - permit0-engine     (the CLI in `serve --ui` mode)
+#
+# Bring up with `docker compose up --build`. The engine waits for both DBs
+# to pass `pg_isready` before booting and runs sqlx migrations on startup.
+#
+# Production note: change every `POSTGRES_PASSWORD` and the
+# `permit0-engine` connection-string passwords before deploying anywhere
+# you wouldn't paste publicly. The `audit-key` named volume holds the
+# ed25519 seed for the audit chain — back it up with the audit DB so
+# old entries stay verifiable.
+
+services:
+  permit0-state-db:
+    image: postgres:16-alpine
+    container_name: permit0-state-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: permit0
+      POSTGRES_PASSWORD: permit0_dev_state
+      POSTGRES_DB: permit0_state
+    volumes:
+      - state-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U permit0 -d permit0_state"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  permit0-audit-db:
+    image: postgres:16-alpine
+    container_name: permit0-audit-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: permit0
+      POSTGRES_PASSWORD: permit0_dev_audit
+      POSTGRES_DB: permit0_audit
+    volumes:
+      - audit-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U permit0 -d permit0_audit"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  permit0-engine:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: permit0-engine:latest
+    container_name: permit0-engine
+    restart: unless-stopped
+    depends_on:
+      permit0-state-db:
+        condition: service_healthy
+      permit0-audit-db:
+        condition: service_healthy
+    environment:
+      PERMIT0_STATE_URL: postgres://permit0:permit0_dev_state@permit0-state-db:5432/permit0_state
+      PERMIT0_AUDIT_URL: postgres://permit0:permit0_dev_audit@permit0-audit-db:5432/permit0_audit
+      PERMIT0_AUDIT_KEY_PATH: /var/lib/permit0/audit_signing.key
+      PERMIT0_PACKS_DIR: /etc/permit0/packs
+      # CloudTrail-style batch digests. Files land in this directory
+      # and are also pinned in the audit DB. Verify offline with
+      # `permit0 digest verify --digests-dir <dir> --audit-jsonl <file>
+      #     --public-key <hex>`.
+      PERMIT0_DIGEST_DIR: /var/lib/permit0/digests
+      PERMIT0_DIGEST_INTERVAL_SECS: "300"
+      PERMIT0_DIGEST_BATCH_MAX: "1000"
+      # Uncomment to also tee every audit entry to an OpenTelemetry
+      # collector (S3 / Datadog / Splunk via the otel-collector service
+      # below). The Postgres audit DB remains the source of truth;
+      # collector outages don't block the engine.
+      # PERMIT0_OTLP_ENDPOINT: http://otel-collector:4318
+      RUST_LOG: info
+    ports:
+      - "9090:9090"
+    volumes:
+      # Persist the ed25519 audit signing seed + digest files so the
+      # chain stays verifiable across container recreates. Back up the
+      # whole `audit-key` volume alongside `audit-db-data`.
+      - audit-key:/var/lib/permit0
+      # Optional: mount your own packs to override the bundled ones.
+      # - ./packs:/etc/permit0/packs:ro
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/permit0", "check", "--help"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+
+  # Optional: OpenTelemetry collector for off-box audit drains
+  # (S3 / Datadog / Splunk). Uncomment together with
+  # PERMIT0_OTLP_ENDPOINT on the engine service.
+  #
+  # otel-collector:
+  #   image: otel/opentelemetry-collector-contrib:0.116.0
+  #   container_name: permit0-otel-collector
+  #   restart: unless-stopped
+  #   command: ["--config=/etc/otelcol-contrib/config.yaml"]
+  #   volumes:
+  #     - ./otel-collector-config.yaml:/etc/otelcol-contrib/config.yaml:ro
+  #   ports:
+  #     - "4318:4318"  # OTLP HTTP
+  #   # If you enable the awss3 / datadog exporters in
+  #   # otel-collector-config.yaml, pass their secrets here:
+  #   # environment:
+  #   #   AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID}
+  #   #   AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY}
+  #   #   DD_API_KEY: ${DD_API_KEY}
+
+volumes:
+  state-db-data:
+  audit-db-data:
+  audit-key:

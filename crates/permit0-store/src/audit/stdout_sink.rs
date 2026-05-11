@@ -19,22 +19,27 @@ impl Default for StdoutAuditSink {
     }
 }
 
+#[async_trait::async_trait]
 impl AuditSink for StdoutAuditSink {
-    fn append(&self, entry: &AuditEntry) -> Result<(), AuditError> {
+    async fn append(&self, entry: &AuditEntry) -> Result<(), AuditError> {
         let json = serde_json::to_string(entry).map_err(|e| AuditError::Io(e.to_string()))?;
         println!("{json}");
         Ok(())
     }
 
-    fn query(&self, _filter: &AuditFilter) -> Result<Vec<AuditEntry>, AuditError> {
+    async fn query(&self, _filter: &AuditFilter) -> Result<Vec<AuditEntry>, AuditError> {
         Err(AuditError::Io(
             "StdoutAuditSink does not support queries".into(),
         ))
     }
 
-    fn verify_chain(&self, _from: u64, _to: u64) -> Result<ChainVerification, AuditError> {
+    async fn verify_chain(&self, _from: u64, _to: u64) -> Result<ChainVerification, AuditError> {
         Err(AuditError::Io(
             "StdoutAuditSink does not support chain verification".into(),
         ))
+    }
+
+    async fn tail(&self) -> Result<Option<(u64, String)>, AuditError> {
+        Ok(None)
     }
 }

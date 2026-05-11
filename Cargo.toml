@@ -74,6 +74,25 @@ rand = "0.8"
 
 # Storage
 rusqlite = { version = "0.32", features = ["bundled"] }
+sqlx = { version = "0.8", default-features = false, features = [
+    "runtime-tokio-rustls",
+    "postgres",
+    "macros",
+    "json",
+    "chrono",
+    "uuid",
+    "migrate",
+] }
+async-trait = "0.1"
+
+# OpenTelemetry — used by the OtelAuditSink to ship audit entries to a
+# collector (S3/Datadog/etc) over OTLP. The `*-http` crate carries the
+# protobuf-over-HTTP transport so we don't need a tonic/grpc tree.
+opentelemetry = { version = "0.27", default-features = false, features = ["logs"] }
+opentelemetry_sdk = { version = "0.27", default-features = false, features = ["logs", "rt-tokio"] }
+opentelemetry-otlp = { version = "0.27", default-features = false, features = ["logs", "http-proto", "reqwest-blocking-client"] }
+# `opentelemetry-otlp` requires a reqwest client be supplied.
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"] }
 
 # Regex (linear time, no backtracking)
 regex = "1"

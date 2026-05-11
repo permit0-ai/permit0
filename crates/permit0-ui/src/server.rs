@@ -9,7 +9,7 @@ use axum::middleware::{self, Next};
 use axum::response::Response;
 use axum::routing::{get, post};
 
-use permit0_store::{AuditSink, Store};
+use permit0_store::{AuditSink, PolicyState};
 
 use crate::approval::ApprovalManager;
 use crate::auth::TokenStore;
@@ -222,15 +222,15 @@ pub fn build_router_with_oidc(state: AppState, oidc_state: oidc::OidcState) -> R
 /// Configuration for the UI server.
 pub struct ServerConfig {
     pub port: u16,
-    pub store: Arc<dyn Store>,
-    pub audit_sink: Option<Arc<dyn AuditSink>>,
+    pub state: Arc<dyn PolicyState>,
+    pub audit_sink: Arc<dyn AuditSink>,
     pub require_auth: bool,
 }
 
 /// Create default AppState from ServerConfig.
 pub fn create_app_state(config: &ServerConfig) -> AppState {
     AppState {
-        store: config.store.clone(),
+        state: config.state.clone(),
         audit_sink: config.audit_sink.clone(),
         token_store: Arc::new(TokenStore::new()),
         approval_manager: Arc::new(ApprovalManager::new()),
@@ -245,13 +245,13 @@ mod tests {
     use crate::auth::Role;
     use axum::body::Body;
     use axum::http::Request;
-    use permit0_store::InMemoryStore;
+    use permit0_store::{InMemoryAuditSink, InMemoryPolicyState};
     use tower::ServiceExt;
 
     fn test_state() -> AppState {
         AppState {
-            store: Arc::new(InMemoryStore::new()),
-            audit_sink: None,
+            state: Arc::new(InMemoryPolicyState::new()),
+            audit_sink: Arc::new(InMemoryAuditSink::new()),
             token_store: Arc::new(TokenStore::new()),
             approval_manager: Arc::new(ApprovalManager::new()),
             packs_dir: None,
