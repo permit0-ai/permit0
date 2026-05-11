@@ -243,9 +243,10 @@ pub fn create_app_state(config: &ServerConfig) -> AppState {
 mod tests {
     use super::*;
     use crate::auth::Role;
-    use axum::body::Body;
+    use axum::body::{Body, to_bytes};
     use axum::http::Request;
-    use permit0_store::InMemoryStore;
+    use permit0_store::{InMemoryAuditSink, InMemoryStore};
+    use permit0_types::{DecisionRecord, Permission, Tier};
     use tower::ServiceExt;
 
     fn test_state() -> AppState {
@@ -289,6 +290,57 @@ mod tests {
             .unwrap();
 
         assert_eq!(response.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn audit_endpoint_falls_back_to_decision_store_when_sink_empty() {
+        let store = InMemoryStore::new();
+        store
+            .save_decision(DecisionRecord {
+                id: "decision-1".into(),
+                norm_hash: [0u8; 32],
+                action_type: "email.send".into(),
+                channel: "gmail".into(),
+                permission: Permission::HumanInTheLoop,
+                source: "Scorer".into(),
+                tier: Some(Tier::Medium),
+                risk_raw: Some(0.426),
+                blocked: false,
+                flags: vec!["OUTBOUND".into()],
+                timestamp: "2026-05-11T17:50:54Z".into(),
+                surface_tool: "gmail_send".into(),
+                surface_command: "gmail_send".into(),
+                engine_permission: None,
+                reviewer: None,
+                reason: None,
+            })
+            .unwrap();
+
+        let app = build_router(AppState {
+            store: Arc::new(store),
+            audit_sink: Some(Arc::new(InMemoryAuditSink::new())),
+            token_store: Arc::new(TokenStore::new()),
+            approval_manager: Arc::new(ApprovalManager::new()),
+            packs_dir: None,
+            profiles_dir: None,
+        });
+        let response = app
+            .oneshot(
+                Request::builder()
+                    .uri("/api/v1/audit?limit=20")
+                    .body(Body::empty())
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(response.status(), StatusCode::OK);
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let rows = json["data"].as_array().unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(rows[0]["action_type"], "email.send");
+        assert_eq!(rows[0]["channel"], "gmail");
     }
 
     #[tokio::test]

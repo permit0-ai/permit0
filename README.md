@@ -7,7 +7,7 @@
 <a href="LICENSE"><img alt="License: Apache 2.0" src="https://img.shields.io/badge/License-Apache%202.0-blue.svg"></a>
 <img alt="Rust 1.85+" src="https://img.shields.io/badge/rust-1.85%2B-orange">
 
-> Permit0 integrates with **Claude Code** and **OpenClaw** — more integrations to come. The pilot `email` taxonomy is ready, with Outlook and Gmail packs. [Open an issue to request the next taxonomy domain or tool pack →](https://github.com/permit0-ai/permit0/issues/new?template=new-pack.md) and ⭐ star the project.
+> Permit0 integrates with **Claude Code**, **Codex**, and **OpenClaw**. The pilot `email` taxonomy is ready, with Outlook and Gmail packs. [Open an issue to request the next taxonomy domain or tool pack →](https://github.com/permit0-ai/permit0/issues/new?template=new-pack.md) and ⭐ star the project.
 
 ---
 
@@ -23,9 +23,9 @@ The vocabulary is published. The first pack is shipped. The rest is the work.
 
 ---
 
-## Try it — Claude Code + Outlook/Gmail in 5 minutes
+## Try it — Claude Code or Codex + Outlook/Gmail in 5 minutes
 
-> **On OpenClaw?** Skip to [`integrations/permit0-openclaw/`](integrations/permit0-openclaw/) — wrap a skill with `permit0Skill(...)` and gate every dispatch through the same daemon. The rest of this section is the Claude Code path.
+> **On OpenClaw?** Skip to [`integrations/permit0-openclaw/`](integrations/permit0-openclaw/) — wrap a skill with `permit0Skill(...)` and gate every dispatch through the same daemon.
 
 ```bash
 # 1. Build
@@ -74,6 +74,22 @@ Restart Claude Code. Ask it: *"list recent emails and archive any newsletters,"*
 
 Shadow mode (`permit0 hook --shadow`) logs decisions without blocking, if you want to observe before enforcing.
 
+For Codex, use the daemon-backed managed-preferences installer:
+
+```bash
+PERMIT0_URL=http://127.0.0.1:9090 bash integrations/permit0-codex/examples/install-managed-prefs.sh
+```
+
+Then add the MCP server to your Codex config:
+
+```toml
+[mcp_servers.permit0-gmail]
+command = "/abs/path/to/permit0-gmail-mcp"
+```
+
+See [`integrations/permit0-codex/`](integrations/permit0-codex/) for the
+full Codex setup, including unattended install and cleanup.
+
 ---
 
 ## What makes it different
@@ -99,7 +115,7 @@ The taxonomy is the canonical, append-only vocabulary for *what agents do* — `
 
 22 domains, 159 verbs are defined today in [`crates/permit0-types/src/taxonomy.rs`](crates/permit0-types/src/taxonomy.rs) and documented at [`docs/taxonomy.md`](docs/taxonomy.md). The engine fails closed on any tool call that doesn't normalize to a covered action — unknown actions queue for human approval, they don't auto-run.
 
-**Today (v0.1):** engine, signed audit, admin UI, CLI, one reference pack (`email`, 16 verbs for Gmail + Outlook), two integrations (Claude Code, OpenClaw).
+**Today (v0.1):** engine, signed audit, admin UI, CLI, one reference pack (`email`, 16 verbs for Gmail + Outlook), three integrations (Claude Code, Codex, OpenClaw).
 
 **Roadmap:** packs for Slack, Notion, Linear, Stripe, Postgres, Bash, GitHub; framework adapters for LangChain, CrewAI, AutoGen, OpenAI Agents; pre-built CLI binaries.
 
@@ -158,7 +174,7 @@ This preserves the determinism guarantee. The LLM is allowed to be fallible in o
 
 **5. Can I run it fully offline / air-gapped?** Yes. Default install uses SQLite and in-memory storage, no external dependencies. The LLM reviewer is optional — disable it in regulated environments where every medium-risk decision must go to a human.
 
-**6. Why is only the email pack shipped?** Phase 1 focus: prove the engine end-to-end on one domain that everyone has (their inbox), with two channels (Outlook + Gmail), through a real agent host (Claude Code). The taxonomy is the moat; the packs are linear work the community can parallelize. Yours next.
+**6. Why is only the email pack shipped?** Phase 1 focus: prove the engine end-to-end on one domain that everyone has (their inbox), with two channels (Outlook + Gmail), through real agent hosts (Claude Code, Codex, and OpenClaw). The taxonomy is the moat; the packs are linear work the community can parallelize. Yours next.
 
 ---
 

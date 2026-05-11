@@ -1,5 +1,5 @@
 {
-  "_comment": "permit0 hook for Codex — alternative to inline [hooks] in config.toml. Save as ~/.codex/hooks.json. Replace /abs/path/to/permit0 with your actual checkout. After saving, launch codex once interactively and /hooks to mark it trusted.",
+  "_comment": "permit0 hook for Codex — alternative to inline [hooks] in config.toml. Save as ~/.codex/hooks.json. Replace /abs/path/to/permit0 with your actual checkout. Start permit0 serve --ui --port 9090 before Codex. After saving, launch codex once interactively and /hooks to mark it trusted.",
 
   "hooks": {
     "PreToolUse": [
@@ -8,7 +8,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "/abs/path/to/permit0/target/release/permit0 hook --client codex --packs-dir /abs/path/to/permit0/packs --unknown defer",
+            "command": "/abs/path/to/permit0/target/release/permit0 hook --client codex --remote http://127.0.0.1:9090 --unknown deny",
             "timeout": 30,
             "statusMessage": "permit0 safety check"
           }

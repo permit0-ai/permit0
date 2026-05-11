@@ -9,6 +9,10 @@
 #
 # Replace `/abs/path/to/permit0` with the actual checkout path (the
 # `command` field does not expand `~` or shell vars).
+# Start the daemon first so decisions are enforced and visible in the
+# dashboard:
+#
+#   cargo run -p permit0-cli -- serve --ui --port 9090
 
 [features]
 hooks = true
@@ -18,7 +22,7 @@ matcher = ".*"
 
 [[hooks.PreToolUse.hooks]]
 type = "command"
-command = "/abs/path/to/permit0/target/release/permit0 hook --client codex --packs-dir /abs/path/to/permit0/packs --unknown defer"
+command = "/abs/path/to/permit0/target/release/permit0 hook --client codex --remote http://127.0.0.1:9090 --unknown deny"
 timeout = 30
 statusMessage = "permit0 safety check"
 
@@ -32,18 +36,15 @@ statusMessage = "permit0 safety check"
 #   matcher = "^mcp__.*"                        # all MCP tools
 #   matcher = "^mcp__permit0-gmail__.*"         # one specific MCP server
 
-# Remote mode — point the hook at a running daemon instead of
-# evaluating in-process. Useful for centralized dashboards / audit:
+# Local dev mode — evaluate in-process without the dashboard daemon.
+# Useful for offline smoke tests, but decisions will not appear in the
+# daemon dashboard:
 #
-#   command = "/abs/path/to/permit0 hook --client codex --remote http://127.0.0.1:9090 --unknown defer"
-#
-# Then in a separate process:
-#
-#   cargo run --release -p permit0-cli -- serve --ui --port 9090
+#   command = "/abs/path/to/permit0/target/release/permit0 hook --client codex --packs-dir /abs/path/to/permit0/packs --unknown defer"
 
 # Shadow mode — observe without blocking. permit0 logs the verdict to
 # stderr but never returns a deny envelope. Append --shadow:
 #
-#   command = "/abs/path/to/permit0 hook --client codex --shadow --unknown defer"
+#   command = "/abs/path/to/permit0/target/release/permit0 hook --client codex --remote http://127.0.0.1:9090 --unknown deny --shadow"
 #
 # Equivalently, set PERMIT0_SHADOW=1 in the environment that runs codex.

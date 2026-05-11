@@ -1,21 +1,26 @@
 # permit0-outlook-mcp
 
-MCP server that exposes Outlook tools (Microsoft Graph) to Claude Code, **each
-call gated by permit0** so policy is enforced before any email is sent, moved,
-or deleted.
+MCP server that exposes Outlook tools (Microsoft Graph) to agent hosts.
+With Codex and Claude Code, permit0 enforcement happens at the host
+`PreToolUse` hook layer: the host proposes
+`mcp__permit0-outlook__outlook_send`, the permit0 hook sends it to the
+daemon, and the Graph API call only runs when the hook allows it.
 
 ## Architecture
 
+```text
+Agent host ──PreToolUse hook──▶ permit0 hook --client <host> --remote :9090
+   │                                  │
+   │                                  └─▶ permit0 daemon/dashboard
+   │                                        (allow/deny/human)
+   │
+   └─MCP/stdio, only if allowed──────▶ permit0-outlook-mcp
+                                          └─▶ Microsoft Graph API
 ```
-Claude Code  ──MCP/stdio──▶  permit0-outlook-mcp
-                               │
-                               ├─▶ @permit0.guard("email.X")
-                               │    └─ POST /api/v1/check_action ──▶ permit0 daemon
-                               │                                       (allow/deny/human)
-                               │
-                               └─▶ Microsoft Graph API
-                                    (only on allow)
-```
+
+For hosts without a hook layer, add an equivalent pre-tool gate before
+starting this MCP server. The server itself is plain MCP and does not
+call permit0 internally.
 
 ## Tools exposed
 
@@ -61,43 +66,77 @@ Visit the Microsoft device-login URL it prints, sign in with your personal
 Outlook account, approve `Mail.ReadWrite` + `Mail.Send`. Token caches to
 `~/.permit0/outlook_token.json` and is reused by this MCP server.
 
-### 4. Wire into Claude Code
+### 4. Wire into Codex or Claude Code
 
-Add to your Claude Code config (typically `~/.claude.json` or a project-local
-`.mcp.json`):
+Both Codex and Claude Code enforce Outlook tools through a host-level
+`PreToolUse` hook. The MCP server config only exposes the tools; the hook
+is what calls permit0 before Microsoft Graph runs.
+
+#### Codex
+
+Install the daemon-backed Codex hook:
+
+```bash
+PERMIT0_URL=http://127.0.0.1:9090 bash integrations/permit0-codex/examples/install-managed-prefs.sh
+```
+
+For Codex, add the Outlook MCP server to your Codex config:
+
+```toml
+[mcp_servers.permit0-outlook]
+command = "/absolute/path/to/permit0-outlook-mcp"
+```
+
+#### Claude Code
+
+Add the permit0 hook to Claude Code, for example in
+`~/.claude/settings.json`:
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [{ "hooks": [{
+      "type": "command",
+      "command": "/absolute/path/to/permit0/target/release/permit0 hook --remote http://127.0.0.1:9090 --unknown defer"
+    }]}]
+  }
+}
+```
+
+For Claude Code, add it to `~/.claude.json` or project-local `.mcp.json`:
 
 ```json
 {
   "mcpServers": {
     "permit0-outlook": {
-      "command": "permit0-outlook-mcp",
-      "env": {
-        "PERMIT0_URL": "http://localhost:9090"
-      }
+      "command": "permit0-outlook-mcp"
     }
   }
 }
 ```
 
-Restart Claude Code. The 9 tools above appear in its tool list.
+Restart the host. The 9 tools above appear in its tool list, and each
+mutating Outlook MCP call is enforced by the daemon-backed host hook
+before the MCP server is called.
 
 ## Try it
 
-In Claude Code:
+In your agent host:
 
 > List the 5 most recent emails in my inbox and archive all promotional emails from last week.
 
-Claude Code will call `outlook_list` (no permit0 check), then for each
-candidate message, call `outlook_archive(message_id=...)`. Each archive call
-hits permit0 — you'll see the decisions live in the dashboard at
-http://localhost:9090/ui/ under the **Audit** tab.
+The host will call `outlook_search` or `outlook_list`, then for each
+candidate message, call `outlook_archive(message_id=...)`. Each archive
+call is evaluated by the hook before it reaches the MCP server; you'll
+see the decisions live in the dashboard at <http://localhost:9090/ui/>.
 
 > Send an email to bob@example.com with subject "test" and body "hi".
 
-Claude Code calls `outlook_send(to=..., subject=..., body=...)`. permit0
-evaluates `email.send` against its risk rule. A clean send → ALLOW. Embedding
-something like `password is hunter2` in the body → DENY (the SDK raises
-`permit0.Denied`, the MCP layer reports the block to Claude Code).
+The host calls `outlook_send(to=..., subject=..., body=...)`. permit0
+evaluates `email.send` against its risk rule. A clean send can run.
+Sensitive content or risky recipients return a deny envelope from the
+hook, so the host blocks the tool call before the MCP layer reaches
+Microsoft Graph.
 
 ## Combining with shadow mode
 
@@ -107,16 +146,14 @@ If you want to **observe** without enforcement while you tune the risk rules:
 export PERMIT0_SHADOW=1   # for `permit0 hook` use
 ```
 
-Note: this env var is read by the **`permit0 hook`** subcommand
-(Claude Code PreToolUse). The MCP server itself enforces directly via
-`@permit0.guard` — there's no built-in shadow flag yet. If you want shadow
-mode for MCP tools too, ask and we'll add it.
+Note: this env var is read by the **`permit0 hook`** subcommand. The MCP
+server itself is plain MCP, so shadow/enforcement behavior is controlled
+by the host hook command.
 
 ## Configuration
 
 | Variable | Default | Purpose |
 |----------|---------|---------|
-| `PERMIT0_URL` | `http://localhost:9090` | permit0 daemon URL |
 | `MSGRAPH_CLIENT_ID` | Microsoft Graph PowerShell public client | Override with your own Azure App reg |
 
 ## What this is NOT

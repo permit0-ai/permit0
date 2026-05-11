@@ -60,16 +60,20 @@ pub async fn list_audit(
 > {
     if let Some(ref sink) = state.audit_sink {
         let filter = AuditFilter {
-            action_type: q.action_type,
+            action_type: q.action_type.clone(),
             decision: q.decision.as_deref().and_then(parse_permission),
-            session_id: q.session_id,
-            since: q.since,
-            until: q.until,
+            session_id: q.session_id.clone(),
+            since: q.since.clone(),
+            until: q.until.clone(),
             limit: q.limit,
             ..Default::default()
         };
         match sink.query(&filter) {
             Ok(entries) => {
+                if entries.is_empty() {
+                    return list_decision_records(&state, &q);
+                }
+
                 // The frontend's audit table and dashboard "Recent Decisions"
                 // both read flat fields (action_type, permission, tier,
                 // risk_raw, ...) shaped like DecisionRecord. AuditEntry has a
@@ -86,27 +90,7 @@ pub async fn list_audit(
             )),
         }
     } else {
-        // Fall back to simple decision records from store
-        let filter = DecisionFilter {
-            action_type: q.action_type,
-            permission: q.decision.as_deref().and_then(parse_permission),
-            since: q.since,
-            limit: q.limit,
-            ..Default::default()
-        };
-        match state.store.query_decisions(&filter) {
-            Ok(records) => {
-                let json_records: Vec<serde_json::Value> = records
-                    .iter()
-                    .filter_map(|r| serde_json::to_value(r).ok())
-                    .collect();
-                Ok(ok_response(json_records))
-            }
-            Err(e) => Err(err_response(
-                StatusCode::INTERNAL_SERVER_ERROR,
-                &format!("decision query failed: {e}"),
-            )),
-        }
+        list_decision_records(&state, &q)
     }
 }
 
@@ -231,6 +215,35 @@ fn parse_permission(s: &str) -> Option<Permission> {
         "deny" => Some(Permission::Deny),
         "human" | "humanintheloop" => Some(Permission::HumanInTheLoop),
         _ => None,
+    }
+}
+
+fn list_decision_records(
+    state: &AppState,
+    q: &AuditQuery,
+) -> Result<
+    Json<ApiResponse<Vec<serde_json::Value>>>,
+    (StatusCode, Json<ApiResponse<Vec<serde_json::Value>>>),
+> {
+    let filter = DecisionFilter {
+        action_type: q.action_type.clone(),
+        permission: q.decision.as_deref().and_then(parse_permission),
+        since: q.since.clone(),
+        limit: q.limit,
+        ..Default::default()
+    };
+    match state.store.query_decisions(&filter) {
+        Ok(records) => {
+            let json_records: Vec<serde_json::Value> = records
+                .iter()
+                .filter_map(|r| serde_json::to_value(r).ok())
+                .collect();
+            Ok(ok_response(json_records))
+        }
+        Err(e) => Err(err_response(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            &format!("decision query failed: {e}"),
+        )),
     }
 }
 
