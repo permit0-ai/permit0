@@ -227,7 +227,7 @@ pub struct AuditFilter {
 /// Audit policy: how to handle sink failures.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum AuditPolicy {
-    /// Block decisions if any sink fails. Required for fintech.
+    /// Block decisions if any sink fails. Required for regulated environments.
     Strict,
     /// Log failure, continue, buffer and retry.
     #[default]

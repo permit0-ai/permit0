@@ -51,7 +51,7 @@ A `Decision` carries a `score` (0–100, display) and a `tier`. The engine's map
 | HIGH | 56–75 | human |
 | CRITICAL | 76–100 | deny |
 
-What changes between profiles (`fintech`, `healthtech`, `default`, …) is which actions land in which tier — that's the **calibration**, governed by the active pack's risk rules and weight files. Tooling lives in two places:
+What changes between profiles is which actions land in which tier — that's the **calibration**, governed by the active pack's risk rules and weight files. Tooling lives in two places:
 
 - `permit0 calibrate test|diff|validate` — offline CLI for testing, diffing, and validating profiles against the golden corpus under `corpora/calibration/`. Run before shipping a custom profile.
 - `permit0 serve --calibrate` — a daemon mode that **escalates every fresh engine decision to human approval in the dashboard, regardless of tier**, so an operator can audit and override recommendations to build a calibration corpus. Allowlist/denylist/policy-cache hits skip the escalation. Used during onboarding or profile training; never in production. Default is off — production daemons return the engine's recommendation directly.

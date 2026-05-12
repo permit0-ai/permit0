@@ -29,7 +29,7 @@ cargo deny check
 
 # Calibration tests (run after changing packs or profiles)
 cargo run -- calibrate test
-cargo run -- calibrate test --corpus corpora/calibration --profile fintech
+# cargo run -- calibrate test --corpus corpora/calibration --profile my-profile
 
 # Pack testing
 cargo run -- pack test packs/stripe
@@ -106,7 +106,7 @@ Packs are the extension unit: `packs/<name>/` contains `pack.yaml`, `normalizers
 
 ### Scoring Config & Profiles
 
-`ScoringConfig` (in `permit0-scoring`) holds flag weights, amplifier weights, block rules, and tanh constant. It is the only thing that changes between base / fintech / healthtech profiles.
+`ScoringConfig` (in `permit0-scoring`) holds flag weights, amplifier weights, block rules, and tanh constant. It is the only thing that changes between the base config and any profile overlay.
 
 `profiles/*.profile.yaml` declares multiplier adjustments, threshold shifts, and additional block rules on top of the base config. Guardrails enforced at load time:
 - Weight multipliers: 0.5×–2.0×

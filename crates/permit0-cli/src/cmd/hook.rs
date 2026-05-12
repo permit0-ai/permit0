@@ -18,7 +18,7 @@
 //! {
 //!   "hooks": {
 //!     "PreToolUse": [{
-//!       "command": "permit0 hook --profile fintech --db ~/.permit0/sessions.db",
+//!       "command": "permit0 hook --profile my-profile --db ~/.permit0/sessions.db",
 //!       "description": "permit0 agent safety check (session-aware)"
 //!     }]
 //!   }

@@ -96,37 +96,6 @@ fn pack_validate_email() {
 }
 
 #[test]
-fn calibrate_validate_fintech() {
-    let output = permit0_bin()
-        .args(["calibrate", "validate", "--profile", "fintech"])
-        .output()
-        .unwrap();
-    assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("passes all guardrails"));
-}
-
-#[test]
-fn calibrate_validate_healthtech() {
-    let output = permit0_bin()
-        .args(["calibrate", "validate", "--profile", "healthtech"])
-        .output()
-        .unwrap();
-    assert!(output.status.success());
-}
-
-#[test]
-fn calibrate_diff_fintech() {
-    let output = permit0_bin()
-        .args(["calibrate", "diff", "--profile", "fintech"])
-        .output()
-        .unwrap();
-    assert!(output.status.success());
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(stdout.contains("FINANCIAL"));
-}
-
-#[test]
 fn hook_with_safe_email() {
     let input = r#"{"tool_name":"gmail_send","tool_input":{"to":"bob@external.com","subject":"Hi","body":"ok"}}"#;
     let mut child = permit0_bin()
