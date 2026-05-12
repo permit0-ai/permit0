@@ -486,11 +486,17 @@ async fn apply_calibration(
         "[calibrate] human → {:?} (engine had → {:?}) reviewer={} reason={}",
         decision.permission, original_permission, decision.reviewer, decision.reason,
     );
-    // Intentionally do NOT cache the human's verdict. Every fresh decision
-    // must reach a human; subsequent identical calls go through approval
-    // again. The unused norm_hash binding stays for parity with the
-    // advisory flow's signature.
-    let _ = norm_hash;
+
+    // Cache the human's Allow/Deny so subsequent identical calls reflect
+    // it without re-prompting. HITL itself is never cached (matches the
+    // engine's own policy). Session-aware bypass would belong here, but
+    // session chains aren't supported yet — revisit when they are.
+    if decision.permission != Permission::HumanInTheLoop {
+        let _ = state
+            .engine
+            .store()
+            .policy_cache_set(norm_hash, decision.permission);
+    }
 
     let meta = CalibrationMeta {
         engine_permission: Some(original_permission),
@@ -557,6 +563,7 @@ async fn block_for_advisory_approval(
 
     let action_type = result.norm_action.action_type.as_action_str();
     let channel = result.norm_action.channel.clone();
+    let norm_hash = result.norm_action.norm_hash();
     let (approval_id, rx) = manager.create_pending(result.norm_action.clone(), risk_score);
     let timeout = manager.timeout();
 
@@ -585,6 +592,17 @@ async fn block_for_advisory_approval(
         "[approval] {approval_id} → {:?} by {} ({})",
         decision.permission, decision.reviewer, decision.reason,
     );
+
+    // Cache the human's Allow/Deny so subsequent identical calls reflect
+    // it without re-prompting. HITL itself is never cached (matches the
+    // engine's own policy). Session-aware bypass would belong here, but
+    // session chains aren't supported yet — revisit when they are.
+    if decision.permission != Permission::HumanInTheLoop {
+        let _ = state
+            .engine
+            .store()
+            .policy_cache_set(norm_hash, decision.permission);
+    }
 
     Ok(PermissionResult {
         permission: decision.permission,
