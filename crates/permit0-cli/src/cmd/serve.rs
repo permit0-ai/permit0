@@ -27,7 +27,8 @@ use permit0_store::audit::{
 };
 use permit0_store::{InMemoryStore, SqliteStore, Store};
 use permit0_types::{
-    ActionType, DecisionRecord, Entities, ExecutionMeta, NormAction, RawToolCall, RiskScore, Tier,
+    ActionType, DecisionRecord, Entities, ExecutionMeta, NormAction, Permission, RawToolCall,
+    RiskScore, Tier,
 };
 use permit0_ui::{AppState, ApprovalManager, TokenStore};
 use tower_http::services::ServeDir;
@@ -144,6 +145,7 @@ async fn check_handler(
     })?;
 
     let (result, meta) = apply_calibration(&state, result).await?;
+    let result = block_for_advisory_approval(&state, result).await?;
 
     let surface_command = tool_call
         .parameters
@@ -384,6 +386,7 @@ async fn check_action_handler(
     })?;
 
     let (result, meta) = apply_calibration(&state, result).await?;
+    let result = block_for_advisory_approval(&state, result).await?;
 
     record_and_respond(
         &state,
@@ -484,12 +487,16 @@ async fn apply_calibration(
         decision.permission, original_permission, decision.reviewer, decision.reason,
     );
 
-    // Persist the human's decision in the cache so future identical calls
-    // reflect the calibrated answer (overwriting the engine's recommendation).
-    let _ = state
-        .engine
-        .store()
-        .policy_cache_set(norm_hash, decision.permission);
+    // Cache the human's Allow/Deny so subsequent identical calls reflect
+    // it without re-prompting. HITL itself is never cached (matches the
+    // engine's own policy). Session-aware bypass would belong here, but
+    // session chains aren't supported yet — revisit when they are.
+    if decision.permission != Permission::HumanInTheLoop {
+        let _ = state
+            .engine
+            .store()
+            .policy_cache_set(norm_hash, decision.permission);
+    }
 
     let meta = CalibrationMeta {
         engine_permission: Some(original_permission),
@@ -503,6 +510,106 @@ async fn apply_calibration(
         source: DecisionSource::HumanReviewer,
     };
     Ok((new_result, meta))
+}
+
+/// Block on a human decision for fresh HumanInTheLoop verdicts.
+///
+/// In non-calibration mode, when the engine returns HITL from real risk
+/// scoring (Scorer or AgentReviewer source), park the HTTP request until
+/// a human resolves the approval in the dashboard, then resume with the
+/// human's verdict. No policy-cache writes: every HITL goes through
+/// fresh approval, including identical repeats.
+///
+/// UnknownFallback HITLs ("permit0 has no opinion about this tool") are
+/// deliberately excluded — those should be addressed via a
+/// normalizer/risk-rule pair or by allowlisting the norm_hash, not by
+/// flooding the approval queue with every unrecognized tool call.
+///
+/// Pass-through (no blocking) when:
+/// - The verdict is not HumanInTheLoop (Allow/Deny need no queue entry).
+/// - The decision came from cache/list/prior-human/UnknownFallback path.
+/// - No approval manager is configured (no --ui mode).
+/// - Calibration mode is on (apply_calibration already handled it).
+async fn block_for_advisory_approval(
+    state: &ServerState,
+    result: PermissionResult,
+) -> Result<PermissionResult, (StatusCode, String)> {
+    if state.calibrate || result.permission != Permission::HumanInTheLoop {
+        return Ok(result);
+    }
+    match result.source {
+        DecisionSource::Allowlist
+        | DecisionSource::Denylist
+        | DecisionSource::PolicyCache
+        | DecisionSource::HumanReviewer
+        | DecisionSource::UnknownFallback => return Ok(result),
+        DecisionSource::Scorer | DecisionSource::AgentReviewer => {}
+    }
+
+    let manager = match &state.approval_manager {
+        Some(m) => m.clone(),
+        None => return Ok(result),
+    };
+
+    let risk_score = result.risk_score.clone().unwrap_or_else(|| RiskScore {
+        raw: 0.0,
+        score: 0,
+        tier: Tier::Minimal,
+        blocked: false,
+        flags: Vec::new(),
+        block_reason: None,
+        reason: "no risk score (cache or fast-path)".into(),
+    });
+
+    let action_type = result.norm_action.action_type.as_action_str();
+    let channel = result.norm_action.channel.clone();
+    let norm_hash = result.norm_action.norm_hash();
+    let (approval_id, rx) = manager.create_pending(result.norm_action.clone(), risk_score);
+    let timeout = manager.timeout();
+
+    eprintln!("[approval] HITL pending for {action_type} ({channel}) — approval_id={approval_id}",);
+
+    let decision = match tokio::time::timeout(timeout, rx).await {
+        Ok(Ok(d)) => d,
+        Ok(Err(_)) => {
+            return Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                "approval channel closed unexpectedly".into(),
+            ));
+        }
+        Err(_) => {
+            return Err((
+                StatusCode::REQUEST_TIMEOUT,
+                format!(
+                    "approval timeout after {}s; no human decision",
+                    timeout.as_secs()
+                ),
+            ));
+        }
+    };
+
+    eprintln!(
+        "[approval] {approval_id} → {:?} by {} ({})",
+        decision.permission, decision.reviewer, decision.reason,
+    );
+
+    // Cache the human's Allow/Deny so subsequent identical calls reflect
+    // it without re-prompting. HITL itself is never cached (matches the
+    // engine's own policy). Session-aware bypass would belong here, but
+    // session chains aren't supported yet — revisit when they are.
+    if decision.permission != Permission::HumanInTheLoop {
+        let _ = state
+            .engine
+            .store()
+            .policy_cache_set(norm_hash, decision.permission);
+    }
+
+    Ok(PermissionResult {
+        permission: decision.permission,
+        norm_action: result.norm_action,
+        risk_score: result.risk_score,
+        source: DecisionSource::HumanReviewer,
+    })
 }
 
 /// Calibration metadata attached to a decision when a human reviewer
