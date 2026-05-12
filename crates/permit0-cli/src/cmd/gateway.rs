@@ -8,7 +8,7 @@
 //!
 //! Usage:
 //! ```sh
-//! cat tool_calls.jsonl | permit0 gateway --profile fintech
+//! cat tool_calls.jsonl | permit0 gateway --profile my-profile
 //! ```
 //!
 //! Input format (one per line):

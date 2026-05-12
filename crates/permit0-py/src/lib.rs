@@ -245,7 +245,7 @@ impl PyEngine {
     ///
     /// Args:
     ///     packs_dir: Path to packs directory (default: "packs")
-    ///     profile: Optional profile name (e.g. "fintech")
+    ///     profile: Optional profile name (matches profiles/<name>.profile.yaml)
     ///     profile_path: Optional path to profile YAML file
     ///     org_domain: Organization domain for normalization (default: "default.org")
     #[staticmethod]

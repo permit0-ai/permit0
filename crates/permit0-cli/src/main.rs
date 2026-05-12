@@ -195,7 +195,7 @@ enum CalibrateCmd {
     },
     /// Validate a profile against guardrails
     Validate {
-        /// Profile name (e.g. fintech, healthtech)
+        /// Profile name (matches profiles/<name>.profile.yaml)
         #[arg(long)]
         profile: String,
     },

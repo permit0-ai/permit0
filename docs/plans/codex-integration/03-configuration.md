@@ -277,9 +277,9 @@ without changing the hook command.
 
 [[hooks.PreToolUse.hooks]]
 type = "command"
-command = '/abs/path/to/permit0 hook --client codex --profile fintech --unknown defer'
+command = '/abs/path/to/permit0 hook --client codex --profile my-profile --unknown defer'
 timeout = 30
-statusMessage = "permit0 fintech safety check"
+statusMessage = "permit0 safety check"
 ```
 
 ### Calibration Mode

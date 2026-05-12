@@ -103,7 +103,7 @@ Every error path must produce deny or ask, never silent allow.
 - **Pack:** Extension unit with normalizer YAML + risk rule YAML.
 - **Normalizer:** Maps a `RawToolCall` to a `NormAction` (canonical action).
 - **Risk rule:** Declares flags + amplifiers for an action type.
-- **Profile:** Scoring overlay (fintech, healthtech) that adjusts weights.
+- **Profile:** Scoring overlay (YAML in `profiles/`) that adjusts weights and thresholds.
 - **Calibration:** Testing the engine against a golden corpus.
 - **Shadow mode:** Log decisions without enforcing.
 
