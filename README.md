@@ -27,6 +27,8 @@ The vocabulary is published. The first pack is shipped. The rest is the work.
 
 > **On OpenClaw?** Skip to [`integrations/permit0-openclaw/`](integrations/permit0-openclaw/) — wrap a skill with `permit0Skill(...)` and gate every dispatch through the same daemon. The rest of this section is the Claude Code path.
 
+**Prerequisite:** Rust 1.85+ — install via [rustup](https://rustup.rs/) (`curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh`) if you don't have it.
+
 ```bash
 # 1. Build
 git clone https://github.com/permit0-ai/permit0.git && cd permit0
