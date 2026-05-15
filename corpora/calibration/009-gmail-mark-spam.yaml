@@ -1,0 +1,7 @@
+# Marking a message as spam.
+name: gmail_mark_spam
+tool_name: gmail_mark_spam
+parameters:
+  message_id: "18f2c9a1b7d4e3"
+expected_tier: "Minimal"
+expected_permission: "Allow"

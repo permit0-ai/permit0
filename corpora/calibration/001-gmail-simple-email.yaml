@@ -1,7 +1,7 @@
 name: gmail_simple_email
 tool_name: gmail_send
 parameters:
-  to: "bob@external.com"
+  to: "bob@calibration.test"
   subject: "Hello"
   body: "Quick note"
 expected_tier: "Low"

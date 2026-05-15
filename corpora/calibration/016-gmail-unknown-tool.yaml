@@ -1,0 +1,6 @@
+# No normalizer matches this tool — conservative HumanInTheLoop fallback.
+name: gmail_unknown_tool
+tool_name: gmail_summarize_inbox
+parameters:
+  max: 20
+expected_permission: "Human"

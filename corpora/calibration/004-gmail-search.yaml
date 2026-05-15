@@ -1,0 +1,7 @@
+# Searching the mailbox — read-only query.
+name: gmail_search_inbox
+tool_name: gmail_search
+parameters:
+  q: "in:inbox newer_than:7d invoice"
+expected_tier: "Minimal"
+expected_permission: "Allow"

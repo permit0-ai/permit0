@@ -1,0 +1,9 @@
+# Outbound mail to an internal recipient (domain == org_domain) — low risk.
+name: gmail_send_internal
+tool_name: gmail_send
+parameters:
+  to: "teammate@calibration.test"
+  subject: "standup notes"
+  body: "see you at 10"
+expected_tier: "Low"
+expected_permission: "Allow"

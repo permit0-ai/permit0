@@ -1,0 +1,7 @@
+# Reading one message by id — pure read, no side effects.
+name: gmail_read_message
+tool_name: gmail_read
+parameters:
+  message_id: "18f2c9a1b7d4e0"
+expected_tier: "Minimal"
+expected_permission: "Allow"

@@ -1,7 +1,7 @@
 name: outlook_simple_email
 tool_name: outlook_send
 parameters:
-  to: "alice@external.com"
+  to: "alice@calibration.test"
   subject: "Meeting notes"
   body: "Attached."
 expected_tier: "Low"

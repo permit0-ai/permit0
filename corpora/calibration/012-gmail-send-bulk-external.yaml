@@ -1,0 +1,9 @@
+# Multiple external recipients — bigger blast radius, still human review.
+name: gmail_send_bulk_external
+tool_name: gmail_send
+parameters:
+  to: "alpha@partner-corp.example,beta@vendor.example,gamma@client.example"
+  subject: "release announcement"
+  body: "v2 is live"
+expected_tier: "Medium"
+expected_permission: "Human"

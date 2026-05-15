@@ -1,0 +1,7 @@
+# Soft-deleting a single message. (Bulk delete escalates via session_rules.)
+name: gmail_delete_single
+tool_name: gmail_delete
+parameters:
+  message_id: "18f2c9a1b7d4e2"
+expected_tier: "Minimal"
+expected_permission: "Allow"

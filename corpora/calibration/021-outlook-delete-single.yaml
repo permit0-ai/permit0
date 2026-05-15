@@ -1,0 +1,7 @@
+# Soft-deleting a single message.
+name: outlook_delete_single
+tool_name: outlook_delete
+parameters:
+  message_id: "AAMkAGI2zB"
+expected_tier: "Minimal"
+expected_permission: "Allow"

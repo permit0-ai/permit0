@@ -1,0 +1,8 @@
+# Granting mailbox delegate access — account-takeover. Always denied.
+name: outlook_add_delegate
+tool_name: outlook_add_delegate
+parameters:
+  delegate: "contractor@vendor-x.example"
+  permissions: "editor"
+expected_tier: "Critical"
+expected_permission: "Deny"

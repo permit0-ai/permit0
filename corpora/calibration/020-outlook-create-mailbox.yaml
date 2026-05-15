@@ -1,0 +1,7 @@
+# Creating a folder. Outlook's parameter is `display_name` (Gmail uses `name`).
+name: outlook_create_mailbox
+tool_name: outlook_create_mailbox
+parameters:
+  display_name: "Contracts"
+expected_tier: "Minimal"
+expected_permission: "Allow"

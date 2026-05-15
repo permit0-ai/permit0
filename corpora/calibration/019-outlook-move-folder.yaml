@@ -1,0 +1,8 @@
+# Moving a message to a folder. Outlook requires `folder_id` (Gmail's `label_id` is optional).
+name: outlook_move_folder
+tool_name: outlook_move
+parameters:
+  message_id: "AAMkAGI2zA"
+  folder_id: "folder-archive"
+expected_tier: "Minimal"
+expected_permission: "Allow"

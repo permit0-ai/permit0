@@ -1,0 +1,9 @@
+# Composing a draft — nothing leaves the mailbox until a separate send.
+name: gmail_create_draft
+tool_name: gmail_draft
+parameters:
+  to: "client@partner-corp.example"
+  subject: "follow up"
+  body: "circling back on our chat"
+expected_tier: "Minimal"
+expected_permission: "Allow"

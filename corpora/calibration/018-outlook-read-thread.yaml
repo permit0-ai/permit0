@@ -1,0 +1,7 @@
+# Reading a conversation. Note Outlook's parameter is `conversation_id` (Gmail uses `thread_id`).
+name: outlook_read_thread
+tool_name: outlook_read_thread
+parameters:
+  conversation_id: "AAQkAGI2zZ"
+expected_tier: "Minimal"
+expected_permission: "Allow"

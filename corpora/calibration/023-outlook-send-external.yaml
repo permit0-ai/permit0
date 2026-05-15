@@ -1,0 +1,9 @@
+# Outbound mail crossing the org boundary — human review.
+name: outlook_send_external
+tool_name: outlook_send
+parameters:
+  to: "buyer@acme-partners.example"
+  subject: "signed SOW"
+  body: "Attached is the countersigned SOW."
+expected_tier: "Medium"
+expected_permission: "Human"

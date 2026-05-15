@@ -14,7 +14,8 @@
 name: email_send_shared_pack_local
 tool_name: gmail_send
 parameters:
-  to: "carol@external.com"
+  to: "carol@calibration.test"
   subject: "Pack-local fixture demo"
   body: "Demonstrates per-pack tests/shared/ discovery."
+expected_tier: "Low"
 expected_permission: "Allow"

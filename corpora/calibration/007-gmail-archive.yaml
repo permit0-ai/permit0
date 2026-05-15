@@ -1,0 +1,7 @@
+# Archiving a message — reversible, low blast radius.
+name: gmail_archive_message
+tool_name: gmail_archive
+parameters:
+  message_id: "18f2c9a1b7d4e1"
+expected_tier: "Minimal"
+expected_permission: "Allow"

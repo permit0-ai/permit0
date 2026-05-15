@@ -1,0 +1,6 @@
+# Enumerating labels/folders — read-only, no entities.
+name: gmail_list_mailboxes
+tool_name: gmail_list_mailboxes
+parameters: {}
+expected_tier: "Minimal"
+expected_permission: "Allow"

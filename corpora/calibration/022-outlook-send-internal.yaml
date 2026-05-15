@@ -1,0 +1,9 @@
+# Outbound mail to an internal recipient — low risk.
+name: outlook_send_internal
+tool_name: outlook_send
+parameters:
+  to: "teammate@calibration.test"
+  subject: "sprint sync"
+  body: "moved to 3pm"
+expected_tier: "Low"
+expected_permission: "Allow"

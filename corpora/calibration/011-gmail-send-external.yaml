@@ -1,0 +1,9 @@
+# Outbound mail crossing the org boundary — routed to human review.
+name: gmail_send_external
+tool_name: gmail_send
+parameters:
+  to: "jane.doe@partner-corp.example"
+  subject: "Q3 proposal"
+  body: "Hi Jane, attaching the proposal."
+expected_tier: "Medium"
+expected_permission: "Human"

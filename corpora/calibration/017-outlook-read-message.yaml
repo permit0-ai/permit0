@@ -1,0 +1,7 @@
+# Reading one message by id — pure read.
+name: outlook_read_message
+tool_name: outlook_read
+parameters:
+  message_id: "AAMkAGI2zZ"
+expected_tier: "Minimal"
+expected_permission: "Allow"
