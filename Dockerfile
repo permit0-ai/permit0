@@ -9,7 +9,7 @@
 # binary + bundled rule packs. Distroless means no shell — all
 # configuration must come from env vars or mounted files.
 
-FROM rust:1.85-slim-bookworm AS builder
+FROM rust:1.90-slim-bookworm AS builder
 
 # Native deps for `rusqlite` (bundled SQLite still wants a C compiler)
 # and for sqlx-postgres (no extra system deps; pure Rust + rustls).

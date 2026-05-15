@@ -125,12 +125,27 @@ pub fn build_engine_from_packs_with_lock_policy(
         .map_err(Into::into)
 }
 
-/// Resolve the packs directory from explicit path, CWD, or ~/.permit0/packs/.
+/// Resolve the packs directory.
+///
+/// Search order:
+/// 1. Explicit `--packs-dir` argument
+/// 2. `PERMIT0_PACKS_DIR` environment variable (used by the Docker image
+///    and `docker-compose.yml`, where the CWD is `/` and bundled packs
+///    live at `/etc/permit0/packs`)
+/// 3. `./packs/` relative to CWD
+/// 4. `~/.permit0/packs/`
 pub fn resolve_packs_dir(explicit: Option<&str>) -> Option<std::path::PathBuf> {
     if let Some(dir) = explicit {
         let p = Path::new(dir);
         if p.exists() {
             return Some(p.to_path_buf());
+        }
+    }
+    // PERMIT0_PACKS_DIR env var.
+    if let Some(dir) = std::env::var_os("PERMIT0_PACKS_DIR") {
+        let p = std::path::PathBuf::from(dir);
+        if p.exists() {
+            return Some(p);
         }
     }
     // CWD/packs/

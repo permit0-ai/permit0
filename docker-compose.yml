@@ -82,6 +82,10 @@ services:
       # chain stays verifiable across container recreates. Back up the
       # whole `audit-key` volume alongside `audit-db-data`.
       - audit-key:/var/lib/permit0
+      # The `serve --ui` command looks for the dashboard's static assets
+      # at `crates/permit0-ui/static` relative to its working directory
+      # (which is `/` in the distroless image), so mount them there.
+      - ./crates/permit0-ui/static:/crates/permit0-ui/static:ro
       # Optional: mount your own packs to override the bundled ones.
       # - ./packs:/etc/permit0/packs:ro
     healthcheck:
