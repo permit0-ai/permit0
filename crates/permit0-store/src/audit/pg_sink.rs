@@ -222,6 +222,16 @@ impl AuditSink for PostgresAuditSink {
             binds.push(permission_to_str(d).to_string());
             idx += 1;
         }
+        if let Some(ref ds) = filter.decision_source {
+            sql.push_str(&format!(" AND entry_json->>'decision_source' = ${idx}"));
+            binds.push(ds.clone());
+            idx += 1;
+        }
+        if let Some(ref ds) = filter.decision_source_exclude {
+            sql.push_str(&format!(" AND entry_json->>'decision_source' <> ${idx}"));
+            binds.push(ds.clone());
+            idx += 1;
+        }
         if let Some(t) = filter.tier {
             sql.push_str(&format!(" AND tier = ${idx}"));
             binds.push(tier_to_str(t).to_string());

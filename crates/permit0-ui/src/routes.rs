@@ -58,9 +58,30 @@ pub async fn list_audit(
     Json<ApiResponse<Vec<serde_json::Value>>>,
     (StatusCode, Json<ApiResponse<Vec<serde_json::Value>>>),
 > {
+    // "bypass" and "human" both narrow SQL to Permission::HumanInTheLoop
+    // (bypass is just HITL with decision_source="unknown_fallback"); the
+    // source filter is pushed down to SQL so pagination doesn't hide rare
+    // needles when bypass dominates the recent sequence.
+    let (decision, decision_source, decision_source_exclude) = match q.decision.as_deref() {
+        Some(s) if s.eq_ignore_ascii_case("bypass") => (
+            Some(Permission::HumanInTheLoop),
+            Some("unknown_fallback".to_string()),
+            None,
+        ),
+        Some(s) if s.eq_ignore_ascii_case("human") => (
+            Some(Permission::HumanInTheLoop),
+            None,
+            Some("unknown_fallback".to_string()),
+        ),
+        Some(s) => (parse_permission(s), None, None),
+        None => (None, None, None),
+    };
+
     let filter = AuditFilter {
         action_type: q.action_type,
-        decision: q.decision.as_deref().and_then(parse_permission),
+        decision,
+        decision_source,
+        decision_source_exclude,
         session_id: q.session_id,
         since: q.since,
         until: q.until,
@@ -69,12 +90,11 @@ pub async fn list_audit(
     };
     match state.audit_sink.query(&filter).await {
         Ok(entries) => {
-            // The frontend's audit table and dashboard "Recent Decisions"
-            // both read flat fields (action_type, permission, tier,
-            // risk_raw, ...) shaped like the legacy DecisionRecord.
-            // AuditEntry has a nested shape (norm_action.action_type,
-            // decision, risk_score.tier). Project to the flat shape so
-            // both views render without reaching into nested objects.
+            // The frontend's audit table reads flat fields (action_type,
+            // permission, tier, risk_raw, ...) shaped like the legacy
+            // DecisionRecord. AuditEntry has a nested shape. Project to
+            // the flat shape so the views render without reaching into
+            // nested objects.
             let json_entries: Vec<serde_json::Value> =
                 entries.iter().map(flatten_audit_entry).collect();
             Ok(ok_response(json_entries))

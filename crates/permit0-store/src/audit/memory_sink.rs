@@ -63,6 +63,16 @@ impl AuditSink for InMemoryAuditSink {
                         return false;
                     }
                 }
+                if let Some(ref ds) = filter.decision_source {
+                    if e.decision_source != *ds {
+                        return false;
+                    }
+                }
+                if let Some(ref ds) = filter.decision_source_exclude {
+                    if e.decision_source == *ds {
+                        return false;
+                    }
+                }
                 if let Some(ref t) = filter.tier {
                     match &e.risk_score {
                         Some(rs) if rs.tier == *t => {}

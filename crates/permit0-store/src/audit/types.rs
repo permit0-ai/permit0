@@ -212,6 +212,13 @@ pub struct AuditFilter {
     pub action_type: Option<String>,
     /// Filter by decision (permission).
     pub decision: Option<Permission>,
+    /// Filter to entries whose `decision_source` equals this exact value.
+    /// Pushed down to SQL so post-filter pagination can't hide rare needles
+    /// (e.g. real HITL among hundreds of `unknown_fallback` bypasses).
+    pub decision_source: Option<String>,
+    /// Filter to entries whose `decision_source` is NOT this value.
+    /// Used for the "real HITL excludes bypass" query in the dashboard.
+    pub decision_source_exclude: Option<String>,
     /// Filter by tier.
     pub tier: Option<Tier>,
     /// Filter by session ID.

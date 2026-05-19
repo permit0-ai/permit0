@@ -4,198 +4,202 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>permit0 // control surface</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@300;400;500;600;700&family=VT323&display=swap" rel="stylesheet">
 <style>
 /* ============================================================
-   PERMIT0 // CONTROL SURFACE
-   Terminal Brutalism — phosphor on void
+   permit0 — control surface
+   Enterprise console: neutral dark, sans-serif, blue accent.
    ============================================================ */
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 
 :root {
-  --void:           #050505;
-  --bg:             #0a0a0a;
-  --surface:        #0e0e0e;
-  --surface-alt:    #131313;
-  --surface-hover:  #181818;
-  --surface-active: #1d1d1d;
-  --border:         #232323;
-  --border-bright:  #3a3a3a;
-  --text:           #d8d8d8;
-  --text-muted:     #9a9a9a;
-  --text-dim:       #5a5a5a;
-  --phosphor:       #00ff9c;
-  --phosphor-dim:   #008f56;
-  --amber:          #ffb000;
-  --amber-dim:      #8a5e00;
-  --magenta:        #ff2d6f;
-  --cyan:           #5ee0ff;
+  /* Neutral dark palette (zinc) */
+  --void:           #050507;
+  --bg:             #0a0a0b;
+  --surface:        #111113;
+  --surface-alt:    #16161a;
+  --surface-hover:  #1a1a1f;
+  --surface-active: #1f1f24;
+  --border:         #232328;
+  --border-bright:  #36363d;
+  --text:           #fafafa;
+  --text-muted:     #a1a1aa;
+  --text-dim:       #71717a;
+  --text-faint:     #52525b;
 
-  /* JS-referenced aliases */
-  --accent:        var(--phosphor);
-  --accent-hover:  #00cc7a;
-  --accent-dim:    rgba(0,255,156,0.14);
-  --success:       var(--phosphor);
-  --success-dim:   rgba(0,255,156,0.10);
-  --warning:       var(--amber);
-  --warning-dim:   rgba(255,176,0,0.10);
-  --danger:        var(--magenta);
-  --danger-dim:    rgba(255,45,111,0.12);
-  --info:          var(--cyan);
-  --info-dim:      rgba(94,224,255,0.10);
+  /* Single accent + semantic colors */
+  --accent:        #3b82f6;
+  --accent-hover:  #2563eb;
+  --accent-dim:    rgba(59,130,246,0.12);
+  --accent-soft:   rgba(59,130,246,0.18);
+  --success:       #10b981;
+  --success-dim:   rgba(16,185,129,0.12);
+  --warning:       #f59e0b;
+  --warning-dim:   rgba(245,158,11,0.12);
+  --danger:        #ef4444;
+  --danger-dim:    rgba(239,68,68,0.12);
+  --info:          #06b6d4;
+  --info-dim:      rgba(6,182,212,0.12);
 
-  --font-mono:    'IBM Plex Mono','Berkeley Mono','JetBrains Mono','Fira Code',monospace;
-  --font-sans:    'IBM Plex Mono',monospace;
-  --font-display: 'VT323','IBM Plex Mono',monospace;
+  /* JS-referenced aliases — kept for compatibility */
+  --phosphor:      var(--success);
+  --phosphor-dim:  var(--success-dim);
+  --amber:         var(--warning);
+  --amber-dim:     var(--warning-dim);
+  --magenta:       var(--danger);
+  --cyan:          var(--info);
 
-  --radius:    0;
-  --radius-lg: 0;
-  --shadow:    0 0 0 1px var(--border);
-  --shadow-lg: 0 0 32px rgba(0,255,156,0.18), 0 0 0 1px var(--border-bright);
+  --font-sans:    ui-sans-serif,-apple-system,BlinkMacSystemFont,"Inter","Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  --font-mono:    ui-monospace,"SF Mono","JetBrains Mono","Cascadia Code","Roboto Mono",Menlo,Monaco,Consolas,monospace;
+  --font-display: var(--font-sans);
+
+  --radius-sm: 3px;
+  --radius:    4px;
+  --radius-lg: 6px;
+  --shadow:    0 1px 0 rgba(0,0,0,0.4);
+  --shadow-lg: 0 8px 24px rgba(0,0,0,0.4), 0 0 0 1px var(--border);
 }
 
 html,body{
   height:100%;
-  font-family:var(--font-mono);
+  font-family:var(--font-sans);
   font-size:13px;
   line-height:1.5;
   background:var(--bg);
   color:var(--text);
   overflow:hidden;
   -webkit-font-smoothing:antialiased;
-  letter-spacing:0.01em;
+  -moz-osx-font-smoothing:grayscale;
 }
 
-/* scanlines */
-body::before{
-  content:'';
-  position:fixed;inset:0;
-  pointer-events:none;
-  z-index:9000;
-  background:repeating-linear-gradient(0deg,
-    rgba(255,255,255,0) 0,rgba(255,255,255,0) 2px,
-    rgba(255,255,255,0.025) 2px,rgba(255,255,255,0.025) 3px);
-  mix-blend-mode:overlay;
-}
-/* CRT vignette + grain */
-body::after{
-  content:'';
-  position:fixed;inset:0;
-  pointer-events:none;
-  z-index:9001;
-  background:
-    radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,0.55) 100%),
-    url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='180' height='180'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/></filter><rect width='100%25' height='100%25' filter='url(%23n)' opacity='0.45'/></svg>");
-  background-size:cover,180px;
-  opacity:0.55;
-}
-
-::selection{background:var(--phosphor);color:var(--void)}
+::selection{background:var(--accent-soft);color:var(--text)}
 
 ::-webkit-scrollbar{width:10px;height:10px}
 ::-webkit-scrollbar-track{background:transparent}
-::-webkit-scrollbar-thumb{background:var(--border);border:2px solid var(--bg)}
+::-webkit-scrollbar-thumb{background:var(--border);border:2px solid var(--bg);border-radius:6px}
 ::-webkit-scrollbar-thumb:hover{background:var(--border-bright)}
 
-.mono{font-family:var(--font-mono)}
+.mono{font-family:var(--font-mono);font-size:12px}
 .hidden{display:none !important}
 .no-pad{padding:0 !important}
 
 /* ============================================================
-   APP SHELL
+   APP SHELL — sidebar + main
    ============================================================ */
-.app{display:flex;flex-direction:column;height:100vh;position:relative;z-index:1}
+.app{display:flex;flex-direction:row;height:100vh;width:100vw;background:var(--bg)}
+
+.sidebar{
+  width:220px;flex-shrink:0;
+  display:flex;flex-direction:column;
+  background:var(--surface);border-right:1px solid var(--border);
+}
+.sidebar-header{
+  display:flex;align-items:center;gap:10px;
+  padding:14px 16px;
+  border-bottom:1px solid var(--border);
+  flex-shrink:0;
+}
+.logo{
+  width:26px;height:26px;border-radius:var(--radius);
+  background:var(--accent);color:#fff;
+  display:inline-flex;align-items:center;justify-content:center;
+  font-family:var(--font-sans);font-size:14px;font-weight:600;letter-spacing:0;
+}
+.sidebar-title{
+  font-family:var(--font-sans);font-size:13px;font-weight:600;
+  color:var(--text);letter-spacing:-0.005em;
+}
+.sidebar-title small{
+  display:block;font-size:11px;font-weight:400;color:var(--text-dim);
+  margin-top:1px;
+}
+
+.sidebar-footer{
+  margin-top:auto;
+  padding:12px 14px;
+  border-top:1px solid var(--border);
+  font-size:11px;color:var(--text-muted);
+  display:flex;flex-direction:column;gap:6px;
+}
+.sidebar-footer .row{display:flex;align-items:center;gap:8px}
+.sidebar-footer strong{color:var(--text);font-weight:500}
+.sidebar-footer a{color:var(--accent);text-decoration:none}
+.sidebar-footer a:hover{text-decoration:underline}
+
+/* Main column */
+.main{
+  flex:1;min-width:0;
+  display:flex;flex-direction:column;
+  overflow:hidden;
+}
 
 /* ============================================================
-   TOPBAR
+   TOPBAR — slim breadcrumb / status strip
    ============================================================ */
 .topbar{
   display:flex;align-items:center;justify-content:space-between;
-  padding:0 18px;height:46px;
-  background:var(--surface);
+  padding:0 20px;height:44px;flex-shrink:0;
+  background:var(--bg);
   border-bottom:1px solid var(--border);
-  flex-shrink:0;position:relative;
 }
-.topbar::after{
-  content:'';position:absolute;left:0;right:0;bottom:-1px;height:1px;
-  background:linear-gradient(90deg,transparent,var(--phosphor) 18%,var(--phosphor) 82%,transparent);
-  opacity:0.35;
-}
-.topbar-left{display:flex;align-items:center;gap:14px}
+.topbar-left{display:flex;align-items:center;gap:10px}
 .topbar-title{
-  display:flex;align-items:center;gap:10px;
-  font-family:var(--font-mono);font-size:12px;font-weight:600;
-  letter-spacing:0.18em;text-transform:uppercase;color:var(--text);
-}
-.topbar-title-bracket{color:var(--phosphor);letter-spacing:0;font-size:10px;opacity:0.85}
-.logo{
-  width:24px;height:24px;background:var(--phosphor);color:var(--void);
-  display:inline-flex;align-items:center;justify-content:center;
-  font-family:var(--font-display);font-size:20px;font-weight:400;
-  box-shadow:0 0 12px rgba(0,255,156,0.55),inset 0 0 0 1px rgba(0,0,0,0.3);
+  font-family:var(--font-sans);font-size:13px;font-weight:500;
+  color:var(--text);
 }
 .topbar-right{
-  display:flex;align-items:center;gap:18px;
-  font-family:var(--font-mono);font-size:11px;
-  letter-spacing:0.08em;text-transform:uppercase;color:var(--text-muted);
+  display:flex;align-items:center;gap:14px;
+  font-size:12px;color:var(--text-muted);
 }
 .topbar-right strong{color:var(--text);font-weight:500}
-.topbar-right a{color:var(--phosphor);text-decoration:none}
-.topbar-right a:hover{color:var(--cyan);text-decoration:underline}
+.topbar-right a{color:var(--accent);text-decoration:none}
+.topbar-right a:hover{text-decoration:underline}
 
 .status-dot{
-  width:9px;height:9px;background:var(--phosphor);display:inline-block;position:relative;
-  box-shadow:0 0 8px var(--phosphor),0 0 16px rgba(0,255,156,0.4);
+  width:8px;height:8px;border-radius:50%;
+  background:var(--success);display:inline-block;position:relative;
+  box-shadow:0 0 0 3px rgba(16,185,129,0.15);
 }
-.status-dot::after{
-  content:'';position:absolute;inset:-4px;
-  border:1px solid var(--phosphor);opacity:0.3;
-}
-.status-dot.error{background:var(--magenta);box-shadow:0 0 8px var(--magenta),0 0 16px rgba(255,45,111,0.4)}
-.status-dot.error::after{border-color:var(--magenta)}
-.status-dot.loading{background:var(--amber);box-shadow:0 0 8px var(--amber);animation:pulse 0.9s ease-in-out infinite}
-.status-dot.loading::after{border-color:var(--amber)}
-@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}
+.status-dot.error{background:var(--danger);box-shadow:0 0 0 3px rgba(239,68,68,0.18)}
+.status-dot.loading{background:var(--warning);box-shadow:0 0 0 3px rgba(245,158,11,0.18);animation:pulse 1.2s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.35}}
 
 /* ============================================================
-   TAB BAR
+   SIDEBAR NAV (re-uses .tab-bar / .tab-btn class names)
    ============================================================ */
 .tab-bar{
-  display:flex;align-items:stretch;background:var(--surface);
-  border-bottom:1px solid var(--border);flex-shrink:0;
-  padding:0 12px;gap:2px;overflow-x:auto;
+  display:flex;flex-direction:column;align-items:stretch;
+  padding:8px;gap:1px;
+  flex:1;overflow-y:auto;
 }
 .tab-btn{
-  appearance:none;background:transparent;border:0;border-radius:0;cursor:pointer;
-  position:relative;padding:11px 14px 10px;margin:0;
-  font-family:var(--font-mono);font-size:11px;font-weight:500;
-  letter-spacing:0.14em;text-transform:uppercase;color:var(--text-dim);
-  transition:color 0.12s,background 0.12s;white-space:nowrap;
-  display:inline-flex;align-items:center;gap:6px;
+  appearance:none;background:transparent;border:0;cursor:pointer;
+  display:flex;align-items:center;gap:8px;
+  padding:7px 10px;margin:0;
+  border-radius:var(--radius);
+  font-family:var(--font-sans);font-size:13px;font-weight:500;
+  color:var(--text-muted);text-align:left;
+  transition:color 0.12s,background 0.12s;
+  white-space:nowrap;
 }
 .tab-btn::before{
   content:attr(data-fkey);
-  color:var(--text-dim);opacity:0.6;margin-right:4px;font-size:10px;
+  display:inline-block;width:22px;
+  font-size:10px;font-weight:500;
+  color:var(--text-faint);letter-spacing:0;
 }
 .tab-btn:hover{color:var(--text);background:var(--surface-hover)}
 .tab-btn.active{
-  color:var(--phosphor);background:var(--bg);
-  text-shadow:0 0 6px rgba(0,255,156,0.45);
+  color:var(--text);background:var(--surface-active);
 }
-.tab-btn.active::before{color:var(--amber);opacity:1}
-.tab-btn.active::after{
-  content:'';position:absolute;left:0;right:0;bottom:-1px;height:2px;
-  background:var(--phosphor);box-shadow:0 0 10px var(--phosphor);
-}
+.tab-btn.active::before{color:var(--accent)}
 
 .tab-badge{
   display:inline-flex;align-items:center;justify-content:center;
+  margin-left:auto;
   min-width:18px;height:16px;padding:0 5px;
-  background:var(--magenta);color:var(--void);
-  font-family:var(--font-mono);font-size:10px;font-weight:700;letter-spacing:0;
-  margin-left:4px;box-shadow:0 0 8px rgba(255,45,111,0.6);
+  border-radius:8px;
+  background:var(--danger);color:#fff;
+  font-family:var(--font-sans);font-size:10px;font-weight:600;letter-spacing:0;
 }
 .tab-badge.hidden{display:none}
 
@@ -203,49 +207,38 @@ body::after{
    FAILED-OPEN BANNER
    ============================================================ */
 .failed-open-banner{
-  background:rgba(255,176,0,0.07);border-top:1px solid var(--amber);border-bottom:1px solid var(--amber);
-  padding:10px 18px;flex-shrink:0;
-  font-family:var(--font-mono);font-size:11px;color:var(--amber);
-  position:relative;z-index:1;
+  background:var(--warning-dim);
+  border-bottom:1px solid rgba(245,158,11,0.35);
+  padding:10px 20px;flex-shrink:0;
+  font-size:12px;color:var(--warning);
 }
 .failed-open-banner.has-blocked{
-  background:rgba(255,45,111,0.10);border-color:var(--magenta);color:var(--magenta);
-}
-.failed-open-banner::before{
-  content:'';position:absolute;inset:0;pointer-events:none;
-  background:repeating-linear-gradient(45deg,transparent 0,transparent 8px,
-    rgba(255,176,0,0.04) 8px,rgba(255,176,0,0.04) 16px);
-}
-.failed-open-banner.has-blocked::before{
-  background:repeating-linear-gradient(45deg,transparent 0,transparent 8px,
-    rgba(255,45,111,0.06) 8px,rgba(255,45,111,0.06) 16px);
+  background:var(--danger-dim);
+  border-color:rgba(239,68,68,0.35);color:var(--danger);
 }
 .failed-open-banner-header{
   display:flex;align-items:center;gap:10px;
-  font-weight:600;letter-spacing:0.12em;text-transform:uppercase;
-  position:relative;
+  font-weight:600;
 }
 .failed-open-banner-icon{font-size:14px}
-.failed-open-banner-title{flex:1}
+.failed-open-banner-title{flex:1;color:inherit}
 .failed-open-banner-dismiss{
   background:transparent;border:1px solid currentColor;color:inherit;
-  width:22px;height:22px;cursor:pointer;
-  font-family:var(--font-mono);font-size:14px;line-height:1;padding:0;
+  width:22px;height:22px;cursor:pointer;border-radius:var(--radius-sm);
+  font-size:14px;line-height:1;padding:0;opacity:0.7;
 }
-.failed-open-banner-dismiss:hover{background:currentColor;color:var(--void)}
-.failed-open-banner-list{list-style:none;margin:8px 0 0;padding:0;position:relative}
-.failed-open-banner-list li{padding:4px 0;font-size:11px}
-.failed-open-banner-list li::before{content:'> ';color:currentColor;opacity:0.65}
+.failed-open-banner-dismiss:hover{opacity:1;background:rgba(255,255,255,0.06)}
+.failed-open-banner-list{list-style:none;margin:6px 0 0 24px;padding:0;color:var(--text-muted)}
+.failed-open-banner-list li{padding:2px 0;font-size:12px}
 .would-block{
-  color:var(--magenta);font-weight:700;text-transform:uppercase;
-  letter-spacing:0.1em;padding-left:6px;
+  color:var(--danger);font-weight:600;padding-left:6px;
 }
 
 /* ============================================================
    TAB CONTENT
    ============================================================ */
 .tab-content{flex:1;overflow:hidden;position:relative;background:var(--bg)}
-.tab-panel{display:none;height:100%;overflow:auto;padding:24px 28px}
+.tab-panel{display:none;height:100%;overflow:auto;padding:20px 24px}
 .tab-panel.active{display:block}
 .tab-panel.no-pad{padding:0}
 
@@ -254,53 +247,133 @@ body::after{
    ============================================================ */
 .section-title{
   display:block;
-  font-family:var(--font-mono);font-size:11px;font-weight:500;
-  letter-spacing:0.18em;text-transform:uppercase;color:var(--text-muted);
-  margin:26px 0 12px;padding-bottom:8px;border-bottom:1px solid var(--border);
+  font-size:13px;font-weight:600;color:var(--text);
+  margin:24px 0 10px;
+  letter-spacing:-0.005em;
 }
-.section-title::before{content:'// ';color:var(--phosphor);opacity:0.7}
 
 /* ============================================================
    STAT CARDS
    ============================================================ */
 .stat-cards{
-  display:grid;grid-template-columns:repeat(4,1fr);gap:0;
-  border:1px solid var(--border);background:var(--surface);
+  display:grid;grid-template-columns:repeat(4,1fr);gap:12px;
+  margin-bottom:8px;
 }
-.stat-card{padding:18px 22px 18px 18px;border-right:1px solid var(--border);position:relative}
-.stat-card:last-child{border-right:0}
-.stat-card::before{
-  content:'>>';position:absolute;top:14px;left:18px;
-  color:var(--phosphor);font-size:10px;letter-spacing:0;opacity:0.55;
+.stat-card{
+  padding:14px 16px;
+  background:var(--surface);border:1px solid var(--border);
+  border-radius:var(--radius);
 }
 .stat-card-label{
-  font-family:var(--font-mono);font-size:10px;font-weight:500;
-  letter-spacing:0.15em;text-transform:uppercase;color:var(--text-dim);
-  margin-left:30px;margin-bottom:6px;
+  font-size:11px;font-weight:500;color:var(--text-muted);
+  margin-bottom:8px;
+  text-transform:uppercase;letter-spacing:0.04em;
 }
 .stat-card-value{
-  font-family:var(--font-display);font-size:46px;line-height:1;
-  color:var(--text);letter-spacing:0.02em;
-  margin-left:28px;
-  text-shadow:0 0 16px rgba(0,255,156,0.18);
+  font-family:var(--font-sans);font-size:24px;font-weight:600;
+  line-height:1.1;color:var(--text);letter-spacing:-0.02em;
+  font-variant-numeric:tabular-nums;
 }
-.stat-card-value.ok  {color:var(--phosphor);text-shadow:0 0 14px rgba(0,255,156,0.55)}
-.stat-card-value.warn{color:var(--amber);text-shadow:0 0 14px rgba(255,176,0,0.55)}
-.stat-card-value.err {color:var(--magenta);text-shadow:0 0 14px rgba(255,45,111,0.55)}
+.stat-card-value.ok  {color:var(--success)}
+.stat-card-value.warn{color:var(--warning)}
+.stat-card-value.err {color:var(--danger)}
+.stat-card-sub{
+  margin-top:6px;
+  font-size:11.5px;color:var(--text-muted);
+  font-variant-numeric:tabular-nums;
+}
+.stat-card.clickable{
+  cursor:pointer;
+  transition:border-color 0.12s,background 0.12s,transform 0.12s;
+}
+.stat-card.clickable:hover{
+  border-color:var(--border-bright);
+  background:var(--surface-hover);
+}
+.stat-card.clickable:active{transform:translateY(1px)}
+.stat-card.clickable .stat-card-label{
+  display:flex;align-items:center;gap:6px;
+}
+.stat-card.clickable .stat-card-label::after{
+  content:'→';margin-left:auto;
+  color:var(--text-faint);font-weight:400;
+  transition:color 0.12s,transform 0.12s;
+}
+.stat-card.clickable:hover .stat-card-label::after{
+  color:var(--accent);transform:translateX(2px);
+}
+
+/* ============================================================
+   TIER DISTRIBUTION BAR (Overview)
+   ============================================================ */
+/* Generic distribution bar — used by both Decision and Tier breakdowns. */
+.dist-wrap{
+  margin-top:12px;
+  padding:12px 14px;
+  background:var(--surface);border:1px solid var(--border);
+  border-radius:var(--radius);
+}
+.dist-header{
+  display:flex;justify-content:space-between;align-items:baseline;
+  margin-bottom:8px;
+  font-size:11px;font-weight:500;color:var(--text-muted);
+  text-transform:uppercase;letter-spacing:0.04em;
+}
+.dist-header span:last-child{
+  color:var(--text);font-variant-numeric:tabular-nums;text-transform:none;letter-spacing:0;
+}
+.dist-bar{
+  display:flex;width:100%;height:8px;border-radius:4px;overflow:hidden;
+  background:var(--surface-alt);
+}
+.dist-seg{height:100%;transition:flex-grow 0.3s ease-out}
+.dist-legend{
+  display:flex;flex-wrap:wrap;gap:14px;
+  margin-top:10px;
+  font-size:11.5px;color:var(--text-muted);
+}
+.dist-legend-item{display:inline-flex;align-items:center;gap:6px}
+.dist-legend-item::before{
+  content:'';width:8px;height:8px;border-radius:2px;background:currentColor;
+}
+.dist-legend-item strong{color:var(--text);font-weight:600;font-variant-numeric:tabular-nums}
+.dist-legend-item .dist-pct{color:var(--text-dim);font-variant-numeric:tabular-nums}
+
+/* Per-category color classes (used on .dist-seg and .dist-legend-item) */
+.cat-allow   {color:var(--success)}
+.cat-deny    {color:var(--danger)}
+.cat-hitl    {color:var(--warning)}
+.cat-bypass  {color:var(--info)}
+.cat-minimal {color:var(--text-faint)}
+.cat-low     {color:var(--success)}
+.cat-medium  {color:var(--warning)}
+.cat-high    {color:#fb923c}
+.cat-critical{color:var(--danger)}
+.dist-seg.cat-allow   {background:var(--success)}
+.dist-seg.cat-deny    {background:var(--danger)}
+.dist-seg.cat-hitl    {background:var(--warning)}
+.dist-seg.cat-bypass  {background:var(--info)}
+.dist-seg.cat-minimal {background:var(--text-faint)}
+.dist-seg.cat-low     {background:var(--success)}
+.dist-seg.cat-medium  {background:var(--warning)}
+.dist-seg.cat-high    {background:#fb923c}
+.dist-seg.cat-critical{background:var(--danger)}
 
 /* ============================================================
    DATA TABLE
    ============================================================ */
 .data-table{
-  width:100%;border-collapse:collapse;
-  font-family:var(--font-mono);font-size:12px;
+  width:100%;border-collapse:separate;border-spacing:0;
+  font-size:12.5px;
   background:var(--surface);border:1px solid var(--border);
+  border-radius:var(--radius);overflow:hidden;
 }
 .data-table thead th{
-  text-align:left;padding:10px 14px;
-  background:var(--surface-alt);border-bottom:1px solid var(--border-bright);
-  font-size:10px;font-weight:600;letter-spacing:0.12em;text-transform:uppercase;
+  text-align:left;padding:9px 14px;
+  background:var(--surface-alt);border-bottom:1px solid var(--border);
+  font-size:11px;font-weight:600;
   color:var(--text-muted);white-space:nowrap;
+  text-transform:uppercase;letter-spacing:0.04em;
 }
 .data-table tbody td{
   padding:9px 14px;border-bottom:1px solid var(--border);
@@ -308,73 +381,74 @@ body::after{
 }
 .data-table tbody tr:last-child td{border-bottom:0}
 .data-table tbody tr:hover td{background:var(--surface-hover)}
-.data-table .mono{font-family:var(--font-mono);color:var(--text-muted)}
+.data-table .mono{font-family:var(--font-mono);font-size:12px;color:var(--text-muted)}
 .data-table tbody tr:hover .mono{color:var(--text)}
 
 .clickable-row{cursor:pointer}
-.clickable-row td:first-child{position:relative;padding-left:24px}
+.clickable-row td:first-child{position:relative;padding-left:26px}
 .clickable-row td:first-child::before{
-  content:'+';position:absolute;left:10px;top:9px;
-  color:var(--text-dim);font-weight:600;
+  content:'';position:absolute;left:12px;top:13px;
+  width:6px;height:6px;border-right:1.5px solid var(--text-faint);
+  border-bottom:1.5px solid var(--text-faint);
+  transform:rotate(-45deg);transition:transform 0.15s,border-color 0.15s;
 }
-.clickable-row:hover td:first-child::before{color:var(--phosphor)}
+.clickable-row:hover td:first-child::before{border-color:var(--text)}
+.clickable-row.open td:first-child::before{transform:rotate(45deg);border-color:var(--accent)}
 
 .detail-row{display:none}
 .detail-row.open{display:table-row}
 .detail-row td{
-  background:var(--void) !important;
-  border-bottom:2px solid var(--border-bright) !important;
+  background:var(--bg) !important;
+  border-bottom:1px solid var(--border) !important;
   padding:0 !important;
 }
 .detail-content{
-  padding:14px 18px;font-family:var(--font-mono);font-size:11px;color:var(--text-muted);
+  padding:14px 18px;font-size:12.5px;color:var(--text-muted);
 }
-.detail-content strong{color:var(--phosphor);font-weight:500}
+.detail-content strong{color:var(--text);font-weight:600}
 .detail-content pre{
-  margin-top:8px;padding:12px;
+  margin-top:8px;padding:12px;border-radius:var(--radius);
   background:var(--surface-alt);border:1px solid var(--border);
-  font-family:var(--font-mono);font-size:11px;color:var(--text);
+  font-family:var(--font-mono);font-size:11.5px;color:var(--text);
   white-space:pre-wrap;word-break:break-all;
   max-height:340px;overflow:auto;
 }
 .detail-flags{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
 .detail-flag{
-  display:inline-block;padding:2px 8px;
-  background:var(--accent-dim);color:var(--phosphor);
-  font-size:10px;letter-spacing:0.08em;text-transform:uppercase;
-  border:1px solid var(--phosphor-dim);
+  display:inline-block;padding:2px 8px;border-radius:10px;
+  background:var(--surface-alt);color:var(--text-muted);
+  font-size:11px;font-weight:500;
+  border:1px solid var(--border);
 }
 
 .loading-state{
-  padding:30px;text-align:center;color:var(--text-dim);
-  font-size:12px;letter-spacing:0.05em;
+  padding:28px;text-align:center;color:var(--text-dim);
+  font-size:12px;
 }
 
 /* ============================================================
-   BADGES — <ALLOW> <DENY> <HITL>
+   BADGES — ALLOW / DENY / HITL / TIERS
    ============================================================ */
 .badge{
-  display:inline-block;padding:2px 7px;
-  font-family:var(--font-mono);font-size:10px;font-weight:600;
-  letter-spacing:0.1em;text-transform:uppercase;
-  border:1px solid currentColor;background:transparent;
-  white-space:nowrap;position:relative;
+  display:inline-flex;align-items:center;gap:4px;
+  padding:2px 8px;border-radius:10px;
+  font-family:var(--font-sans);font-size:11px;font-weight:500;
+  white-space:nowrap;
+  border:1px solid transparent;
 }
-.badge::before{content:'[';opacity:0.55;padding-right:3px}
-.badge::after{content:']';opacity:0.55;padding-left:3px}
-.badge-allow   {color:var(--phosphor);background:rgba(0,255,156,0.06)}
-.badge-deny    {color:var(--magenta);background:rgba(255,45,111,0.06)}
-.badge-human   {color:var(--amber);background:rgba(255,176,0,0.06)}
-.badge-fallback{color:var(--cyan);background:rgba(94,224,255,0.06)}
-.badge-minimal {color:var(--text-dim)}
-.badge-low     {color:var(--phosphor);background:rgba(0,255,156,0.05)}
-.badge-medium  {color:var(--amber);background:rgba(255,176,0,0.05)}
-.badge-high    {color:#ff8a3d;background:rgba(255,138,61,0.06)}
-.badge-critical{color:var(--magenta);background:rgba(255,45,111,0.10);animation:critPulse 1.4s ease-in-out infinite}
-.badge-flag    {color:var(--amber);border-style:dashed}
+.badge-allow   {color:var(--success);background:var(--success-dim);border-color:rgba(16,185,129,0.25)}
+.badge-deny    {color:var(--danger);background:var(--danger-dim);border-color:rgba(239,68,68,0.3)}
+.badge-human   {color:var(--warning);background:var(--warning-dim);border-color:rgba(245,158,11,0.3)}
+.badge-fallback{color:var(--info);background:var(--info-dim);border-color:rgba(6,182,212,0.25)}
+.badge-minimal {color:var(--text-dim);background:var(--surface-alt);border-color:var(--border)}
+.badge-low     {color:var(--success);background:var(--success-dim);border-color:rgba(16,185,129,0.25)}
+.badge-medium  {color:var(--warning);background:var(--warning-dim);border-color:rgba(245,158,11,0.3)}
+.badge-high    {color:#fb923c;background:rgba(251,146,60,0.12);border-color:rgba(251,146,60,0.3)}
+.badge-critical{color:#fff;background:var(--danger);border-color:var(--danger);animation:critPulse 1.8s ease-in-out infinite}
+.badge-flag    {color:var(--text-muted);background:var(--surface-alt);border-color:var(--border)}
 @keyframes critPulse{
-  0%,100%{box-shadow:0 0 0 rgba(255,45,111,0)}
-  50%{box-shadow:0 0 12px rgba(255,45,111,0.55)}
+  0%,100%{box-shadow:0 0 0 0 rgba(239,68,68,0)}
+  50%{box-shadow:0 0 0 4px rgba(239,68,68,0.18)}
 }
 
 /* ============================================================
@@ -382,13 +456,12 @@ body::after{
    ============================================================ */
 .filter-bar{
   display:flex;align-items:center;flex-wrap:wrap;gap:8px;
-  padding:12px 14px;
+  padding:10px 12px;
   background:var(--surface);border:1px solid var(--border);
-  margin-bottom:14px;
+  border-radius:var(--radius);margin-bottom:12px;
 }
 .filter-bar label{
-  font-family:var(--font-mono);font-size:10px;font-weight:500;
-  letter-spacing:0.1em;text-transform:uppercase;color:var(--text-dim);
+  font-size:11px;font-weight:500;color:var(--text-muted);
   margin-left:6px;
 }
 .filter-bar label:first-child{margin-left:0}
@@ -397,141 +470,140 @@ body::after{
    INPUTS / BUTTONS
    ============================================================ */
 .input{
-  appearance:none;background:var(--void);color:var(--text);
-  border:1px solid var(--border);border-radius:0;
-  padding:7px 10px;
-  font-family:var(--font-mono);font-size:12px;outline:none;
-  transition:border-color 0.12s,box-shadow 0.12s;
+  appearance:none;background:var(--surface-alt);color:var(--text);
+  border:1px solid var(--border);border-radius:var(--radius);
+  padding:6px 10px;
+  font-family:var(--font-sans);font-size:12.5px;outline:none;
+  transition:border-color 0.12s,box-shadow 0.12s,background 0.12s;
   min-width:140px;
 }
-.input::placeholder{color:var(--text-dim)}
+.input::placeholder{color:var(--text-faint)}
+.input:hover{border-color:var(--border-bright)}
 .input:focus{
-  border-color:var(--phosphor);
-  box-shadow:inset 0 0 0 1px var(--phosphor),0 0 12px rgba(0,255,156,0.2);
+  border-color:var(--accent);
+  background:var(--surface);
+  box-shadow:0 0 0 3px var(--accent-dim);
 }
 textarea.input{resize:vertical;min-height:60px;line-height:1.6}
 select.input{padding-right:22px}
 
 .btn{
   appearance:none;background:var(--surface-alt);color:var(--text);
-  border:1px solid var(--border-bright);border-radius:0;
-  padding:7px 14px;
-  font-family:var(--font-mono);font-size:11px;font-weight:500;
-  letter-spacing:0.1em;text-transform:uppercase;cursor:pointer;
-  transition:all 0.12s;
+  border:1px solid var(--border);border-radius:var(--radius);
+  padding:6px 12px;
+  font-family:var(--font-sans);font-size:12.5px;font-weight:500;
+  cursor:pointer;transition:all 0.12s;
   display:inline-flex;align-items:center;gap:8px;white-space:nowrap;
-  position:relative;
 }
-.btn::before{content:'[';opacity:0.55}
-.btn::after {content:']';opacity:0.55}
-.btn:hover{background:var(--surface-hover);border-color:var(--text-muted);color:var(--text)}
-.btn:hover::before,.btn:hover::after{opacity:1;color:var(--phosphor)}
+.btn:hover{background:var(--surface-hover);border-color:var(--border-bright)}
+.btn:active{background:var(--surface-active)}
 .btn:disabled{opacity:0.5;cursor:not-allowed}
+.btn:focus-visible{outline:none;box-shadow:0 0 0 3px var(--accent-dim);border-color:var(--accent)}
 
-.btn-primary{background:transparent;border-color:var(--phosphor);color:var(--phosphor)}
-.btn-primary:hover{background:var(--phosphor);color:var(--void);box-shadow:0 0 16px rgba(0,255,156,0.4)}
-.btn-primary:hover::before,.btn-primary:hover::after{color:var(--void);opacity:1}
+.btn-primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn-primary:hover{background:var(--accent-hover);border-color:var(--accent-hover)}
+.btn-primary:active{background:var(--accent-hover)}
 
-.btn-success{background:transparent;border-color:var(--phosphor);color:var(--phosphor)}
-.btn-success:hover{background:rgba(0,255,156,0.18)}
+.btn-success{background:transparent;border-color:rgba(16,185,129,0.5);color:var(--success)}
+.btn-success:hover{background:var(--success-dim);border-color:var(--success)}
 
-.btn-danger{background:transparent;border-color:var(--magenta);color:var(--magenta)}
-.btn-danger:hover{background:var(--magenta);color:var(--void);box-shadow:0 0 16px rgba(255,45,111,0.4)}
-.btn-danger:hover::before,.btn-danger:hover::after{color:var(--void);opacity:1}
+.btn-danger{background:transparent;border-color:rgba(239,68,68,0.5);color:var(--danger)}
+.btn-danger:hover{background:var(--danger-dim);border-color:var(--danger)}
 
-.btn-sm{padding:5px 10px;font-size:10px}
+.btn-sm{padding:4px 9px;font-size:11.5px}
 
 .btn .shortcut{
-  margin-left:4px;padding:1px 5px;
-  border:1px solid currentColor;font-size:9px;
-  letter-spacing:0.05em;opacity:0.6;
+  margin-left:4px;padding:1px 5px;border-radius:3px;
+  background:rgba(255,255,255,0.08);
+  font-family:var(--font-mono);font-size:10px;font-weight:500;
+  opacity:0.7;
 }
 
-/* spinner = blinking phosphor block (terminal cursor) */
+/* circular spinner */
 .spinner{
-  display:inline-block;width:9px;height:14px;
-  background:var(--phosphor);
-  animation:blink 0.8s steps(2,end) infinite;
-  vertical-align:middle;
-  box-shadow:0 0 6px var(--phosphor);
+  display:inline-block;width:12px;height:12px;
+  border:1.5px solid var(--border-bright);border-top-color:var(--accent);
+  border-radius:50%;vertical-align:middle;
+  animation:spin 0.7s linear infinite;
 }
-@keyframes blink{50%{opacity:0.15}}
+@keyframes spin{to{transform:rotate(360deg)}}
 
 /* ============================================================
    APPROVALS
    ============================================================ */
 .approval-card{
   background:var(--surface);border:1px solid var(--border);
-  margin-bottom:14px;position:relative;
-  transition:border-color 0.12s,box-shadow 0.12s;
+  border-radius:var(--radius);
+  margin-bottom:12px;overflow:hidden;
+  transition:border-color 0.12s;
 }
-.approval-card:hover{border-color:var(--phosphor-dim);box-shadow:0 0 24px rgba(0,255,156,0.08)}
+.approval-card:hover{border-color:var(--border-bright)}
 .approval-card-header{
   display:flex;justify-content:space-between;align-items:center;
-  padding:12px 16px;
-  background:var(--surface-alt);border-bottom:1px dashed var(--border);
+  padding:11px 16px;
+  background:var(--surface-alt);border-bottom:1px solid var(--border);
 }
 .approval-card-title{
-  font-family:var(--font-mono);font-size:13px;font-weight:600;
-  color:var(--text);letter-spacing:0.05em;
+  font-size:13px;font-weight:600;color:var(--text);
 }
-.approval-card-title::before{content:'» ';color:var(--phosphor);opacity:0.7}
 .approval-card-meta{
   display:flex;flex-wrap:wrap;gap:18px;
   padding:10px 16px;
-  font-family:var(--font-mono);font-size:11px;color:var(--text-muted);
-  letter-spacing:0.05em;
+  font-size:12px;color:var(--text-muted);
 }
-.approval-card-meta strong{color:var(--phosphor);font-weight:500}
+.approval-card-meta strong{color:var(--text);font-weight:500}
 .approval-flags{display:flex;flex-wrap:wrap;gap:6px;padding:0 16px 10px}
 .approval-entities{
   margin:0 16px 12px;
-  background:var(--void);border:1px solid var(--border);
+  background:var(--bg);border:1px solid var(--border);
+  border-radius:var(--radius);
 }
 .approval-entities summary{
   cursor:pointer;padding:8px 12px;
-  font-family:var(--font-mono);font-size:11px;
-  letter-spacing:0.08em;text-transform:uppercase;color:var(--text-muted);
+  font-size:12px;color:var(--text-muted);
   list-style:none;user-select:none;
+  display:flex;align-items:center;gap:6px;
 }
 .approval-entities summary::-webkit-details-marker{display:none}
 .approval-entities summary::before{
-  content:'▸ ';color:var(--phosphor);display:inline-block;
+  content:'';display:inline-block;
+  width:6px;height:6px;
+  border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;
+  transform:rotate(-45deg);transition:transform 0.15s;
 }
-.approval-entities[open] summary::before{content:'▾ '}
+.approval-entities[open] summary::before{transform:rotate(45deg)}
 
 .kv-table{
   width:100%;border-collapse:collapse;border-top:1px solid var(--border);
-  font-family:var(--font-mono);font-size:11px;
+  font-family:var(--font-mono);font-size:11.5px;
 }
-.kv-table tr td{padding:6px 12px;border-bottom:1px dashed var(--border);vertical-align:top}
+.kv-table tr td{padding:6px 12px;border-bottom:1px solid var(--border);vertical-align:top}
 .kv-table tr:last-child td{border-bottom:0}
-.kv-key{color:var(--amber);width:1%;white-space:nowrap;letter-spacing:0.05em}
-.kv-key::after{content:':';color:var(--text-dim);padding-left:2px}
+.kv-key{color:var(--text-muted);width:1%;white-space:nowrap;font-weight:500}
+.kv-key::after{content:':';color:var(--text-faint);padding-left:2px}
 .kv-value{color:var(--text)}
 .kv-value-string{white-space:pre-wrap;word-break:break-word}
 .kv-value code{
-  background:var(--surface-alt);padding:1px 6px;
-  border:1px solid var(--border);color:var(--cyan);
-  font-family:var(--font-mono);
+  background:var(--surface-alt);padding:1px 6px;border-radius:3px;
+  border:1px solid var(--border);color:var(--info);
+  font-family:var(--font-mono);font-size:11px;
 }
-.kv-null{color:var(--text-dim);font-style:italic}
+.kv-null{color:var(--text-faint);font-style:italic}
 
 .approval-card-actions{
-  display:flex;gap:10px;padding:12px 16px;
-  border-top:1px dashed var(--border);
+  display:flex;gap:8px;padding:11px 16px;
+  border-top:1px solid var(--border);background:var(--surface-alt);
 }
 .approval-form{
   display:none;padding:14px 16px;
-  background:var(--void);border-top:1px solid var(--phosphor-dim);
+  background:var(--bg);border-top:1px solid var(--border);
 }
-.approval-form.open{display:block;animation:formIn 0.2s ease-out}
+.approval-form.open{display:block;animation:formIn 0.18s ease-out}
 @keyframes formIn{from{opacity:0;transform:translateY(-4px)}to{opacity:1;transform:translateY(0)}}
 .approval-form-row{display:flex;align-items:flex-start;gap:12px;margin-bottom:8px}
 .approval-form-row label{
   flex-basis:80px;
-  font-family:var(--font-mono);font-size:10px;font-weight:500;
-  letter-spacing:0.12em;text-transform:uppercase;color:var(--text-dim);
+  font-size:11px;font-weight:500;color:var(--text-muted);
   padding-top:8px;
 }
 .approval-form-row .input{flex:1}
@@ -549,342 +621,294 @@ select.input{padding-right:22px}
 }
 .pol-panel-editor{border-right:0}
 .pol-panel-header{
-  padding:12px 16px;
+  padding:10px 14px;
   background:var(--surface);border-bottom:1px solid var(--border);
-  font-family:var(--font-mono);font-size:10px;font-weight:600;
-  letter-spacing:0.18em;text-transform:uppercase;color:var(--text-muted);
+  font-size:11px;font-weight:600;color:var(--text-muted);
+  text-transform:uppercase;letter-spacing:0.04em;
 }
-.pol-panel-header::before{content:'// ';color:var(--phosphor);opacity:0.6}
 .pol-panel-scroll{flex:1;overflow:auto}
 
 .pol-pack-item{
-  padding:12px 16px;border-bottom:1px solid var(--border);
+  padding:10px 14px;border-bottom:1px solid var(--border);
   cursor:pointer;transition:background 0.1s;position:relative;
 }
-.pol-pack-item:hover{background:var(--surface)}
+.pol-pack-item:hover{background:var(--surface-hover)}
 .pol-pack-item.active{
-  background:var(--surface);border-left:2px solid var(--phosphor);
-  padding-left:14px;
-}
-.pol-pack-item.active::after{
-  content:'▸';position:absolute;right:14px;top:50%;transform:translateY(-50%);
-  color:var(--phosphor);
+  background:var(--surface-active);
+  box-shadow:inset 2px 0 0 var(--accent);
 }
 .pol-pack-name{
-  font-family:var(--font-mono);font-size:12px;font-weight:600;
-  color:var(--text);letter-spacing:0.04em;
+  font-size:13px;font-weight:500;color:var(--text);
 }
 .pol-pack-meta{
-  display:flex;gap:10px;margin-top:4px;
-  font-family:var(--font-mono);font-size:10px;color:var(--text-dim);
-  letter-spacing:0.05em;
+  display:flex;gap:10px;margin-top:3px;
+  font-size:11px;color:var(--text-dim);
 }
 
 .pol-file-section-header{
-  padding:10px 16px 8px;
+  padding:8px 14px;
   background:var(--surface);border-bottom:1px solid var(--border);
-  font-family:var(--font-mono);font-size:10px;font-weight:600;
-  letter-spacing:0.15em;text-transform:uppercase;color:var(--text-muted);
+  font-size:11px;font-weight:600;color:var(--text-muted);
+  text-transform:uppercase;letter-spacing:0.04em;
   display:flex;justify-content:space-between;align-items:center;
 }
 .pol-file-count{
-  background:var(--bg);border:1px solid var(--border-bright);
-  color:var(--phosphor);padding:0 6px;font-size:10px;letter-spacing:0;
+  background:var(--surface-alt);border:1px solid var(--border);
+  color:var(--text-muted);padding:0 6px;border-radius:8px;
+  font-size:10px;font-weight:600;
 }
 .pol-file-item{
-  padding:7px 16px 7px 26px;border-bottom:1px solid var(--border);
+  padding:7px 14px 7px 26px;border-bottom:1px solid var(--border);
   cursor:pointer;
-  font-family:var(--font-mono);font-size:11px;color:var(--text-muted);
+  font-family:var(--font-mono);font-size:12px;color:var(--text-muted);
   transition:background 0.1s,color 0.1s;position:relative;
 }
 .pol-file-item::before{
-  content:'◌';position:absolute;left:12px;color:var(--text-dim);
+  content:'';position:absolute;left:14px;top:13px;
+  width:4px;height:4px;border-radius:50%;
+  background:var(--text-faint);
 }
-.pol-file-item:hover{background:var(--surface);color:var(--text)}
-.pol-file-item:hover::before{color:var(--phosphor)}
-.pol-file-item.active{background:var(--surface);color:var(--phosphor)}
-.pol-file-item.active::before{content:'●';color:var(--phosphor)}
+.pol-file-item:hover{background:var(--surface-hover);color:var(--text)}
+.pol-file-item:hover::before{background:var(--text-muted)}
+.pol-file-item.active{background:var(--surface-active);color:var(--text)}
+.pol-file-item.active::before{background:var(--accent)}
 
 .pol-empty-list{
-  padding:16px;font-family:var(--font-mono);font-size:11px;
-  color:var(--text-dim);text-align:center;letter-spacing:0.05em;
+  padding:16px;font-size:12px;
+  color:var(--text-dim);text-align:center;
 }
 
 .pol-panel-editor{display:flex;flex-direction:column;background:var(--bg)}
 .pol-welcome{padding:60px 40px;text-align:center;color:var(--text-muted)}
 .pol-welcome h2{
-  font-family:var(--font-display);font-size:42px;
-  color:var(--phosphor);margin-bottom:16px;
-  text-shadow:0 0 18px rgba(0,255,156,0.45);
-  letter-spacing:0.04em;
+  font-size:22px;font-weight:600;color:var(--text);
+  margin-bottom:12px;letter-spacing:-0.01em;
 }
-.pol-welcome h2::before{content:'> ';opacity:0.6}
 .pol-welcome p{
-  font-family:var(--font-mono);font-size:12px;color:var(--text-muted);
-  max-width:480px;margin:0 auto;line-height:1.7;
+  font-size:13px;color:var(--text-muted);
+  max-width:480px;margin:0 auto;line-height:1.6;
 }
 
-.pol-info-screen{padding:40px}
+.pol-info-screen{padding:32px}
 .pol-info-screen h2{
-  font-family:var(--font-display);font-size:40px;
-  color:var(--phosphor);margin-bottom:8px;
-  text-shadow:0 0 14px rgba(0,255,156,0.35);
+  font-size:22px;font-weight:600;color:var(--text);
+  margin-bottom:6px;letter-spacing:-0.01em;
 }
-.pol-info-screen h2::before{content:'> ';opacity:0.6}
-.pol-info-grid{margin-top:20px;border:1px solid var(--border)}
+.pol-info-grid{
+  margin-top:18px;border:1px solid var(--border);
+  border-radius:var(--radius);overflow:hidden;
+}
 .pol-info-row{display:grid;grid-template-columns:160px 1fr;border-bottom:1px solid var(--border)}
 .pol-info-row:last-child{border-bottom:0}
 .pol-info-label{
-  padding:10px 16px;background:var(--surface);
-  font-family:var(--font-mono);font-size:10px;font-weight:500;
-  letter-spacing:0.15em;text-transform:uppercase;color:var(--text-dim);
+  padding:10px 14px;background:var(--surface-alt);
+  font-size:11px;font-weight:600;color:var(--text-muted);
   border-right:1px solid var(--border);
+  text-transform:uppercase;letter-spacing:0.04em;
 }
 .pol-info-value{
-  padding:10px 16px;
-  font-family:var(--font-mono);font-size:12px;color:var(--text);
+  padding:10px 14px;font-size:13px;color:var(--text);
 }
 
 .pol-editor-toolbar{
   display:flex;align-items:center;justify-content:space-between;
-  padding:10px 16px;
+  padding:9px 14px;
   background:var(--surface);border-bottom:1px solid var(--border);
   flex-shrink:0;
 }
 .pol-editor-filename{
   display:flex;align-items:center;gap:8px;
-  font-family:var(--font-mono);font-size:12px;color:var(--text);
-  letter-spacing:0.04em;
+  font-family:var(--font-mono);font-size:12.5px;color:var(--text);
 }
-.pol-editor-filename::before{content:'$ ';color:var(--phosphor);opacity:0.7}
 .pol-unsaved-dot{
-  display:inline-block;width:8px;height:8px;background:var(--amber);
-  opacity:0;transition:opacity 0.15s;box-shadow:0 0 8px var(--amber);
+  display:inline-block;width:7px;height:7px;border-radius:50%;
+  background:var(--warning);opacity:0;transition:opacity 0.15s;
+  box-shadow:0 0 0 3px rgba(245,158,11,0.2);
 }
 .pol-unsaved-dot.visible{opacity:1}
-.pol-editor-body{flex:1;overflow:auto;padding:18px 22px}
+.pol-editor-body{flex:1;overflow:auto;padding:18px 20px}
 
 .pol-meta-panel{
-  background:var(--surface);border:1px solid var(--border);margin-bottom:18px;
+  background:var(--surface);border:1px solid var(--border);
+  border-radius:var(--radius);margin-bottom:16px;overflow:hidden;
 }
 .pol-meta-title{
   padding:10px 14px;
   background:var(--surface-alt);border-bottom:1px solid var(--border);
-  font-family:var(--font-mono);font-size:10px;font-weight:600;
-  letter-spacing:0.15em;text-transform:uppercase;color:var(--text-muted);
+  font-size:11px;font-weight:600;color:var(--text-muted);
+  text-transform:uppercase;letter-spacing:0.04em;
 }
-.pol-meta-title::before{content:'// ';color:var(--phosphor);opacity:0.6}
 .pol-meta-grid{padding:12px 14px;display:grid;grid-template-columns:repeat(2,1fr);gap:10px 24px}
 .pol-meta-field{display:flex;gap:12px;align-items:baseline}
 .pol-meta-label{
   flex-shrink:0;
-  font-family:var(--font-mono);font-size:10px;font-weight:500;
-  letter-spacing:0.1em;text-transform:uppercase;color:var(--text-dim);
+  font-size:11px;font-weight:500;color:var(--text-muted);
   min-width:90px;
 }
 .pol-meta-label::after{content:':';padding-left:2px}
-.pol-meta-value{font-family:var(--font-mono);font-size:11px;color:var(--text)}
+.pol-meta-value{font-size:12.5px;color:var(--text)}
 .pol-meta-value.tag{
-  display:inline-block;padding:1px 7px;
-  background:var(--accent-dim);color:var(--phosphor);
-  border:1px solid var(--phosphor-dim);
-  font-size:10px;letter-spacing:0.08em;margin-right:4px;
+  display:inline-block;padding:1px 7px;border-radius:8px;
+  background:var(--accent-dim);color:var(--accent);
+  border:1px solid rgba(59,130,246,0.25);
+  font-size:11px;margin-right:4px;
 }
 
-.pol-yaml-wrap{background:var(--void);border:1px solid var(--border)}
+.pol-yaml-wrap{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
 .pol-yaml-header{
   display:flex;justify-content:space-between;align-items:center;
   padding:8px 14px;
   background:var(--surface-alt);border-bottom:1px solid var(--border);
 }
 .pol-yaml-label{
-  font-family:var(--font-mono);font-size:10px;font-weight:600;
-  letter-spacing:0.15em;text-transform:uppercase;color:var(--text-muted);
+  font-size:11px;font-weight:600;color:var(--text-muted);
+  text-transform:uppercase;letter-spacing:0.04em;
 }
-.pol-yaml-label::before{content:'$ ';color:var(--phosphor)}
 .pol-yaml-textarea{
   width:100%;min-height:480px;
-  background:var(--void);color:var(--text);border:0;padding:14px;
-  font-family:var(--font-mono);font-size:12px;line-height:1.7;
+  background:var(--bg);color:var(--text);border:0;padding:14px;
+  font-family:var(--font-mono);font-size:12.5px;line-height:1.65;
   resize:vertical;outline:none;white-space:pre;tab-size:2;
-  caret-color:var(--phosphor);
+  caret-color:var(--accent);
 }
-.pol-yaml-textarea:focus{box-shadow:inset 0 0 0 1px var(--phosphor)}
+.pol-yaml-textarea:focus{box-shadow:inset 0 0 0 2px var(--accent-dim)}
 
 .pol-error-panel{
   margin-top:14px;padding:10px 14px;border:1px solid;
-  font-family:var(--font-mono);font-size:11px;white-space:pre-wrap;
+  border-radius:var(--radius);
+  font-family:var(--font-mono);font-size:12px;white-space:pre-wrap;
 }
 .pol-error-panel.hidden{display:none}
-.pol-error-panel.is-error  {background:rgba(255,45,111,0.06);border-color:var(--magenta);color:var(--magenta)}
-.pol-error-panel.is-success{background:rgba(0,255,156,0.06);border-color:var(--phosphor);color:var(--phosphor)}
-.pol-error-panel-header{font-weight:600;letter-spacing:0.1em;text-transform:uppercase;margin-bottom:4px}
+.pol-error-panel.is-error  {background:var(--danger-dim);border-color:rgba(239,68,68,0.4);color:var(--danger)}
+.pol-error-panel.is-success{background:var(--success-dim);border-color:rgba(16,185,129,0.4);color:var(--success)}
+.pol-error-panel-header{font-weight:600;font-family:var(--font-sans);margin-bottom:4px}
 .pol-error-panel-body{color:var(--text)}
 
 /* ============================================================
-   CONFIG TAB
+   SUB-TAB STRIP (used inside Policies)
    ============================================================ */
-.config-layout{display:grid;grid-template-columns:1fr 1fr;gap:16px}
-.config-section{
-  background:var(--surface);border:1px solid var(--border);
-  display:flex;flex-direction:column;
-}
-.config-section-header{
-  padding:12px 16px;
-  background:var(--surface-alt);border-bottom:1px solid var(--border);
-  font-family:var(--font-mono);font-size:10px;font-weight:600;
-  letter-spacing:0.15em;text-transform:uppercase;color:var(--text-muted);
-}
-.config-section-header::before{content:'// ';color:var(--phosphor);opacity:0.6}
-.config-section-body{padding:14px 16px}
-
-.config-profile-item{
-  padding:8px 12px;cursor:pointer;
-  font-family:var(--font-mono);font-size:12px;color:var(--text-muted);
-  border-left:2px solid transparent;transition:all 0.1s;
-}
-.config-profile-item:hover{color:var(--text);background:var(--surface-hover)}
-.config-profile-item.active{
-  color:var(--phosphor);border-left-color:var(--phosphor);background:var(--surface-hover);
-}
-.config-profile-item::before{content:'$ ';color:var(--text-dim)}
-.config-profile-item.active::before{color:var(--phosphor)}
-
-.config-yaml-view{
-  width:100%;margin-top:12px;padding:12px;
-  background:var(--void);color:var(--text);
-  border:1px solid var(--border);
-  font-family:var(--font-mono);font-size:11px;line-height:1.6;
-  outline:none;resize:vertical;white-space:pre;
-}
-
-.list-subtabs{display:flex;background:var(--surface-alt);border-bottom:1px solid var(--border)}
+.list-subtabs{display:flex;background:var(--surface-alt);border-bottom:1px solid var(--border);flex-shrink:0}
 .list-subtab{
   appearance:none;background:transparent;border:0;cursor:pointer;
-  padding:10px 16px;
-  font-family:var(--font-mono);font-size:10px;font-weight:500;
-  letter-spacing:0.15em;text-transform:uppercase;color:var(--text-dim);
+  padding:9px 14px;
+  font-size:12px;font-weight:500;color:var(--text-muted);
   position:relative;transition:color 0.1s;
 }
 .list-subtab:hover{color:var(--text)}
-.list-subtab.active{color:var(--phosphor);background:var(--surface)}
+.list-subtab.active{color:var(--text);background:var(--surface)}
 .list-subtab.active::after{
   content:'';position:absolute;left:0;right:0;bottom:-1px;height:2px;
-  background:var(--phosphor);box-shadow:0 0 8px var(--phosphor);
+  background:var(--accent);
 }
+
+/* Policies sub-panels (Packs / Denylist / Allowlist) */
+#panel-policies.active{display:flex;flex-direction:column}
+.pol-sub-panel{flex:1;min-height:0;display:none;overflow:auto}
+.pol-sub-panel.active{display:flex;flex-direction:column}
+.pol-list-body{padding:20px 24px}
 
 .list-add-form{
   display:flex;gap:8px;padding:12px 0 0;
-  border-top:1px dashed var(--border);margin-top:12px;
+  border-top:1px solid var(--border);margin-top:12px;
 }
 
 /* ============================================================
-   LIVE MONITOR
+   LIVE FEED (used inside Overview)
    ============================================================ */
-.live-header{
-  display:flex;align-items:flex-end;justify-content:space-between;
-  padding:0 0 18px;border-bottom:1px solid var(--border);margin-bottom:18px;
+.live-section-header{
+  display:flex;align-items:center;justify-content:space-between;
+  margin:24px 0 10px;
 }
-.live-rate{
-  font-family:var(--font-display);font-size:64px;line-height:1;
-  color:var(--phosphor);text-shadow:0 0 18px rgba(0,255,156,0.5);
-  letter-spacing:0.02em;
+.live-section-meta{
+  display:flex;align-items:center;gap:12px;
+  font-size:12.5px;color:var(--text-muted);
 }
-.live-rate-label{
-  font-family:var(--font-mono);font-size:10px;font-weight:500;
-  letter-spacing:0.18em;text-transform:uppercase;color:var(--text-dim);
-  margin-top:4px;
+.live-section-meta strong{
+  color:var(--text);font-weight:600;font-variant-numeric:tabular-nums;
 }
-.live-rate-label::before{content:'>>> ';color:var(--phosphor);opacity:0.6}
 
 .live-card{
   display:flex;gap:18px;align-items:center;
   padding:9px 14px;
   background:var(--surface);border:1px solid var(--border);
-  border-left:2px solid var(--text-dim);
-  margin-bottom:4px;
-  font-family:var(--font-mono);font-size:11px;
-  transition:border-color 0.12s,background 0.12s;
+  border-left:3px solid var(--text-faint);
+  border-radius:var(--radius);
+  margin-bottom:6px;
+  font-size:12.5px;
+  transition:background 0.12s;
   animation:liveSlide 0.4s ease-out;
 }
 @keyframes liveSlide{from{transform:translateX(-6px);opacity:0}to{transform:translateX(0);opacity:1}}
-.live-card.tier-minimal {border-left-color:var(--text-dim)}
-.live-card.tier-low     {border-left-color:var(--phosphor)}
-.live-card.tier-medium  {border-left-color:var(--amber)}
-.live-card.tier-high    {border-left-color:#ff8a3d}
-.live-card.tier-critical{border-left-color:var(--magenta);box-shadow:0 0 16px rgba(255,45,111,0.15)}
-.live-card-time{color:var(--text-dim);min-width:110px}
+.live-card.tier-minimal {border-left-color:var(--text-faint)}
+.live-card.tier-low     {border-left-color:var(--success)}
+.live-card.tier-medium  {border-left-color:var(--warning)}
+.live-card.tier-high    {border-left-color:#fb923c}
+.live-card.tier-critical{border-left-color:var(--danger)}
+.live-card-time{color:var(--text-dim);min-width:110px;font-family:var(--font-mono);font-size:12px}
 .live-card-info{display:flex;gap:12px;align-items:center;flex-wrap:wrap;flex:1}
-.live-card-action{color:var(--text);font-weight:500}
+.live-card-action{color:var(--text);font-weight:500;font-family:var(--font-mono);font-size:12px}
 .live-card-channel{color:var(--text-muted)}
-.live-card-score{color:var(--text-dim);margin-left:auto;letter-spacing:0.05em}
+.live-card-score{color:var(--text-dim);margin-left:auto;font-family:var(--font-mono);font-size:12px}
 
 /* ============================================================
    EMPTY STATE
    ============================================================ */
-.empty-state{padding:60px 30px;text-align:center;color:var(--text-dim)}
+.empty-state{padding:56px 30px;text-align:center;color:var(--text-dim)}
 .empty-state-icon{
-  font-family:var(--font-display);font-size:64px;color:var(--phosphor);
-  text-shadow:0 0 20px rgba(0,255,156,0.4);margin-bottom:12px;
-  letter-spacing:0;display:inline-block;
+  display:inline-flex;align-items:center;justify-content:center;
+  width:48px;height:48px;border-radius:50%;
+  background:var(--surface);border:1px solid var(--border);
+  color:var(--text-dim);font-size:22px;margin-bottom:14px;
 }
-.empty-state-icon::before{content:'[ ';color:var(--text-dim)}
-.empty-state-icon::after {content:' ]';color:var(--text-dim)}
 .empty-state-title{
-  font-family:var(--font-mono);font-size:12px;font-weight:600;
-  letter-spacing:0.18em;text-transform:uppercase;color:var(--text);
+  font-size:14px;font-weight:600;color:var(--text);
   margin-bottom:6px;
 }
 .empty-state-text{
-  font-family:var(--font-mono);font-size:11px;color:var(--text-dim);
-  max-width:340px;margin:0 auto;
+  font-size:12.5px;color:var(--text-muted);
+  max-width:340px;margin:0 auto;line-height:1.5;
 }
 
 /* ============================================================
    TOAST
    ============================================================ */
 .toast-container{
-  position:fixed;bottom:24px;right:24px;z-index:10000;
-  display:flex;flex-direction:column;gap:10px;pointer-events:none;
+  position:fixed;bottom:20px;right:20px;z-index:10000;
+  display:flex;flex-direction:column;gap:8px;pointer-events:none;
 }
 .toast{
-  background:var(--void);border:1px solid var(--phosphor);color:var(--phosphor);
-  padding:10px 14px;
-  font-family:var(--font-mono);font-size:11px;letter-spacing:0.05em;
+  background:var(--surface);border:1px solid var(--border);
+  border-left:3px solid var(--accent);color:var(--text);
+  padding:10px 14px;border-radius:var(--radius);
+  font-size:12.5px;
   min-width:240px;max-width:380px;pointer-events:auto;
-  box-shadow:0 0 24px rgba(0,255,156,0.25);
-  position:relative;animation:toastIn 0.25s ease-out;
+  box-shadow:var(--shadow-lg);
+  animation:toastIn 0.22s ease-out;
 }
-.toast::before{content:'>>> ';color:var(--phosphor);font-weight:600}
-.toast.success{border-color:var(--phosphor);color:var(--phosphor)}
-.toast.success::before{content:'[OK] '}
-.toast.error{border-color:var(--magenta);color:var(--magenta);box-shadow:0 0 24px rgba(255,45,111,0.3)}
-.toast.error::before{content:'[ERR] '}
-.toast.info{border-color:var(--cyan);color:var(--cyan);box-shadow:0 0 24px rgba(94,224,255,0.25)}
-.toast.info::before{content:'[INFO] '}
-@keyframes toastIn{from{transform:translateX(20px);opacity:0}to{transform:translateX(0);opacity:1}}
+.toast.success{border-left-color:var(--success)}
+.toast.error{border-left-color:var(--danger)}
+.toast.info{border-left-color:var(--info)}
+@keyframes toastIn{from{transform:translateX(16px);opacity:0}to{transform:translateX(0);opacity:1}}
 
 /* ============================================================
    REVIEWER MODAL
    ============================================================ */
-#reviewerModal{backdrop-filter:blur(6px)}
+#reviewerModal{backdrop-filter:blur(4px);background:rgba(0,0,0,0.6) !important}
 #reviewerModal > div{
   background:var(--surface) !important;
-  border:1px solid var(--phosphor) !important;
-  border-radius:0 !important;
-  box-shadow:0 0 40px rgba(0,255,156,0.25), inset 0 0 60px rgba(0,255,156,0.04) !important;
-  padding:32px !important;
+  border:1px solid var(--border) !important;
+  border-radius:var(--radius-lg) !important;
+  box-shadow:var(--shadow-lg) !important;
+  padding:28px !important;
 }
 #reviewerModal h2{
-  font-family:var(--font-display);
-  font-size:32px !important;color:var(--phosphor) !important;
-  margin-bottom:12px !important;letter-spacing:0.05em;
-  text-shadow:0 0 12px rgba(0,255,156,0.4);
+  font-family:var(--font-sans);font-weight:600;
+  font-size:18px !important;color:var(--text) !important;
+  margin-bottom:8px !important;letter-spacing:-0.01em;
 }
-#reviewerModal h2::before{content:'> ';opacity:0.6}
 #reviewerModal p{
-  font-family:var(--font-mono);font-size:11px !important;
-  color:var(--text-muted) !important;letter-spacing:0.05em;line-height:1.6;
+  font-family:var(--font-sans);font-size:13px !important;
+  color:var(--text-muted) !important;line-height:1.5;
 }
 
 </style>
@@ -892,33 +916,40 @@ select.input{padding-right:22px}
 <body>
 
 <div class="app">
-  <!-- Top bar -->
-  <header class="topbar">
-    <div class="topbar-left">
-      <div class="topbar-title">
-        <span class="logo">P</span>
-        <span class="topbar-title-bracket">[</span>
-        permit0 :: control surface
-        <span class="topbar-title-bracket">]</span>
-      </div>
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
+      <span class="logo">P</span>
+      <span class="sidebar-title">permit0<small>control surface</small></span>
     </div>
-    <div class="topbar-right">
-      <span id="reviewerStatus" style="display:none">reviewer: <strong id="reviewerName"></strong> <a href="#" id="reviewerSignOut" style="margin-left:6px;text-decoration:none">sign out</a></span>
-      <span>profile: <strong id="activeProfile">default</strong></span>
-      <span class="status-dot" id="globalStatusDot"></span>
-    </div>
-  </header>
 
-  <!-- Tab bar -->
-  <nav class="tab-bar">
-    <button class="tab-btn active" data-tab="dashboard"   data-fkey="F1">Dashboard</button>
-    <button class="tab-btn"        data-tab="audit"       data-fkey="F2">Audit Log</button>
-    <button class="tab-btn"        data-tab="approvals"   data-fkey="F3">Approvals <span class="tab-badge hidden" id="approvalBadge">0</span></button>
-    <button class="tab-btn"        data-tab="policies"    data-fkey="F4">Policies</button>
-    <button class="tab-btn"        data-tab="config"      data-fkey="F5">Config</button>
-    <button class="tab-btn"        data-tab="live"        data-fkey="F6">Live</button>
-    <button class="tab-btn"        data-tab="calibration" data-fkey="F7">Calibration</button>
-  </nav>
+    <nav class="tab-bar">
+      <button class="tab-btn active" data-tab="overview"    data-fkey="F1" data-title="Overview">Overview</button>
+      <button class="tab-btn"        data-tab="audit"       data-fkey="F2" data-title="Audit Log">Audit Log</button>
+      <button class="tab-btn"        data-tab="approvals"   data-fkey="F3" data-title="Approvals">Approvals <span class="tab-badge hidden" id="approvalBadge">0</span></button>
+      <button class="tab-btn"        data-tab="policies"    data-fkey="F4" data-title="Policies">Policies</button>
+      <button class="tab-btn"        data-tab="calibration" data-fkey="F5" data-title="Calibration">Calibration</button>
+    </nav>
+
+    <div class="sidebar-footer">
+      <div class="row" id="reviewerStatus" style="display:none">
+        <strong id="reviewerName"></strong>
+        <a href="#" id="reviewerSignOut" style="margin-left:auto">Sign out</a>
+      </div>
+      <div class="row">profile: <strong id="activeProfile">default</strong></div>
+    </div>
+  </aside>
+
+  <!-- Main column -->
+  <main class="main">
+    <header class="topbar">
+      <div class="topbar-left">
+        <span class="topbar-title" id="topbarPageTitle">Overview</span>
+      </div>
+      <div class="topbar-right">
+        <span class="status-dot" id="globalStatusDot" title="System status"></span>
+      </div>
+    </header>
 
   <!-- Failed-open windows banner: surfaces audit gaps from
        PERMIT0_FAIL_OPEN periods. Hidden by default. Populated by
@@ -935,18 +966,18 @@ select.input{padding-right:22px}
   <!-- Tab content -->
   <div class="tab-content">
 
-    <!-- ===================== TAB: Dashboard ===================== -->
-    <div class="tab-panel active" id="panel-dashboard">
+    <!-- ===================== TAB: Overview ===================== -->
+    <div class="tab-panel active" id="panel-overview">
       <div class="stat-cards" id="dashStatCards">
-        <div class="stat-card">
+        <div class="stat-card clickable" data-nav="audit">
           <div class="stat-card-label">Total Decisions</div>
           <div class="stat-card-value" id="statTotal">--</div>
         </div>
-        <div class="stat-card">
+        <div class="stat-card clickable" data-nav="audit" data-nav-decision="allow">
           <div class="stat-card-label">Allow Rate</div>
           <div class="stat-card-value" id="statAllowRate">--</div>
         </div>
-        <div class="stat-card">
+        <div class="stat-card clickable" data-nav="approvals">
           <div class="stat-card-label">Pending Approvals</div>
           <div class="stat-card-value" id="statPending">--</div>
         </div>
@@ -956,23 +987,38 @@ select.input{padding-right:22px}
         </div>
       </div>
 
-      <div class="section-title">Recent Decisions</div>
-      <div style="overflow-x:auto">
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>Timestamp</th>
-              <th>Action Type</th>
-              <th>Channel</th>
-              <th>Permission</th>
-              <th>Tier</th>
-              <th>Score</th>
-            </tr>
-          </thead>
-          <tbody id="dashRecentBody">
-            <tr><td colspan="6" class="loading-state"><span class="spinner"></span> Loading...</td></tr>
-          </tbody>
-        </table>
+      <div class="dist-wrap" id="decisionDistWrap" style="display:none">
+        <div class="dist-header">
+          <span>Decision distribution</span>
+          <span id="decisionDistTotal"></span>
+        </div>
+        <div class="dist-bar" id="decisionDistBar"></div>
+        <div class="dist-legend" id="decisionDistLegend"></div>
+      </div>
+
+      <div class="dist-wrap" id="tierDistWrap" style="display:none">
+        <div class="dist-header">
+          <span>Tier distribution</span>
+          <span id="tierDistTotal"></span>
+        </div>
+        <div class="dist-bar" id="tierDistBar"></div>
+        <div class="dist-legend" id="tierDistLegend"></div>
+      </div>
+
+      <div class="live-section-header">
+        <div class="section-title" style="margin:0;border:0;padding:0">Recent Activity</div>
+        <div class="live-section-meta">
+          <span><strong id="liveRate">0</strong> / min</span>
+          <button class="btn btn-sm" id="livePauseBtn">Pause</button>
+        </div>
+      </div>
+
+      <div id="liveFeed">
+        <div class="empty-state">
+          <div class="empty-state-icon">◌</div>
+          <div class="empty-state-title">Waiting for events</div>
+          <div class="empty-state-text">Decisions will appear here in real time.</div>
+        </div>
       </div>
     </div>
 
@@ -986,7 +1032,8 @@ select.input{padding-right:22px}
           <option value="">All</option>
           <option value="allow">Allow</option>
           <option value="deny">Deny</option>
-          <option value="human">Human</option>
+          <option value="human">HITL</option>
+          <option value="bypass">Bypass</option>
         </select>
         <label>Since</label>
         <input class="input" type="date" id="auditFilterSince">
@@ -1032,9 +1079,9 @@ select.input{padding-right:22px}
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
         <div>
           <span class="section-title" style="margin:0;display:inline-block;padding:0;border:0">Pending Approvals</span>
-          <span style="margin-left:14px;font-family:var(--font-display);font-size:24px;color:var(--phosphor);text-shadow:0 0 10px rgba(0,255,156,0.4)" id="approvalCount">0</span>
+          <span style="margin-left:12px;font-size:18px;font-weight:600;color:var(--text);font-variant-numeric:tabular-nums" id="approvalCount">0</span>
         </div>
-        <div style="font-size:10px;letter-spacing:0.15em;text-transform:uppercase;color:var(--text-dim)">// auto-refresh 2s</div>
+        <div style="font-size:11px;color:var(--text-dim)">Auto-refreshing every 2s</div>
       </div>
       <div id="approvalList">
         <div class="loading-state"><span class="spinner"></span> Loading...</div>
@@ -1043,89 +1090,83 @@ select.input{padding-right:22px}
 
     <!-- ===================== TAB: Policies ===================== -->
     <div class="tab-panel no-pad" id="panel-policies">
-      <div class="policies-layout">
-        <!-- Left: Pack list -->
-        <aside class="pol-panel-packs">
-          <div class="pol-panel-header">Packs</div>
-          <div class="pol-panel-scroll" id="polPackList">
-            <div class="pol-empty-list"><span class="spinner"></span></div>
-          </div>
-        </aside>
-        <!-- Middle: File list -->
-        <nav class="pol-panel-files">
-          <div class="pol-panel-scroll" id="polFileList">
-            <div class="pol-empty-list" style="margin-top:40px">Select a pack</div>
-          </div>
-        </nav>
-        <!-- Right: Editor -->
-        <main class="pol-panel-editor" id="polEditorPanel">
-          <div class="pol-welcome" id="polWelcome">
-            <h2>Pack Editor</h2>
-            <p>Select a pack from the left panel, then choose a normalizer or risk rule file to edit.</p>
-            <p style="margin-top:14px;font-size:11px;letter-spacing:0.1em;text-transform:uppercase;color:var(--text-dim)">// Ctrl+S save  ·  Ctrl+Shift+V validate</p>
-          </div>
-        </main>
+      <div class="list-subtabs">
+        <button class="list-subtab active" data-pol-sub="packs">Packs</button>
+        <button class="list-subtab" data-pol-sub="denylist">Denylist</button>
+        <button class="list-subtab" data-pol-sub="allowlist">Allowlist</button>
       </div>
-    </div>
 
-    <!-- ===================== TAB: Config ===================== -->
-    <div class="tab-panel" id="panel-config">
-      <div class="config-layout">
-        <!-- Profiles -->
-        <div class="config-section">
-          <div class="config-section-header">Profiles</div>
-          <div class="config-section-body">
-            <div id="configProfileList">
-              <div class="loading-state"><span class="spinner"></span></div>
+      <!-- Sub-panel: Packs (3-pane editor) -->
+      <div class="pol-sub-panel active" id="polSub-packs">
+        <div class="policies-layout">
+          <aside class="pol-panel-packs">
+            <div class="pol-panel-header">Packs</div>
+            <div class="pol-panel-scroll" id="polPackList">
+              <div class="pol-empty-list"><span class="spinner"></span></div>
             </div>
-            <textarea class="config-yaml-view" id="configProfileYaml" readonly placeholder="// select a profile to view its YAML" rows="12"></textarea>
-          </div>
-        </div>
-        <!-- Lists -->
-        <div class="config-section">
-          <div class="list-subtabs">
-            <button class="list-subtab active" data-list="denylist">Denylist</button>
-            <button class="list-subtab" data-list="allowlist">Allowlist</button>
-          </div>
-          <div class="config-section-body">
-            <div style="overflow-x:auto">
-              <table class="data-table" id="configListTable">
-                <thead>
-                  <tr>
-                    <th>Norm Hash Hex</th>
-                    <th>Reason</th>
-                    <th style="width:60px"></th>
-                  </tr>
-                </thead>
-                <tbody id="configListBody">
-                  <tr><td colspan="3" class="loading-state"><span class="spinner"></span></td></tr>
-                </tbody>
-              </table>
+          </aside>
+          <nav class="pol-panel-files">
+            <div class="pol-panel-scroll" id="polFileList">
+              <div class="pol-empty-list" style="margin-top:40px">Select a pack</div>
             </div>
-            <div class="list-add-form">
-              <input class="input" type="text" id="configListHash" placeholder="norm_hash_hex" style="flex:2">
-              <input class="input" type="text" id="configListReason" placeholder="reason" style="flex:3">
-              <button class="btn btn-primary btn-sm" id="configListAdd">Add</button>
+          </nav>
+          <main class="pol-panel-editor" id="polEditorPanel">
+            <div class="pol-welcome" id="polWelcome">
+              <h2>Pack Editor</h2>
+              <p>Select a pack from the left panel, then choose a normalizer or risk rule file to edit.</p>
+              <p style="margin-top:14px;font-size:11.5px;color:var(--text-dim)">Shortcuts: Ctrl+S save · Ctrl+Shift+V validate</p>
             </div>
-          </div>
+          </main>
         </div>
       </div>
-    </div>
 
-    <!-- ===================== TAB: Live ===================== -->
-    <div class="tab-panel" id="panel-live">
-      <div class="live-header">
-        <div>
-          <div class="live-rate" id="liveRate">0</div>
-          <div class="live-rate-label">decisions / minute</div>
+      <!-- Sub-panel: Denylist -->
+      <div class="pol-sub-panel" id="polSub-denylist">
+        <div class="pol-list-body">
+          <div style="overflow-x:auto">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Norm Hash Hex</th>
+                  <th>Reason</th>
+                  <th style="width:80px"></th>
+                </tr>
+              </thead>
+              <tbody id="polDenyBody">
+                <tr><td colspan="3" class="loading-state"><span class="spinner"></span></td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="list-add-form">
+            <input class="input" type="text" id="polDenyHash" placeholder="norm_hash_hex" style="flex:2">
+            <input class="input" type="text" id="polDenyReason" placeholder="reason" style="flex:3">
+            <button class="btn btn-primary btn-sm" id="polDenyAdd">Add</button>
+          </div>
         </div>
-        <button class="btn" id="livePauseBtn">Pause</button>
       </div>
-      <div id="liveFeed">
-        <div class="empty-state">
-          <div class="empty-state-icon">~</div>
-          <div class="empty-state-title">Waiting for events</div>
-          <div class="empty-state-text">Decisions will appear here in real time.</div>
+
+      <!-- Sub-panel: Allowlist -->
+      <div class="pol-sub-panel" id="polSub-allowlist">
+        <div class="pol-list-body">
+          <div style="overflow-x:auto">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Norm Hash Hex</th>
+                  <th>Reason</th>
+                  <th style="width:80px"></th>
+                </tr>
+              </thead>
+              <tbody id="polAllowBody">
+                <tr><td colspan="3" class="loading-state"><span class="spinner"></span></td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="list-add-form">
+            <input class="input" type="text" id="polAllowHash" placeholder="norm_hash_hex" style="flex:2">
+            <input class="input" type="text" id="polAllowReason" placeholder="reason" style="flex:3">
+            <button class="btn btn-primary btn-sm" id="polAllowAdd">Add</button>
+          </div>
         </div>
       </div>
     </div>
@@ -1185,6 +1226,7 @@ select.input{padding-right:22px}
     </div>
 
   </div>
+  </main>
 </div>
 
 <!-- Reviewer login modal -->
@@ -1284,12 +1326,15 @@ select.input{padding-right:22px}
   function permissionBadge(p, source) {
     if (!p) return '<span class="badge badge-minimal">-</span>';
     var lp = String(p).toLowerCase();
-    // Unknown-fallback HITL: when permit0 has no pack for the tool, the
-    // engine returns HITL with source="unknown_fallback". Render that
-    // distinctly so it's not confused with a real medium-tier HITL.
+    // Bypass: permit0 has no pack for the tool. Engine returns HITL with
+    // source="unknown_fallback" as a conservative placeholder, but
+    // semantically permit0 made no decision — the upstream agent (e.g.
+    // Claude Code) handles permissions. Distinct from a real medium-tier
+    // HITL the scorer produced; rendered as "Bypass" so it isn't read as
+    // a review request.
     var ls = source ? String(source).toLowerCase() : '';
     if ((lp === 'humanintheloop' || lp === 'human') && ls === 'unknown_fallback') {
-      return '<span class="badge badge-fallback" title="No permit0 pack covers this tool — Claude Code’s own permissions handle it (or HITL fallback).">Fallback</span>';
+      return '<span class="badge badge-fallback" title="permit0 had no matching pack — deferred to upstream (e.g. Claude Code\'s own permissions). No permit0 reviewer needed.">Bypass</span>';
     }
     var cls = lp === 'allow' ? 'badge-allow' : lp === 'deny' ? 'badge-deny' : 'badge-human';
     return '<span class="badge ' + cls + '">' + esc(p) + '</span>';
@@ -1304,13 +1349,16 @@ select.input{padding-right:22px}
 
 
   // ========== Tab Switching ==========
-  var currentTab = 'dashboard';
+  var currentTab = 'overview';
   var tabInited = {};
 
   function switchTab(tab) {
     if (tab === currentTab) return;
     $$('.tab-btn').forEach(function(b) { b.classList.toggle('active', b.dataset.tab === tab); });
     $$('.tab-panel').forEach(function(p) { p.classList.toggle('active', p.id === 'panel-' + tab); });
+    var btn = document.querySelector('.tab-btn[data-tab="' + tab + '"]');
+    var title = $('#topbarPageTitle');
+    if (btn && title) title.textContent = btn.dataset.title || btn.textContent.trim();
     currentTab = tab;
     initTab(tab);
   }
@@ -1318,12 +1366,10 @@ select.input{padding-right:22px}
   function initTab(tab) {
     if (tabInited[tab]) return;
     tabInited[tab] = true;
-    if (tab === 'dashboard') initDashboard();
+    if (tab === 'overview') initOverview();
     else if (tab === 'audit') initAudit();
     else if (tab === 'approvals') initApprovals();
     else if (tab === 'policies') initPolicies();
-    else if (tab === 'config') initConfig();
-    else if (tab === 'live') initLive();
     else if (tab === 'calibration') initCalibration();
   }
 
@@ -1421,36 +1467,87 @@ select.input{padding-right:22px}
       .replace(/'/g, '&#39;');
   }
 
-  // ========== TAB 1: Dashboard ==========
-  var dashInterval = null;
+  // ========== TAB 1: Overview ==========
+  // Stat cards refresh on a slow cadence; the live feed below polls
+  // separately (faster, pausable).
+  var statsInterval = null;
 
-  function initDashboard() {
-    loadDashboard();
-    dashInterval = setInterval(function() {
+  function initOverview() {
+    loadOverviewStats();
+    statsInterval = setInterval(function() {
       if (document.hidden) return;
-      loadDashboard();
+      loadOverviewStats();
     }, 10000);
+    initLiveFeed();
+
+    // Clickable stat cards: navigate to the target tab and optionally
+    // pre-populate the audit decision filter. If Audit was already inited,
+    // a manual reload picks up the new filter; on first visit, initAudit
+    // does the initial load itself.
+    $$('#dashStatCards .stat-card.clickable').forEach(function(card) {
+      card.addEventListener('click', function() {
+        var target = card.dataset.nav;
+        var decision = card.dataset.navDecision;
+        if (target === 'audit') {
+          $('#auditFilterDecision').value = decision || '';
+        }
+        var alreadyInited = !!tabInited[target];
+        switchTab(target);
+        if (target === 'audit' && alreadyInited) {
+          auditState.rows = [];
+          auditState.offset = 0;
+          loadAudit(false);
+        }
+      });
+    });
   }
 
-  async function loadDashboard() {
+  var TIER_ORDER = ['minimal', 'low', 'medium', 'high', 'critical'];
+
+  async function loadOverviewStats() {
     try {
       var stats = await api('GET', '/stats');
-      $('#statTotal').textContent = stats.total_decisions != null ? stats.total_decisions.toLocaleString() : '0';
-      var rate = stats.total_decisions > 0 ? ((stats.allow_count / stats.total_decisions) * 100).toFixed(1) + '%' : '0%';
+      var total = stats.total_decisions || 0;
+      $('#statTotal').textContent = total.toLocaleString();
+
+      var rate = total > 0 ? ((stats.allow_count / total) * 100).toFixed(1) + '%' : '0%';
       var rateEl = $('#statAllowRate');
       rateEl.textContent = rate;
       rateEl.className = 'stat-card-value';
+
       $('#statPending').textContent = stats.pending_approvals != null ? stats.pending_approvals : '0';
-      if (stats.pending_approvals > 0) {
-        $('#statPending').className = 'stat-card-value warn';
-      } else {
-        $('#statPending').className = 'stat-card-value';
-      }
+      $('#statPending').className = stats.pending_approvals > 0 ? 'stat-card-value warn' : 'stat-card-value';
       updateApprovalBadge(stats.pending_approvals || 0);
+
+      renderDistBar('decisionDist', [
+        { key: 'allow',  label: 'allow',  count: stats.allow_count    || 0 },
+        { key: 'deny',   label: 'deny',   count: stats.deny_count     || 0 },
+        { key: 'hitl',   label: 'HITL',   count: stats.human_count    || 0 },
+        { key: 'bypass', label: 'bypass', count: stats.fallback_count || 0, tooltip: 'permit0 had no matching pack — deferred to upstream. No permit0 reviewer involved.' },
+      ], total);
+
+      // Normalize tier keys to lowercase since the API emits uppercase.
+      // Tier total = sum of tier counts (excludes bypass — fallback has no
+      // risk_score). Use the tier sum as the denominator so the tier
+      // percentages add to 100%, not (allow+deny+HITL)/total which would
+      // visibly miss the bypass slice.
+      var tierDist = stats.tier_distribution || {};
+      var tierCounts = {};
+      var tierTotal = 0;
+      Object.keys(tierDist).forEach(function(k) {
+        var v = tierDist[k] || 0;
+        tierCounts[k.toLowerCase()] = v;
+        tierTotal += v;
+      });
+      renderDistBar('tierDist', TIER_ORDER.map(function(t) {
+        return { key: t, label: t, count: tierCounts[t] || 0 };
+      }), tierTotal, 'scored decision');
     } catch (err) {
       $('#statTotal').textContent = '--';
       $('#statAllowRate').textContent = '--';
       $('#statPending').textContent = '--';
+      $('#decisionDistWrap').style.display = 'none';
+      $('#tierDistWrap').style.display = 'none';
     }
 
     try {
@@ -1463,29 +1560,33 @@ select.input{padding-right:22px}
       he2.textContent = 'ERR';
       he2.className = 'stat-card-value err';
     }
-
-    try {
-      var recent = await api('GET', '/audit?limit=20');
-      renderDashRecent(recent);
-    } catch (err) {
-      $('#dashRecentBody').innerHTML = '<tr><td colspan="6" style="padding:20px;color:var(--text-dim)">Failed to load recent decisions</td></tr>';
-    }
   }
 
-  function renderDashRecent(rows) {
-    if (!rows || rows.length === 0) {
-      $('#dashRecentBody').innerHTML = '<tr><td colspan="6" style="padding:30px;text-align:center;color:var(--text-dim)">No decisions yet</td></tr>';
-      return;
-    }
-    $('#dashRecentBody').innerHTML = rows.map(function(r) {
-      return '<tr>'
-        + '<td class="mono">' + esc(formatTimestamp(r.timestamp)) + '</td>'
-        + '<td>' + esc(r.action_type) + '</td>'
-        + '<td class="mono">' + esc(r.channel || '-') + '</td>'
-        + '<td>' + permissionBadge(r.permission, r.source) + '</td>'
-        + '<td>' + tierBadge(r.tier) + '</td>'
-        + '<td class="mono">' + esc(r.risk_raw != null ? r.risk_raw : '-') + '</td>'
-        + '</tr>';
+  // Renders a stacked horizontal distribution bar + legend.
+  // segments: [{ key, label, count, tooltip? }]; total = denominator for %.
+  // totalLabel: noun (defaults to "decision") so the header reads naturally.
+  function renderDistBar(idPrefix, segments, total, totalLabel) {
+    totalLabel = totalLabel || 'decision';
+    var wrap = $('#' + idPrefix + 'Wrap');
+    if (total === 0) { wrap.style.display = 'none'; return; }
+    wrap.style.display = '';
+    $('#' + idPrefix + 'Total').textContent = total.toLocaleString() + ' ' + totalLabel + (total === 1 ? '' : 's');
+
+    $('#' + idPrefix + 'Bar').innerHTML = segments.map(function(s) {
+      if (s.count === 0) return '';
+      var pct = (s.count / total) * 100;
+      var title = s.label + ': ' + s.count + ' (' + pct.toFixed(1) + '%)';
+      return '<div class="dist-seg cat-' + s.key + '" style="flex:' + s.count + ' 1 0" title="' + esc(title) + '"></div>';
+    }).join('');
+
+    $('#' + idPrefix + 'Legend').innerHTML = segments.map(function(s) {
+      var pct = total > 0 ? (s.count / total) * 100 : 0;
+      var titleAttr = s.tooltip ? ' title="' + esc(s.tooltip) + '" style="cursor:help"' : '';
+      return '<span class="dist-legend-item cat-' + s.key + '"' + titleAttr + '>'
+        + s.label
+        + ' <strong>' + s.count + '</strong>'
+        + ' <span class="dist-pct">(' + pct.toFixed(1) + '%)</span>'
+        + '</span>';
     }).join('');
   }
 
@@ -1666,7 +1767,7 @@ select.input{padding-right:22px}
 
     if (items.length === 0) {
       el.innerHTML = '<div class="empty-state">'
-        + '<div class="empty-state-icon">~</div>'
+        + '<div class="empty-state-icon">✓</div>'
         + '<div class="empty-state-title">No pending approvals</div>'
         + '<div class="empty-state-text">All clear. New approval requests will appear here automatically.</div>'
         + '</div>';
@@ -1791,6 +1892,18 @@ select.input{padding-right:22px}
 
   function initPolicies() {
     loadPolPacks();
+    initPoliciesLists();
+    // Top-level Policies sub-tab switching: Packs / Denylist / Allowlist.
+    // Lazy-load deny/allow on first switch so the API isn't hit until needed.
+    var loaded = { packs: true, denylist: false, allowlist: false };
+    $$('.list-subtab', $('#panel-policies')).forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        var sub = btn.dataset.polSub;
+        $$('.list-subtab', $('#panel-policies')).forEach(function(b) { b.classList.toggle('active', b === btn); });
+        $$('.pol-sub-panel').forEach(function(p) { p.classList.toggle('active', p.id === 'polSub-' + sub); });
+        if (!loaded[sub]) { loadList(sub); loaded[sub] = true; }
+      });
+    });
   }
 
   async function loadPolPacks() {
@@ -2080,86 +2193,40 @@ select.input{padding-right:22px}
   }
 
 
-  // ========== TAB 5: Config ==========
-  var configState = {
-    profiles: [],
-    activeProfile: null,
-    activeList: 'denylist',
-    listData: []
+  // ========== Policies sub-tabs: deny/allow list management ==========
+  // Hash-list state is keyed by list name ("denylist" | "allowlist") so
+  // both panels keep their own rows + DOM references and don't fight.
+  var listConfig = {
+    denylist:  { body: '#polDenyBody',  hash: '#polDenyHash',  reason: '#polDenyReason',  add: '#polDenyAdd'  },
+    allowlist: { body: '#polAllowBody', hash: '#polAllowHash', reason: '#polAllowReason', add: '#polAllowAdd' }
   };
+  var listData = { denylist: [], allowlist: [] };
 
-  function initConfig() {
-    loadProfiles();
-    loadList();
-
-    $$('.list-subtab').forEach(function(btn) {
-      btn.addEventListener('click', function() {
-        $$('.list-subtab').forEach(function(b) { b.classList.remove('active'); });
-        btn.classList.add('active');
-        configState.activeList = btn.dataset.list;
-        loadList();
-      });
-    });
-
-    $('#configListAdd').addEventListener('click', addListEntry);
-  }
-
-  async function loadProfiles() {
-    try {
-      var data = await api('GET', '/profiles');
-      configState.profiles = data || [];
-      renderProfiles();
-    } catch (err) {
-      $('#configProfileList').innerHTML = '<div style="padding:12px;color:var(--text-dim)">Failed to load profiles</div>';
-    }
-  }
-
-  function renderProfiles() {
-    var el = $('#configProfileList');
-    if (configState.profiles.length === 0) {
-      el.innerHTML = '<div style="padding:12px;color:var(--text-dim)">No profiles found</div>';
-      return;
-    }
-    el.innerHTML = configState.profiles.map(function(p) {
-      var active = configState.activeProfile === p.name ? ' active' : '';
-      return '<div class="config-profile-item' + active + '" data-profile="' + esc(p.name) + '">' + esc(p.name) + ' <span style="color:var(--text-dim);font-size:11px">(' + esc(p.filename) + ')</span></div>';
-    }).join('');
-
-    $$('.config-profile-item', el).forEach(function(item) {
-      item.addEventListener('click', function() { selectProfile(item.dataset.profile); });
+  function initPoliciesLists() {
+    Object.keys(listConfig).forEach(function(name) {
+      $(listConfig[name].add).addEventListener('click', function() { addListEntry(name); });
     });
   }
 
-  async function selectProfile(name) {
-    configState.activeProfile = name;
-    renderProfiles();
-    var ta = $('#configProfileYaml');
-    ta.value = 'Loading...';
+  async function loadList(name) {
+    var cfg = listConfig[name];
     try {
-      var yaml = await api('GET', '/profiles/' + encodeURIComponent(name));
-      ta.value = yaml || '# empty';
+      var data = await api('GET', '/lists/' + name);
+      listData[name] = data || [];
+      renderList(name);
     } catch (err) {
-      ta.value = '# Error: ' + err.message;
+      $(cfg.body).innerHTML = '<tr><td colspan="3" style="padding:12px;color:var(--danger)">Failed to load</td></tr>';
     }
   }
 
-  async function loadList() {
-    try {
-      var data = await api('GET', '/lists/' + configState.activeList);
-      configState.listData = data || [];
-      renderList();
-    } catch (err) {
-      $('#configListBody').innerHTML = '<tr><td colspan="3" style="padding:12px;color:var(--danger)">Failed to load</td></tr>';
-    }
-  }
-
-  function renderList() {
-    var rows = configState.listData;
+  function renderList(name) {
+    var cfg = listConfig[name];
+    var rows = listData[name];
     if (rows.length === 0) {
-      $('#configListBody').innerHTML = '<tr><td colspan="3" style="padding:20px;text-align:center;color:var(--text-dim)">No entries in ' + esc(configState.activeList) + '</td></tr>';
+      $(cfg.body).innerHTML = '<tr><td colspan="3" style="padding:20px;text-align:center;color:var(--text-dim)">No entries in ' + esc(name) + '</td></tr>';
       return;
     }
-    $('#configListBody').innerHTML = rows.map(function(r, i) {
+    $(cfg.body).innerHTML = rows.map(function(r, i) {
       return '<tr>'
         + '<td class="mono" style="word-break:break-all">' + esc(r.norm_hash_hex) + '</td>'
         + '<td>' + esc(r.reason || '-') + '</td>'
@@ -2167,42 +2234,43 @@ select.input{padding-right:22px}
         + '</tr>';
     }).join('');
 
-    $$('[data-rm-idx]', $('#configListBody')).forEach(function(btn) {
+    $$('[data-rm-idx]', $(cfg.body)).forEach(function(btn) {
       btn.addEventListener('click', function() {
-        removeListEntry(parseInt(btn.dataset.rmIdx, 10));
+        removeListEntry(name, parseInt(btn.dataset.rmIdx, 10));
       });
     });
   }
 
-  async function addListEntry() {
-    var hash = $('#configListHash').value.trim();
-    var reason = $('#configListReason').value.trim();
+  async function addListEntry(name) {
+    var cfg = listConfig[name];
+    var hash = $(cfg.hash).value.trim();
+    var reason = $(cfg.reason).value.trim();
     if (!hash) { toast('Hash is required', 'error'); return; }
     try {
-      await api('POST', '/lists/' + configState.activeList, { norm_hash_hex: hash, reason: reason });
-      $('#configListHash').value = '';
-      $('#configListReason').value = '';
+      await api('POST', '/lists/' + name, { norm_hash_hex: hash, reason: reason });
+      $(cfg.hash).value = '';
+      $(cfg.reason).value = '';
       toast('Entry added', 'success');
-      loadList();
+      loadList(name);
     } catch (err) {
       toast('Failed to add: ' + err.message, 'error');
     }
   }
 
-  async function removeListEntry(idx) {
-    var entry = configState.listData[idx];
+  async function removeListEntry(name, idx) {
+    var entry = listData[name][idx];
     if (!entry) return;
     try {
-      await api('DELETE', '/lists/' + configState.activeList, { norm_hash_hex: entry.norm_hash_hex });
+      await api('DELETE', '/lists/' + name, { norm_hash_hex: entry.norm_hash_hex });
       toast('Entry removed', 'success');
-      loadList();
+      loadList(name);
     } catch (err) {
       toast('Failed to remove: ' + err.message, 'error');
     }
   }
 
 
-  // ========== TAB 6: Live Monitor ==========
+  // ========== Live Feed (inside Overview) ==========
   var liveState = {
     paused: false,
     lastSeenId: null,
@@ -2211,7 +2279,7 @@ select.input{padding-right:22px}
     interval: null
   };
 
-  function initLive() {
+  function initLiveFeed() {
     liveState.interval = setInterval(pollLive, 3000);
     pollLive();
 
@@ -2289,11 +2357,11 @@ select.input{padding-right:22px}
       e.preventDefault();
       if (currentTab === 'policies') polDoValidate();
     }
-    // Ctrl+1-6: switch tabs
+    // Ctrl+1-5: switch tabs
     if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey) {
-      var tabs = ['dashboard', 'audit', 'approvals', 'policies', 'config', 'live', 'calibration'];
+      var tabs = ['overview', 'audit', 'approvals', 'policies', 'calibration'];
       var num = parseInt(e.key, 10);
-      if (num >= 1 && num <= 7) {
+      if (num >= 1 && num <= 5) {
         e.preventDefault();
         switchTab(tabs[num - 1]);
       }
@@ -2346,9 +2414,9 @@ select.input{padding-right:22px}
                match: '<span style="color:var(--text-dim)">—</span>' };
     }
     // Engine column: pass `r.source` so an unknown_fallback HITL is
-    // labeled "Fallback". Human column intentionally doesn't pass the
-    // source — the human chose Allow/Deny/HITL explicitly, never
-    // "fallback".
+    // labeled "Bypass". Human column intentionally doesn't pass the
+    // source — the human chose Allow/Deny/HITL explicitly, never a
+    // bypass.
     var engineHtml = permissionBadge(r.engine_permission, r.source);
     var humanHtml = hasReviewer ? permissionBadge(r.permission) : '<span style="color:var(--text-dim)">—</span>';
     var matchHtml;
@@ -2443,7 +2511,7 @@ select.input{padding-right:22px}
   // ========== Init ==========
   setupReviewer();
   initFailedOpenBanner();
-  initTab('dashboard');
+  initTab('overview');
 })();
 </script>
 </body>

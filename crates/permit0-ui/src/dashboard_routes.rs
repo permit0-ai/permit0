@@ -47,7 +47,10 @@ pub struct StatsResponse {
     pub total_decisions: usize,
     pub allow_count: usize,
     pub deny_count: usize,
+    /// Real medium-tier HITL requests (excludes unknown-fallback).
     pub human_count: usize,
+    /// HITL emitted because no pack covers the tool — distinct from a real review request.
+    pub fallback_count: usize,
     pub tier_distribution: HashMap<String, usize>,
     pub pending_approvals: usize,
 }
@@ -126,13 +129,20 @@ pub async fn stats(
     let mut allow_count = 0usize;
     let mut deny_count = 0usize;
     let mut human_count = 0usize;
+    let mut fallback_count = 0usize;
     let mut tier_distribution: HashMap<String, usize> = HashMap::new();
 
     for entry in &entries {
         match entry.decision {
             Permission::Allow => allow_count += 1,
             Permission::Deny => deny_count += 1,
-            Permission::HumanInTheLoop => human_count += 1,
+            Permission::HumanInTheLoop => {
+                if entry.decision_source == "unknown_fallback" {
+                    fallback_count += 1;
+                } else {
+                    human_count += 1;
+                }
+            }
         }
         if let Some(rs) = entry.risk_score.as_ref() {
             *tier_distribution.entry(rs.tier.to_string()).or_insert(0) += 1;
@@ -146,6 +156,7 @@ pub async fn stats(
         allow_count,
         deny_count,
         human_count,
+        fallback_count,
         tier_distribution,
         pending_approvals,
     }))

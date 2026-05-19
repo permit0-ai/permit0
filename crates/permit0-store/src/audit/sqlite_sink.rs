@@ -155,6 +155,16 @@ impl AuditSink for SqliteAuditSink {
             bindings.push(Box::new(permission_to_str(d).to_string()));
             idx += 1;
         }
+        if let Some(ref ds) = filter.decision_source {
+            sql.push_str(&format!(" AND json_extract(entry_json, '$.decision_source') = ?{idx}"));
+            bindings.push(Box::new(ds.clone()));
+            idx += 1;
+        }
+        if let Some(ref ds) = filter.decision_source_exclude {
+            sql.push_str(&format!(" AND json_extract(entry_json, '$.decision_source') <> ?{idx}"));
+            bindings.push(Box::new(ds.clone()));
+            idx += 1;
+        }
         if let Some(t) = filter.tier {
             sql.push_str(&format!(" AND tier = ?{idx}"));
             bindings.push(Box::new(tier_to_str(t).to_string()));
