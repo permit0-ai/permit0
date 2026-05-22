@@ -35,6 +35,8 @@ pub enum ValidationError {
     EmptyGateReason,
     #[error("duplicate normalizer ID: {0}")]
     DuplicateNormalizerId(String),
+    #[error("{0}")]
+    TierInvariant(String),
 }
 
 const VALID_ENTITY_TYPES: &[&str] = &[
@@ -95,9 +97,58 @@ pub fn validate_normalizer(def: &NormalizerDef) -> Vec<ValidationError> {
     errors
 }
 
-/// Validate a risk rule definition.
-pub fn validate_risk_rule(def: &RiskRuleDef) -> Vec<ValidationError> {
+/// Validate a risk rule's fixed-tier / scored-rule invariants only. Not a complete rule
+/// validator — see validate_risk_rule_def.
+pub(crate) fn validate_tier_invariants(rule: &RiskRuleDef) -> Result<(), String> {
+    use crate::schema::risk_rule::MutationDef;
+
+    match &rule.tier {
+        Some(tier_str) => {
+            let tier = crate::risk_executor::parse_tier(tier_str)
+                .ok_or_else(|| format!("invalid tier: {tier_str}"))?;
+            if tier == permit0_types::Tier::Critical {
+                return Err(
+                    "tier: critical is not allowed — use a gate: mutation to force CRITICAL"
+                        .to_string(),
+                );
+            }
+            if let Some(base) = &rule.base {
+                if !base.amplifiers.is_empty() {
+                    return Err(
+                        "amplifiers are ignored when tier: is set — remove them".to_string()
+                    );
+                }
+            }
+            let all_then = rule
+                .rules
+                .iter()
+                .flat_map(|r| &r.then)
+                .chain(rule.session_rules.iter().flat_map(|r| &r.then));
+            for m in all_then {
+                if !matches!(m, MutationDef::Gate { .. }) {
+                    return Err("fixed-tier rules may only use gate: mutations \
+                         (no add_flag/upgrade/etc.)"
+                        .to_string());
+                }
+            }
+        }
+        None => {
+            if rule.base.is_none() {
+                return Err("a scored rule must declare a base: section".to_string());
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Validate a risk rule definition, returning all errors found.
+pub fn validate_risk_rule_def(def: &RiskRuleDef) -> Vec<ValidationError> {
     let mut errors = Vec::new();
+
+    // Check tier invariants first
+    if let Err(msg) = validate_tier_invariants(def) {
+        errors.push(ValidationError::TierInvariant(msg));
+    }
 
     // Check action_type
     if ActionType::parse(&def.action_type).is_err() {
@@ -122,14 +173,17 @@ pub fn validate_risk_rule(def: &RiskRuleDef) -> Vec<ValidationError> {
         }
     }
 
-    // Check mutations in rules
-    for rule in &def.rules {
-        validate_mutations(&rule.then, &mut errors);
-    }
+    // Check mutations in rules — only for scored rules (fixed-tier rules may only use gate:
+    // mutations, which is enforced by validate_tier_invariants; running validate_mutations
+    // for them would double-report the same violation).
+    if def.tier.is_none() {
+        for rule in &def.rules {
+            validate_mutations(&rule.then, &mut errors);
+        }
 
-    // Check mutations in session rules
-    for rule in &def.session_rules {
-        validate_mutations(&rule.then, &mut errors);
+        for rule in &def.session_rules {
+            validate_mutations(&rule.then, &mut errors);
+        }
     }
 
     errors
@@ -181,7 +235,82 @@ pub fn check_duplicate_ids(normalizers: &[NormalizerDef]) -> Vec<ValidationError
 mod tests {
     use super::*;
     use crate::schema::normalizer::{EntityDef, NormalizeDef, NormalizerDef};
+    use crate::schema::risk_rule::RiskRuleDef;
     use std::collections::HashMap;
+
+    fn rule(yaml: &str) -> RiskRuleDef {
+        serde_yaml::from_str(yaml).unwrap()
+    }
+
+    #[test]
+    fn fixed_tier_rule_is_valid() {
+        let r = rule(
+            r#"
+permit0_pack: "p/x"
+action_type: "email.delete"
+tier: high
+base: { flags: { MUTATION: primary } }
+session_rules:
+  - when: { record_count: { gt: 10 } }
+    then: [ { gate: "bulk" } ]
+"#,
+        );
+        assert!(validate_tier_invariants(&r).is_ok());
+    }
+
+    #[test]
+    fn rejects_tier_critical() {
+        let r = rule("permit0_pack: p/x\naction_type: a.b\ntier: critical\n");
+        let err = validate_tier_invariants(&r).unwrap_err();
+        assert!(err.contains("critical is not allowed"), "got: {err}");
+    }
+
+    #[test]
+    fn rejects_invalid_tier() {
+        let r = rule("permit0_pack: p/x\naction_type: a.b\ntier: spicy\n");
+        assert!(validate_tier_invariants(&r).is_err());
+    }
+
+    #[test]
+    fn rejects_amplifiers_with_fixed_tier() {
+        let r = rule(
+            r#"
+permit0_pack: "p/x"
+action_type: "a.b"
+tier: high
+base: { flags: { MUTATION: primary }, amplifiers: { scope: 10 } }
+"#,
+        );
+        assert!(validate_tier_invariants(&r).is_err());
+    }
+
+    #[test]
+    fn rejects_non_gate_mutation_with_fixed_tier() {
+        let r = rule(
+            r#"
+permit0_pack: "p/x"
+action_type: "a.b"
+tier: high
+rules:
+  - when: { x: { gt: 1 } }
+    then: [ { upgrade: { dim: scope, delta: 5 } } ]
+"#,
+        );
+        let err = validate_tier_invariants(&r).unwrap_err();
+        assert!(err.contains("only use gate"), "got: {err}");
+    }
+
+    #[test]
+    fn fixed_tier_rule_without_base_is_valid() {
+        let r = rule("permit0_pack: p/x\naction_type: a.b\ntier: low\n");
+        assert!(validate_tier_invariants(&r).is_ok());
+    }
+
+    #[test]
+    fn rejects_scored_rule_without_base() {
+        let r = rule("permit0_pack: p/x\naction_type: a.b\n");
+        assert!(validate_tier_invariants(&r).is_err());
+    }
 
     fn minimal_normalizer(action_type: &str) -> NormalizerDef {
         NormalizerDef {
@@ -370,7 +499,7 @@ session_rules: []
 "#,
         )
         .unwrap();
-        let errors = validate_risk_rule(&def);
+        let errors = validate_risk_rule_def(&def);
         assert!(
             errors
                 .iter()
@@ -394,7 +523,7 @@ session_rules: []
 "#,
         )
         .unwrap();
-        let errors = validate_risk_rule(&def);
+        let errors = validate_risk_rule_def(&def);
         assert!(
             errors
                 .iter()
@@ -407,7 +536,7 @@ session_rules: []
         let yaml =
             permit0_test_utils::load_test_fixture("packs/permit0/email/risk_rules/send.yaml");
         let def: RiskRuleDef = serde_yaml::from_str(&yaml).unwrap();
-        let errors = validate_risk_rule(&def);
+        let errors = validate_risk_rule_def(&def);
         assert!(errors.is_empty(), "unexpected errors: {errors:?}");
     }
 

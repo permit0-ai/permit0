@@ -85,7 +85,7 @@ pub fn validate(pack_path: &str) -> Result<()> {
 
             match serde_yaml::from_str::<RiskRuleDef>(&yaml) {
                 Ok(rule) => {
-                    let errors = validate::validate_risk_rule(&rule);
+                    let errors = validate::validate_risk_rule_def(&rule);
                     if errors.is_empty() {
                         println!("  ✓ {}", path.display());
                     } else {

@@ -11,8 +11,10 @@ use crate::schema::condition::ConditionExpr;
 pub struct RiskRuleDef {
     pub permit0_pack: String,
     pub action_type: String,
-    /// Pack-declared fixed tier (`minimal|low|medium|high`). When set, the
-    /// scoring path is bypassed; see `risk_executor`. Validated in `validate.rs`.
+    /// Pack-declared fixed tier (`minimal|low|medium|high|critical`). When set,
+    /// the scoring path is bypassed; see `risk_executor`. Validated in `validate.rs`.
+    /// Note: `critical` is rejected at validation time — use a `gate:` mutation
+    /// to force the CRITICAL tier instead.
     #[serde(default)]
     pub tier: Option<String>,
     /// Base flags + amplifiers. Required for scored rules; optional for

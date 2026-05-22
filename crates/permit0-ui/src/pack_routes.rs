@@ -11,7 +11,7 @@ use serde::{Deserialize, Serialize};
 use permit0_dsl::schema::normalizer::NormalizerDef;
 use permit0_dsl::schema::pack::PackManifest;
 use permit0_dsl::schema::risk_rule::RiskRuleDef;
-use permit0_dsl::validate::{validate_normalizer, validate_risk_rule};
+use permit0_dsl::validate::{validate_normalizer, validate_risk_rule_def};
 
 use crate::state::AppState;
 
@@ -408,13 +408,18 @@ pub async fn get_risk_rule(
         )
     })?;
 
-    let meta = serde_yaml::from_str::<RiskRuleDef>(&yaml)
-        .ok()
-        .map(|def| RiskRuleMeta {
+    let meta = serde_yaml::from_str::<RiskRuleDef>(&yaml).ok().map(|def| {
+        let (flags, amplifiers) = if let Some(base) = &def.base {
+            (base.flags.clone(), base.amplifiers.clone())
+        } else {
+            (HashMap::new(), HashMap::new())
+        };
+        RiskRuleMeta {
             action_type: def.action_type,
-            flags: def.base.flags,
-            amplifiers: def.base.amplifiers,
-        });
+            flags,
+            amplifiers,
+        }
+    });
 
     Ok(ok_response(FileDetail {
         filename: filename.to_string(),
@@ -494,7 +499,7 @@ pub async fn update_risk_rule(
         err_response::<String>(StatusCode::BAD_REQUEST, &format!("invalid YAML: {e}"))
     })?;
 
-    let validation_errors = validate_risk_rule(&def);
+    let validation_errors = validate_risk_rule_def(&def);
     if !validation_errors.is_empty() {
         let msgs: Vec<String> = validation_errors.iter().map(|e| e.to_string()).collect();
         return Err(err_response(
@@ -554,7 +559,7 @@ pub async fn validate_yaml(
                     }));
                 }
             };
-            let validation_errors = validate_risk_rule(&def);
+            let validation_errors = validate_risk_rule_def(&def);
             let errors: Vec<String> = validation_errors.iter().map(|e| e.to_string()).collect();
             Ok(ok_response(ValidateResponse {
                 valid: errors.is_empty(),

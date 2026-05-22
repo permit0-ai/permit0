@@ -989,7 +989,7 @@ impl EngineBuilder {
 
     /// Install a risk rule definition.
     pub fn install_risk_rule(mut self, rule_def: RiskRuleDef) -> Result<Self, EngineError> {
-        let validation_errors = validate::validate_risk_rule(&rule_def);
+        let validation_errors = validate::validate_risk_rule_def(&rule_def);
         if !validation_errors.is_empty() {
             let msgs: Vec<String> = validation_errors.iter().map(|e| e.to_string()).collect();
             return Err(EngineError::Build(format!(
