@@ -58,6 +58,56 @@ pub enum LockfilePolicy {
     Required,
 }
 
+/// Fingerprint of everything that can change a verdict: the scoring model
+/// version, the active profile, and every pack lockfile under `packs_dir`.
+/// Feeds the policy-cache startup reconciliation.
+fn compute_config_fingerprint(
+    packs_dir: Option<&std::path::Path>,
+    profile: Option<&str>,
+) -> String {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(permit0_scoring::constants::SCORING_MODEL_VERSION.as_bytes());
+    hasher.update(b"\x00");
+    hasher.update(profile.unwrap_or("<none>").as_bytes());
+    hasher.update(b"\x00");
+    // Every pack.lock.yaml, sorted for determinism (std::fs::read_dir recursion).
+    if let Some(dir) = packs_dir {
+        let mut locks: Vec<std::path::PathBuf> = Vec::new();
+        collect_lock_files(dir, &mut locks);
+        locks.sort();
+        for lock in locks {
+            match std::fs::read(&lock) {
+                Ok(bytes) => hasher.update(&bytes),
+                Err(e) => eprintln!(
+                    "permit0: could not read {} for config fingerprint: {e}",
+                    lock.display()
+                ),
+            }
+        }
+    }
+    format!("{:x}", hasher.finalize())
+}
+
+/// Recursively collect every pack lockfile path under `dir`. Uses
+/// `DirEntry::file_type()` (which does not follow symlinks) so a symlinked
+/// directory is skipped — this makes the walk immune to symlink cycles.
+fn collect_lock_files(dir: &Path, out: &mut Vec<std::path::PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let Ok(ft) = entry.file_type() else {
+            continue;
+        };
+        if ft.is_dir() {
+            collect_lock_files(&entry.path(), out);
+        } else if ft.is_file() && entry.file_name().to_str() == Some(PACK_LOCKFILE_FILENAME) {
+            out.push(entry.path());
+        }
+    }
+}
+
 /// Load all packs into an `EngineBuilder` without finalizing it. Lets
 /// callers stack additional configuration (e.g. audit sink + signer)
 /// before calling `.build()`.
@@ -81,9 +131,28 @@ pub fn build_engine_builder_from_packs_with_lock_policy(
     lock_policy: LockfilePolicy,
 ) -> Result<EngineBuilder> {
     let config = load_scoring_config(profile)?;
-    let mut builder = EngineBuilder::new().with_config(config);
 
     let resolved_dir = resolve_packs_dir(packs_dir);
+
+    let ttl_secs: i64 = match std::env::var("PERMIT0_POLICY_CACHE_TTL_SECS") {
+        Ok(v) => v.parse().unwrap_or_else(|_| {
+            eprintln!(
+                "permit0: PERMIT0_POLICY_CACHE_TTL_SECS={v:?} is not a valid integer \
+                 — using default 3600"
+            );
+            3600
+        }),
+        Err(_) => 3600,
+    };
+    // Computed on the shared builder path so `serve` always has it; the
+    // cost (one small directory walk) is negligible for check/hook too.
+    let fingerprint = compute_config_fingerprint(resolved_dir.as_deref(), profile);
+
+    let mut builder = EngineBuilder::new()
+        .with_config(config)
+        .cache_ttl_secs(ttl_secs)
+        .config_fingerprint(fingerprint);
+
     if let Some(dir) = &resolved_dir {
         let pack_dirs = discover_packs(dir)
             .with_context(|| format!("discovering packs in {}", dir.display()))?;

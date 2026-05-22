@@ -700,6 +700,10 @@ pub fn run(
                 builder = builder.with_audit_seed(seq, prev);
             }
             let engine = builder.build()?;
+            engine
+                .reconcile_policy_cache()
+                .await
+                .context("reconciling policy cache against config fingerprint")?;
 
             // CloudTrail-style batch digests. Opt in by setting
             // `PERMIT0_DIGEST_DIR` (the directory absorbs one signed
@@ -785,6 +789,10 @@ pub fn run(
             // batch and the engine's log_failed_open_replay will no-op
             // when no AuditSink is configured.
             let engine = engine_factory::build_engine_from_packs(profile.as_deref(), None)?;
+            engine
+                .reconcile_policy_cache()
+                .await
+                .context("reconciling policy cache against config fingerprint")?;
             let server_state = ServerState {
                 engine: Arc::new(engine),
                 org_domain: org_domain.into(),
