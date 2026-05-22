@@ -462,7 +462,7 @@ async fn apply_calibration(
     let _ = state
         .engine
         .state()
-        .policy_cache_set(norm_hash, decision.permission)
+        .policy_cache_set(norm_hash, decision.permission, None)
         .await;
 
     let meta = CalibrationMeta {

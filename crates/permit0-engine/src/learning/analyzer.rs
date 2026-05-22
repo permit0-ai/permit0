@@ -236,7 +236,7 @@ pub async fn record_human_decision(
     override_store.record_override(override_record)?;
 
     state
-        .policy_cache_set(norm_hash, human_decision)
+        .policy_cache_set(norm_hash, human_decision, None)
         .await
         .map_err(|e| e.to_string())?;
 
@@ -342,7 +342,13 @@ mod tests {
         let override_store = Arc::new(InMemoryOverrideStore::new());
         let norm_hash = [42u8; 32];
 
-        assert!(state.policy_cache_get(&norm_hash).await.unwrap().is_none());
+        assert!(
+            state
+                .policy_cache_get(&norm_hash, 3600)
+                .await
+                .unwrap()
+                .is_none()
+        );
 
         let override_record = super::super::types::HumanOverride {
             original_decision: Permission::HumanInTheLoop,
@@ -358,7 +364,11 @@ mod tests {
             .unwrap();
 
         assert_eq!(
-            state.policy_cache_get(&norm_hash).await.unwrap(),
+            state
+                .policy_cache_get(&norm_hash, 3600)
+                .await
+                .unwrap()
+                .map(|c| c.permission),
             Some(Permission::Allow)
         );
     }

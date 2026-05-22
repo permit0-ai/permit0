@@ -82,6 +82,11 @@ pub const MULTIPLICATIVE_DIMS: &[&str] = &["irreversibility", "boundary", "desti
 /// Default tanh squeeze constant.
 pub const DEFAULT_TANH_K: f64 = 1.8;
 
+/// Version tag for the scoring model (weights, categories, thresholds).
+/// BUMP THIS whenever any constant in this file changes — it feeds the
+/// policy-cache config fingerprint so stale cached verdicts are dropped.
+pub const SCORING_MODEL_VERSION: &str = "2026-05-22.1";
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -90,6 +90,10 @@ pub struct Engine {
     audit_policy: AuditPolicy,
     audit_sequence: std::sync::atomic::AtomicU64,
     audit_prev_hash: std::sync::Mutex<String>,
+    /// Policy-cache TTL in seconds (from PERMIT0_POLICY_CACHE_TTL_SECS).
+    cache_ttl_secs: i64,
+    /// Fingerprint of the scoring config + packs, for cache reconciliation.
+    config_fingerprint: String,
 }
 
 impl Engine {
@@ -204,17 +208,21 @@ impl Engine {
         trace.push(stage("allowlist", "miss", &redacted, None));
 
         // Step 4: Policy cache
-        if let Some(cached) = self.state.policy_cache_get(&norm_hash).await? {
+        if let Some(cached) = self
+            .state
+            .policy_cache_get(&norm_hash, self.cache_ttl_secs)
+            .await?
+        {
             trace.push(stage(
                 "policy_cache",
                 "hit",
                 &redacted,
-                Some(serde_json::json!({ "cached_permission": cached })),
+                Some(serde_json::json!({ "cached_permission": cached.permission })),
             ));
             let result = PermissionResult {
-                permission: cached,
+                permission: cached.permission,
                 norm_action: norm,
-                risk_score: None,
+                risk_score: cached.risk_score,
                 source: DecisionSource::PolicyCache,
             };
             self.log_decision(&result, tool_call, ctx, trace).await?;
@@ -311,11 +319,11 @@ impl Engine {
         };
 
         // Cache only definitive verdicts (Allow / Deny). Caching HumanInTheLoop
-        // here would race with calibrate's overwrite: a request cancelled mid-
-        // wait would pin the cache at HumanInTheLoop and step 4 would then
-        // short-circuit future calls, never re-prompting the reviewer.
+        // would race with calibrate's overwrite (see note above).
         if permission != Permission::HumanInTheLoop {
-            self.state.policy_cache_set(norm_hash, permission).await?;
+            self.state
+                .policy_cache_set(norm_hash, permission, Some(risk_score.clone()))
+                .await?;
         }
 
         let result = PermissionResult {
@@ -717,6 +725,21 @@ impl Engine {
 
         Ok(entry_id)
     }
+
+    /// Compare the live config fingerprint against the one the cache was
+    /// last populated under; clear the policy cache on mismatch. Call once
+    /// at daemon startup. A no-op when fingerprints match.
+    pub async fn reconcile_policy_cache(&self) -> Result<(), EngineError> {
+        const KEY: &str = "config_fingerprint";
+        let stored = self.state.cache_meta_get(KEY).await?;
+        if stored.as_deref() != Some(self.config_fingerprint.as_str()) {
+            self.state.policy_cache_clear().await?;
+            self.state
+                .cache_meta_set(KEY, &self.config_fingerprint)
+                .await?;
+        }
+        Ok(())
+    }
 }
 
 /// Bridge a sync caller into the async pipeline.
@@ -890,6 +913,8 @@ pub struct EngineBuilder {
     /// at construction time. Used by `serve` to resume the chain across
     /// daemon restarts when a persistent audit sink is configured.
     audit_seed: Option<(u64, String)>,
+    cache_ttl_secs: Option<i64>,
+    config_fingerprint: Option<String>,
 }
 
 impl EngineBuilder {
@@ -905,6 +930,8 @@ impl EngineBuilder {
             audit_redactor: None,
             audit_policy: AuditPolicy::default(),
             audit_seed: None,
+            cache_ttl_secs: None,
+            config_fingerprint: None,
         }
     }
 
@@ -961,6 +988,18 @@ impl EngineBuilder {
     /// Set the audit redactor.
     pub fn with_audit_redactor(mut self, redactor: Arc<dyn Redactor>) -> Self {
         self.audit_redactor = Some(redactor);
+        self
+    }
+
+    /// Set the policy-cache TTL in seconds.
+    pub fn cache_ttl_secs(mut self, secs: i64) -> Self {
+        self.cache_ttl_secs = Some(secs);
+        self
+    }
+
+    /// Set the config fingerprint for cache reconciliation.
+    pub fn config_fingerprint(mut self, fp: impl Into<String>) -> Self {
+        self.config_fingerprint = Some(fp.into());
         self
     }
 
@@ -1050,6 +1089,8 @@ impl EngineBuilder {
             audit_policy: self.audit_policy,
             audit_sequence,
             audit_prev_hash,
+            cache_ttl_secs: self.cache_ttl_secs.unwrap_or(3600),
+            config_fingerprint: self.config_fingerprint.unwrap_or_default(),
         })
     }
 }
@@ -1594,9 +1635,13 @@ mod tests {
         assert_eq!(result.permission, Permission::HumanInTheLoop);
 
         let hash = result.norm_action.norm_hash();
-        assert_eq!(
-            engine.state().policy_cache_get(&hash).await.unwrap(),
-            None,
+        assert!(
+            engine
+                .state()
+                .policy_cache_get(&hash, 3600)
+                .await
+                .unwrap()
+                .is_none(),
             "HITL verdict from unknown-action path must not be cached"
         );
     }
@@ -1618,9 +1663,13 @@ mod tests {
         assert_eq!(result.source, DecisionSource::Scorer);
 
         let hash = result.norm_action.norm_hash();
-        assert_eq!(
-            engine.state().policy_cache_get(&hash).await.unwrap(),
-            None,
+        assert!(
+            engine
+                .state()
+                .policy_cache_get(&hash, 3600)
+                .await
+                .unwrap()
+                .is_none(),
             "HITL verdict from scorer path must not be cached"
         );
     }
@@ -1641,7 +1690,12 @@ mod tests {
 
         let hash = result.norm_action.norm_hash();
         assert_eq!(
-            engine.state().policy_cache_get(&hash).await.unwrap(),
+            engine
+                .state()
+                .policy_cache_get(&hash, 3600)
+                .await
+                .unwrap()
+                .map(|c| c.permission),
             Some(Permission::Allow),
         );
     }
@@ -1668,7 +1722,7 @@ mod tests {
         // Mirror what apply_calibration does once the human approves.
         engine
             .state()
-            .policy_cache_set(hash, Permission::Allow)
+            .policy_cache_set(hash, Permission::Allow, None)
             .await
             .unwrap();
 
@@ -1693,7 +1747,7 @@ mod tests {
 
         engine
             .state()
-            .policy_cache_set(hash, Permission::Deny)
+            .policy_cache_set(hash, Permission::Deny, None)
             .await
             .unwrap();
 
