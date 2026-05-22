@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use permit0_types::{ActionType, RiskScore, to_risk_score};
+use permit0_types::{ActionType, RiskScore, Tier, to_risk_score};
 
 use crate::config::ScoringConfig;
 use crate::constants::{AMP_MAXES, MULTIPLICATIVE_DIMS};
@@ -19,10 +19,24 @@ pub fn normalise_amps(amplifiers: &HashMap<String, i32>) -> HashMap<String, f64>
         .collect()
 }
 
+/// Representative `raw` score for a pack-declared fixed tier — the midpoint
+/// of the tier's `TIER_THRESHOLDS` band, so UI/audit show a coherent number.
+fn tier_midpoint_raw(tier: Tier) -> f64 {
+    match tier {
+        Tier::Minimal => 0.075,
+        Tier::Low => 0.25,
+        Tier::Medium => 0.45,
+        Tier::High => 0.65,
+        Tier::Critical => 0.875,
+    }
+}
+
 /// 6-step hybrid scorer.
 ///
 /// 1. Template gate — if `t.blocked`, return CRITICAL immediately.
 /// 2. Block rules — check all configured block rules against normalised amps.
+///    After Step 2, a `fixed_tier` template returns early with the declared
+///    tier (still subject to gates, block rules, and the action_type floor).
 /// 3. Category-weighted base — weighted sum of flag base weights × category amps.
 /// 4. Multiplicative compound — product of (1 + weight × norm) for high-stakes dims.
 /// 5. Additive boost — sum of weight × norm for remaining dims.
@@ -61,6 +75,31 @@ pub fn compute_hybrid(
                 Some(rule.reason.clone()),
             );
         }
+    }
+
+    // Fixed-tier short-circuit: a pack-declared `tier:` bypasses score
+    // computation. Placed after the gate check (Step 1) and block rules
+    // (Step 2) so both still escalate to CRITICAL. The operator-configured
+    // action_type floor below can still raise the tier. Splits/children are
+    // intentionally not consulted — fixed-tier rules cannot declare splits.
+    if let Some(ft) = t.fixed_tier {
+        let raw = tier_midpoint_raw(ft);
+        let mut score = to_risk_score(
+            raw,
+            active_flags,
+            &format!("fixed tier (pack-declared): {ft}"),
+            false,
+            None,
+        );
+        score.tier = ft;
+        if let Some(at) = action_type {
+            if let Some(floor_tier) = config.action_type_floor(at) {
+                if score.tier < floor_tier {
+                    score.tier = floor_tier;
+                }
+            }
+        }
+        return score;
     }
 
     // Step 3 — category-weighted base
@@ -213,6 +252,57 @@ mod tests {
         let score = compute_hybrid(&parent, &config, None);
         // Child has more flags and amps, so should dominate
         assert!(score.raw > 0.0);
+    }
+
+    #[test]
+    fn fixed_tier_short_circuits_scoring() {
+        // Flags/amps that would otherwise score MINIMAL.
+        let mut t = RiskTemplate::new();
+        t.add("MUTATION", permit0_types::FlagRole::Primary);
+        t.fixed_tier = Some(Tier::High);
+        let config = ScoringConfig::default();
+        let score = compute_hybrid(&t, &config, None);
+        assert_eq!(score.tier, Tier::High);
+        assert!(!score.blocked);
+        assert!(score.flags.contains(&"MUTATION".to_string()));
+    }
+
+    #[test]
+    fn gate_overrides_fixed_tier() {
+        // A gate must still escalate to CRITICAL even on a fixed-tier template.
+        let mut t = RiskTemplate::new();
+        t.fixed_tier = Some(Tier::High);
+        t.gate("bulk delete");
+        let config = ScoringConfig::default();
+        let score = compute_hybrid(&t, &config, None);
+        assert_eq!(score.tier, Tier::Critical);
+        assert!(score.blocked);
+    }
+
+    #[test]
+    fn fixed_tier_respects_block_rules() {
+        // An immutable block rule must still fire on a fixed-tier template.
+        let mut t = RiskTemplate::new();
+        t.fixed_tier = Some(Tier::Low);
+        t.add("DESTRUCTION", permit0_types::FlagRole::Primary);
+        t.override_amp("irreversibility", 20); // max 20 → normalised 1.0
+        let config = ScoringConfig::default();
+        let score = compute_hybrid(&t, &config, None);
+        assert!(score.blocked, "block rule must win over fixed_tier");
+        assert_eq!(score.tier, Tier::Critical);
+    }
+
+    #[test]
+    fn fixed_tier_respects_action_type_floor() {
+        // An operator-configured action_type floor must still raise a
+        // fixed-tier verdict.
+        let mut t = RiskTemplate::new();
+        t.fixed_tier = Some(Tier::Low);
+        let mut config = ScoringConfig::default();
+        let at = permit0_types::ActionType::parse("email.delete").unwrap();
+        config.action_type_floors.insert(at, Tier::High);
+        let score = compute_hybrid(&t, &config, Some(&at));
+        assert_eq!(score.tier, Tier::High, "floor must raise fixed_tier");
     }
 
     #[test]

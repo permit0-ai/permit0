@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use permit0_types::FlagRole;
+use permit0_types::{FlagRole, Tier};
 use serde::{Deserialize, Serialize};
 
 use crate::constants::AMP_MAXES;
@@ -21,6 +21,10 @@ pub struct RiskTemplate {
     pub block_reason: Option<String>,
     /// Independent child assessments (splits).
     pub children: Vec<RiskTemplate>,
+    /// Pack-declared fixed tier. When set, `compute_hybrid` bypasses
+    /// score computation and returns this tier directly (gates still win).
+    #[serde(default)]
+    pub fixed_tier: Option<Tier>,
 }
 
 impl Default for RiskTemplate {
@@ -37,6 +41,7 @@ impl RiskTemplate {
             blocked: false,
             block_reason: None,
             children: Vec::new(),
+            fixed_tier: None,
         }
     }
 
