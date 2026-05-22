@@ -1,6 +1,6 @@
 #![forbid(unsafe_code)]
 
-use permit0_types::{NormHash, Permission};
+use permit0_types::{NormHash, Permission, RiskScore};
 
 /// Errors from policy-state operations.
 #[derive(Debug, thiserror::Error)]
@@ -27,6 +27,15 @@ pub struct PendingApprovalRow {
     pub norm_action_json: String,
     /// Risk score serialized as JSON.
     pub risk_score_json: String,
+}
+
+/// A cached policy decision plus the risk score that produced it.
+#[derive(Debug, Clone)]
+pub struct CachedDecision {
+    pub permission: Permission,
+    /// The risk score that produced this verdict, if one was recorded.
+    /// `None` for verdicts with no score (allowlist-style cached entries).
+    pub risk_score: Option<RiskScore>,
 }
 
 /// Resolved human decision on a pending approval.
@@ -63,14 +72,30 @@ pub trait PolicyState: Send + Sync {
 
     // ── Policy cache ──
 
-    async fn policy_cache_get(&self, hash: &NormHash) -> Result<Option<Permission>, StateError>;
+    /// Fetch a cached decision. Returns `None` if absent, or if the entry is
+    /// older than `ttl_secs` seconds. Note `ttl_secs = 0` expires every entry
+    /// immediately (it is not "infinite TTL").
+    async fn policy_cache_get(
+        &self,
+        hash: &NormHash,
+        ttl_secs: i64,
+    ) -> Result<Option<CachedDecision>, StateError>;
+
+    /// Store a decision with the current timestamp.
     async fn policy_cache_set(
         &self,
         hash: NormHash,
         decision: Permission,
+        risk_score: Option<RiskScore>,
     ) -> Result<(), StateError>;
+
     async fn policy_cache_clear(&self) -> Result<(), StateError>;
     async fn policy_cache_invalidate(&self, hash: &NormHash) -> Result<(), StateError>;
+
+    // ── Cache metadata (config fingerprint for startup reconciliation) ──
+
+    async fn cache_meta_get(&self, key: &str) -> Result<Option<String>, StateError>;
+    async fn cache_meta_set(&self, key: &str, value: &str) -> Result<(), StateError>;
 
     // ── HITL approvals ──
 

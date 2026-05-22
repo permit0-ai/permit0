@@ -5,9 +5,12 @@ use std::sync::Mutex;
 
 use rusqlite::{Connection, params};
 
-use permit0_types::{NormHash, Permission};
+use permit0_types::{NormHash, Permission, RiskScore};
 
-use crate::policy_state::{HumanDecisionRow, PendingApprovalRow, PolicyState, StateError};
+use crate::now_epoch;
+use crate::policy_state::{
+    CachedDecision, HumanDecisionRow, PendingApprovalRow, PolicyState, StateError,
+};
 
 /// SQLite-backed `PolicyState`. WAL mode for concurrent reads.
 ///
@@ -55,7 +58,13 @@ impl SqlitePolicyState {
             );
             CREATE TABLE IF NOT EXISTS policy_cache (
                 norm_hash BLOB PRIMARY KEY,
-                permission TEXT NOT NULL
+                permission TEXT NOT NULL,
+                risk_score_json TEXT,
+                created_at INTEGER NOT NULL DEFAULT 0
+            );
+            CREATE TABLE IF NOT EXISTS cache_meta (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL
             );
             CREATE TABLE IF NOT EXISTS pending_approvals (
                 approval_id TEXT PRIMARY KEY,
@@ -75,6 +84,20 @@ impl SqlitePolicyState {
             );",
         )
         .map_err(|e| StateError::Io(e.to_string()))?;
+        // Back-fill columns on databases created before the cache v2 schema.
+        // A "duplicate column" error means the column already exists (fresh
+        // DBs created with the new CREATE TABLE above) — that is expected and
+        // ignored. Any other error is a real failure and must propagate.
+        for stmt in [
+            "ALTER TABLE policy_cache ADD COLUMN risk_score_json TEXT",
+            "ALTER TABLE policy_cache ADD COLUMN created_at INTEGER NOT NULL DEFAULT 0",
+        ] {
+            match conn.execute_batch(stmt) {
+                Ok(()) => {}
+                Err(e) if e.to_string().contains("duplicate column name") => {}
+                Err(e) => return Err(StateError::Io(e.to_string())),
+            }
+        }
         Ok(())
     }
 }
@@ -245,30 +268,63 @@ impl PolicyState for SqlitePolicyState {
         Ok(out)
     }
 
-    async fn policy_cache_get(&self, hash: &NormHash) -> Result<Option<Permission>, StateError> {
+    async fn policy_cache_get(
+        &self,
+        hash: &NormHash,
+        ttl_secs: i64,
+    ) -> Result<Option<CachedDecision>, StateError> {
+        let cutoff = now_epoch() - ttl_secs;
         let conn = self
             .conn
             .lock()
             .map_err(|e| StateError::Io(e.to_string()))?;
         let mut stmt = conn
-            .prepare_cached("SELECT permission FROM policy_cache WHERE norm_hash = ?1")
+            .prepare_cached(
+                "SELECT permission, risk_score_json FROM policy_cache
+                 WHERE norm_hash = ?1 AND created_at > ?2",
+            )
             .map_err(|e| StateError::Io(e.to_string()))?;
-        stmt.query_row(params![hash_to_blob(hash)], |row| {
-            let s: String = row.get(0)?;
-            Ok(str_to_permission(&s))
-        })
-        .opt()
-        .map_err(|e| StateError::Io(e.to_string()))
+        let row: Option<(String, Option<String>)> = stmt
+            .query_row(params![hash_to_blob(hash), cutoff], |row| {
+                Ok((row.get(0)?, row.get(1)?))
+            })
+            .opt()
+            .map_err(|e| StateError::Io(e.to_string()))?;
+        Ok(row.map(|(perm, rsj)| {
+            let risk_score = rsj.and_then(|j| match serde_json::from_str(&j) {
+                Ok(rs) => Some(rs),
+                Err(e) => {
+                    tracing::warn!(error = %e, "failed to deserialize cached risk_score_json");
+                    None
+                }
+            });
+            CachedDecision {
+                permission: str_to_permission(&perm),
+                risk_score,
+            }
+        }))
     }
 
-    async fn policy_cache_set(&self, hash: NormHash, p: Permission) -> Result<(), StateError> {
+    async fn policy_cache_set(
+        &self,
+        hash: NormHash,
+        p: Permission,
+        risk_score: Option<RiskScore>,
+    ) -> Result<(), StateError> {
+        let rsj = risk_score
+            .as_ref()
+            .map(serde_json::to_string)
+            .transpose()
+            .map_err(|e| StateError::Io(e.to_string()))?;
         let conn = self
             .conn
             .lock()
             .map_err(|e| StateError::Io(e.to_string()))?;
         conn.execute(
-            "INSERT OR REPLACE INTO policy_cache (norm_hash, permission) VALUES (?1, ?2)",
-            params![hash_to_blob(&hash), permission_to_str(p)],
+            "INSERT OR REPLACE INTO policy_cache
+                (norm_hash, permission, risk_score_json, created_at)
+             VALUES (?1, ?2, ?3, ?4)",
+            params![hash_to_blob(&hash), permission_to_str(p), rsj, now_epoch()],
         )
         .map_err(|e| StateError::Io(e.to_string()))?;
         Ok(())
@@ -292,6 +348,32 @@ impl PolicyState for SqlitePolicyState {
         conn.execute(
             "DELETE FROM policy_cache WHERE norm_hash = ?1",
             params![hash_to_blob(hash)],
+        )
+        .map_err(|e| StateError::Io(e.to_string()))?;
+        Ok(())
+    }
+
+    async fn cache_meta_get(&self, key: &str) -> Result<Option<String>, StateError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| StateError::Io(e.to_string()))?;
+        let mut stmt = conn
+            .prepare_cached("SELECT value FROM cache_meta WHERE key = ?1")
+            .map_err(|e| StateError::Io(e.to_string()))?;
+        stmt.query_row(params![key], |row| row.get::<_, String>(0))
+            .opt()
+            .map_err(|e| StateError::Io(e.to_string()))
+    }
+
+    async fn cache_meta_set(&self, key: &str, value: &str) -> Result<(), StateError> {
+        let conn = self
+            .conn
+            .lock()
+            .map_err(|e| StateError::Io(e.to_string()))?;
+        conn.execute(
+            "INSERT OR REPLACE INTO cache_meta (key, value) VALUES (?1, ?2)",
+            params![key, value],
         )
         .map_err(|e| StateError::Io(e.to_string()))?;
         Ok(())
@@ -451,11 +533,56 @@ mod tests {
     #[tokio::test]
     async fn policy_cache_clear() {
         let s = SqlitePolicyState::in_memory().unwrap();
-        s.policy_cache_set(h(), Permission::Allow).await.unwrap();
-        s.policy_cache_set(h2(), Permission::Deny).await.unwrap();
+        s.policy_cache_set(h(), Permission::Allow, None)
+            .await
+            .unwrap();
+        s.policy_cache_set(h2(), Permission::Deny, None)
+            .await
+            .unwrap();
         s.policy_cache_clear().await.unwrap();
-        assert!(s.policy_cache_get(&h()).await.unwrap().is_none());
-        assert!(s.policy_cache_get(&h2()).await.unwrap().is_none());
+        assert!(s.policy_cache_get(&h(), 3600).await.unwrap().is_none());
+        assert!(s.policy_cache_get(&h2(), 3600).await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn policy_cache_ttl_expires() {
+        let s = SqlitePolicyState::in_memory().unwrap();
+        s.policy_cache_set(h(), Permission::Allow, None)
+            .await
+            .unwrap();
+        assert!(s.policy_cache_get(&h(), 3600).await.unwrap().is_some());
+        // A TTL of -1 places the cutoff in the future → entry is expired.
+        assert!(s.policy_cache_get(&h(), -1).await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn policy_cache_stores_and_returns_risk_score() {
+        let s = SqlitePolicyState::in_memory().unwrap();
+        let rs =
+            permit0_types::to_risk_score(0.5, vec!["MUTATION".to_string()], "test", false, None);
+        let expected_tier = rs.tier;
+        s.policy_cache_set(h(), Permission::Allow, Some(rs))
+            .await
+            .unwrap();
+        let got = s
+            .policy_cache_get(&h(), 3600)
+            .await
+            .unwrap()
+            .expect("cached");
+        assert_eq!(got.permission, Permission::Allow);
+        let score = got.risk_score.expect("risk score round-tripped");
+        assert_eq!(score.tier, expected_tier);
+    }
+
+    #[tokio::test]
+    async fn cache_meta_round_trips() {
+        let s = SqlitePolicyState::in_memory().unwrap();
+        assert!(s.cache_meta_get("fp").await.unwrap().is_none());
+        s.cache_meta_set("fp", "abc123").await.unwrap();
+        assert_eq!(
+            s.cache_meta_get("fp").await.unwrap().as_deref(),
+            Some("abc123")
+        );
     }
 
     #[tokio::test]

@@ -2,9 +2,12 @@
 
 use sqlx::postgres::{PgPool, PgPoolOptions};
 
-use permit0_types::{NormHash, Permission};
+use permit0_types::{NormHash, Permission, RiskScore};
 
-use crate::policy_state::{HumanDecisionRow, PendingApprovalRow, PolicyState, StateError};
+use crate::now_epoch;
+use crate::policy_state::{
+    CachedDecision, HumanDecisionRow, PendingApprovalRow, PolicyState, StateError,
+};
 
 /// Postgres-backed `PolicyState`. Production storage for the engine.
 ///
@@ -146,23 +149,59 @@ impl PolicyState for PostgresPolicyState {
             .collect())
     }
 
-    async fn policy_cache_get(&self, hash: &NormHash) -> Result<Option<Permission>, StateError> {
-        let row: Option<(String,)> =
-            sqlx::query_as("SELECT permission FROM policy_cache WHERE norm_hash = $1")
-                .bind(hash.as_slice())
-                .fetch_optional(&self.pool)
-                .await
-                .map_err(|e| StateError::Io(e.to_string()))?;
-        Ok(row.map(|(s,)| str_to_permission(&s)))
+    async fn policy_cache_get(
+        &self,
+        hash: &NormHash,
+        ttl_secs: i64,
+    ) -> Result<Option<CachedDecision>, StateError> {
+        let cutoff = now_epoch() - ttl_secs;
+        let row: Option<(String, Option<String>)> = sqlx::query_as(
+            "SELECT permission, risk_score_json FROM policy_cache
+             WHERE norm_hash = $1 AND created_at > $2",
+        )
+        .bind(hash.as_slice())
+        .bind(cutoff)
+        .fetch_optional(&self.pool)
+        .await
+        .map_err(|e| StateError::Io(e.to_string()))?;
+        Ok(row.map(|(perm, rsj)| {
+            let risk_score = rsj.and_then(|j| match serde_json::from_str(&j) {
+                Ok(rs) => Some(rs),
+                Err(e) => {
+                    tracing::warn!(error = %e, "failed to deserialize cached risk_score_json");
+                    None
+                }
+            });
+            CachedDecision {
+                permission: str_to_permission(&perm),
+                risk_score,
+            }
+        }))
     }
 
-    async fn policy_cache_set(&self, hash: NormHash, p: Permission) -> Result<(), StateError> {
+    async fn policy_cache_set(
+        &self,
+        hash: NormHash,
+        p: Permission,
+        risk_score: Option<RiskScore>,
+    ) -> Result<(), StateError> {
+        let rsj = risk_score
+            .as_ref()
+            .map(serde_json::to_string)
+            .transpose()
+            .map_err(|e| StateError::Io(e.to_string()))?;
         sqlx::query(
-            "INSERT INTO policy_cache (norm_hash, permission) VALUES ($1, $2)
-             ON CONFLICT (norm_hash) DO UPDATE SET permission = EXCLUDED.permission",
+            "INSERT INTO policy_cache (norm_hash, permission, risk_score_json, created_at)
+             VALUES ($1, $2, $3, $4)
+             ON CONFLICT (norm_hash) DO UPDATE SET
+                permission = EXCLUDED.permission,
+                risk_score_json = EXCLUDED.risk_score_json,
+                created_at = EXCLUDED.created_at",
         )
         .bind(hash.as_slice())
         .bind(permission_to_str(p))
+        .bind(rsj)
+        .bind(now_epoch())
         .execute(&self.pool)
         .await
         .map_err(|e| StateError::Io(e.to_string()))?;
@@ -183,6 +222,28 @@ impl PolicyState for PostgresPolicyState {
             .execute(&self.pool)
             .await
             .map_err(|e| StateError::Io(e.to_string()))?;
+        Ok(())
+    }
+
+    async fn cache_meta_get(&self, key: &str) -> Result<Option<String>, StateError> {
+        let row: Option<(String,)> = sqlx::query_as("SELECT value FROM cache_meta WHERE key = $1")
+            .bind(key)
+            .fetch_optional(&self.pool)
+            .await
+            .map_err(|e| StateError::Io(e.to_string()))?;
+        Ok(row.map(|(v,)| v))
+    }
+
+    async fn cache_meta_set(&self, key: &str, value: &str) -> Result<(), StateError> {
+        sqlx::query(
+            "INSERT INTO cache_meta (key, value) VALUES ($1, $2)
+             ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+        )
+        .bind(key)
+        .bind(value)
+        .execute(&self.pool)
+        .await
+        .map_err(|e| StateError::Io(e.to_string()))?;
         Ok(())
     }
 

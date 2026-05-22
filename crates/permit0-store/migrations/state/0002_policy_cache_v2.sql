@@ -1,0 +1,7 @@
+ALTER TABLE policy_cache ADD COLUMN IF NOT EXISTS risk_score_json TEXT;
+ALTER TABLE policy_cache ADD COLUMN IF NOT EXISTS created_at BIGINT NOT NULL DEFAULT 0;
+
+CREATE TABLE IF NOT EXISTS cache_meta (
+    key   TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);

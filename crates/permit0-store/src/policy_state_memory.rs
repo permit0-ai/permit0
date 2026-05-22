@@ -3,16 +3,23 @@
 use std::collections::HashMap;
 use std::sync::RwLock;
 
-use permit0_types::{NormHash, Permission};
+use permit0_types::{NormHash, Permission, RiskScore};
 
-use crate::policy_state::{HumanDecisionRow, PendingApprovalRow, PolicyState, StateError};
+use crate::now_epoch;
+use crate::policy_state::{
+    CachedDecision, HumanDecisionRow, PendingApprovalRow, PolicyState, StateError,
+};
+
+/// (permission, risk_score, created_at_epoch_secs)
+type CacheEntry = (Permission, Option<RiskScore>, i64);
 
 /// In-memory `PolicyState` for tests, bindings, and ephemeral runs.
 /// All data is lost when the process exits.
 pub struct InMemoryPolicyState {
     denylist: RwLock<HashMap<NormHash, String>>,
     allowlist: RwLock<HashMap<NormHash, String>>,
-    policy_cache: RwLock<HashMap<NormHash, Permission>>,
+    policy_cache: RwLock<HashMap<NormHash, CacheEntry>>,
+    cache_meta: RwLock<HashMap<String, String>>,
     pending_approvals: RwLock<HashMap<String, PendingApprovalRow>>,
     resolved_approvals: RwLock<HashMap<String, HumanDecisionRow>>,
 }
@@ -23,6 +30,7 @@ impl InMemoryPolicyState {
             denylist: RwLock::new(HashMap::new()),
             allowlist: RwLock::new(HashMap::new()),
             policy_cache: RwLock::new(HashMap::new()),
+            cache_meta: RwLock::new(HashMap::new()),
             pending_approvals: RwLock::new(HashMap::new()),
             resolved_approvals: RwLock::new(HashMap::new()),
         }
@@ -105,20 +113,35 @@ impl PolicyState for InMemoryPolicyState {
         Ok(g.iter().map(|(k, v)| (*k, v.clone())).collect())
     }
 
-    async fn policy_cache_get(&self, hash: &NormHash) -> Result<Option<Permission>, StateError> {
+    async fn policy_cache_get(
+        &self,
+        hash: &NormHash,
+        ttl_secs: i64,
+    ) -> Result<Option<CachedDecision>, StateError> {
+        let cutoff = now_epoch() - ttl_secs;
         let g = self
             .policy_cache
             .read()
             .map_err(|e| StateError::Io(e.to_string()))?;
-        Ok(g.get(hash).copied())
+        Ok(g.get(hash)
+            .filter(|(_, _, ts)| *ts > cutoff)
+            .map(|(perm, rs, _)| CachedDecision {
+                permission: *perm,
+                risk_score: rs.clone(),
+            }))
     }
 
-    async fn policy_cache_set(&self, hash: NormHash, p: Permission) -> Result<(), StateError> {
+    async fn policy_cache_set(
+        &self,
+        hash: NormHash,
+        p: Permission,
+        risk_score: Option<RiskScore>,
+    ) -> Result<(), StateError> {
         let mut g = self
             .policy_cache
             .write()
             .map_err(|e| StateError::Io(e.to_string()))?;
-        g.insert(hash, p);
+        g.insert(hash, (p, risk_score, now_epoch()));
         Ok(())
     }
 
@@ -137,6 +160,23 @@ impl PolicyState for InMemoryPolicyState {
             .write()
             .map_err(|e| StateError::Io(e.to_string()))?;
         g.remove(hash);
+        Ok(())
+    }
+
+    async fn cache_meta_get(&self, key: &str) -> Result<Option<String>, StateError> {
+        let g = self
+            .cache_meta
+            .read()
+            .map_err(|e| StateError::Io(e.to_string()))?;
+        Ok(g.get(key).cloned())
+    }
+
+    async fn cache_meta_set(&self, key: &str, value: &str) -> Result<(), StateError> {
+        let mut g = self
+            .cache_meta
+            .write()
+            .map_err(|e| StateError::Io(e.to_string()))?;
+        g.insert(key.to_string(), value.to_string());
         Ok(())
     }
 
@@ -213,14 +253,30 @@ mod tests {
     #[tokio::test]
     async fn policy_cache_crud() {
         let s = InMemoryPolicyState::new();
-        assert!(s.policy_cache_get(&h()).await.unwrap().is_none());
-        s.policy_cache_set(h(), Permission::Allow).await.unwrap();
+        assert!(s.policy_cache_get(&h(), 3600).await.unwrap().is_none());
+        s.policy_cache_set(h(), Permission::Allow, None)
+            .await
+            .unwrap();
         assert_eq!(
-            s.policy_cache_get(&h()).await.unwrap(),
+            s.policy_cache_get(&h(), 3600)
+                .await
+                .unwrap()
+                .map(|c| c.permission),
             Some(Permission::Allow)
         );
         s.policy_cache_invalidate(&h()).await.unwrap();
-        assert!(s.policy_cache_get(&h()).await.unwrap().is_none());
+        assert!(s.policy_cache_get(&h(), 3600).await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn policy_cache_ttl_expires() {
+        let s = InMemoryPolicyState::new();
+        s.policy_cache_set(h(), Permission::Allow, None)
+            .await
+            .unwrap();
+        assert!(s.policy_cache_get(&h(), 3600).await.unwrap().is_some());
+        // A TTL of -1 puts the cutoff in the future → entry is expired.
+        assert!(s.policy_cache_get(&h(), -1).await.unwrap().is_none());
     }
 
     #[tokio::test]

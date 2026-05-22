@@ -7,6 +7,15 @@ mod policy_state;
 mod policy_state_memory;
 mod policy_state_sqlite;
 
+/// Current Unix time in whole seconds. Shared by the policy-state impls
+/// for cache TTL bookkeeping.
+pub(crate) fn now_epoch() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
+}
+
 pub use pg_state::PostgresPolicyState;
 pub use policy_state::{HumanDecisionRow, PendingApprovalRow, PolicyState, StateError};
 pub use policy_state_memory::InMemoryPolicyState;

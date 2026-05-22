@@ -156,12 +156,16 @@ impl AuditSink for SqliteAuditSink {
             idx += 1;
         }
         if let Some(ref ds) = filter.decision_source {
-            sql.push_str(&format!(" AND json_extract(entry_json, '$.decision_source') = ?{idx}"));
+            sql.push_str(&format!(
+                " AND json_extract(entry_json, '$.decision_source') = ?{idx}"
+            ));
             bindings.push(Box::new(ds.clone()));
             idx += 1;
         }
         if let Some(ref ds) = filter.decision_source_exclude {
-            sql.push_str(&format!(" AND json_extract(entry_json, '$.decision_source') <> ?{idx}"));
+            sql.push_str(&format!(
+                " AND json_extract(entry_json, '$.decision_source') <> ?{idx}"
+            ));
             bindings.push(Box::new(ds.clone()));
             idx += 1;
         }
