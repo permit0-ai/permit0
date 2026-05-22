@@ -1,7 +1,7 @@
-# Soft-deleting a single message.
+# Soft-deleting a single message — intrinsically human-review (fixed tier).
 name: outlook_delete_single
 tool_name: outlook_delete
 parameters:
   message_id: "AAMkAGI2zB"
-expected_tier: "Minimal"
-expected_permission: "Allow"
+expected_tier: "High"
+expected_permission: "Human"
