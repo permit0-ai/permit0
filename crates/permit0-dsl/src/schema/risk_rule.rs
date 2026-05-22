@@ -11,7 +11,14 @@ use crate::schema::condition::ConditionExpr;
 pub struct RiskRuleDef {
     pub permit0_pack: String,
     pub action_type: String,
-    pub base: RiskBaseDef,
+    /// Pack-declared fixed tier (`minimal|low|medium|high`). When set, the
+    /// scoring path is bypassed; see `risk_executor`. Validated in `validate.rs`.
+    #[serde(default)]
+    pub tier: Option<String>,
+    /// Base flags + amplifiers. Required for scored rules; optional for
+    /// fixed-tier rules (where `flags` are kept only as audit labels).
+    #[serde(default)]
+    pub base: Option<RiskBaseDef>,
     #[serde(default)]
     pub rules: Vec<RuleDef>,
     #[serde(default)]
@@ -21,7 +28,9 @@ pub struct RiskRuleDef {
 /// Base risk template definition.
 #[derive(Debug, Clone, Deserialize)]
 pub struct RiskBaseDef {
+    #[serde(default)]
     pub flags: HashMap<String, String>,
+    #[serde(default)]
     pub amplifiers: HashMap<String, i32>,
 }
 
@@ -94,4 +103,47 @@ pub struct SplitDef {
     pub flags: HashMap<String, String>,
     #[serde(default)]
     pub amplifiers: HashMap<String, i32>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_fixed_tier_rule_without_amplifiers() {
+        let yaml = r#"
+permit0_pack: "permit0/email"
+action_type: "email.delete"
+tier: high
+base:
+  flags:
+    MUTATION: primary
+session_rules:
+  - when: { record_count: { gt: 10 } }
+    then:
+      - gate: "bulk delete"
+"#;
+        let rule: RiskRuleDef = serde_yaml::from_str(yaml).unwrap();
+        assert_eq!(rule.tier.as_deref(), Some("high"));
+        let base = rule.base.expect("base present");
+        assert_eq!(
+            base.flags.get("MUTATION").map(String::as_str),
+            Some("primary")
+        );
+        assert!(base.amplifiers.is_empty());
+    }
+
+    #[test]
+    fn parses_scored_rule_still() {
+        let yaml = r#"
+permit0_pack: "permit0/email"
+action_type: "email.send"
+base:
+  flags: { OUTBOUND: primary }
+  amplifiers: { scope: 18 }
+"#;
+        let rule: RiskRuleDef = serde_yaml::from_str(yaml).unwrap();
+        assert!(rule.tier.is_none());
+        assert!(rule.base.is_some());
+    }
 }

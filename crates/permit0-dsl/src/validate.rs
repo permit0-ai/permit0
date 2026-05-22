@@ -104,20 +104,21 @@ pub fn validate_risk_rule(def: &RiskRuleDef) -> Vec<ValidationError> {
         errors.push(ValidationError::InvalidActionType(def.action_type.clone()));
     }
 
-    // Check base amplifiers: 0..=30
-    for (dim, value) in &def.base.amplifiers {
-        if *value < 0 || *value > 30 {
-            errors.push(ValidationError::AmplifierOutOfRange {
-                dim: dim.clone(),
-                value: *value,
-            });
+    // Check base amplifiers and flag roles (base is optional for fixed-tier rules)
+    if let Some(base) = &def.base {
+        for (dim, value) in &base.amplifiers {
+            if *value < 0 || *value > 30 {
+                errors.push(ValidationError::AmplifierOutOfRange {
+                    dim: dim.clone(),
+                    value: *value,
+                });
+            }
         }
-    }
 
-    // Check base flag roles
-    for role in def.base.flags.values() {
-        if role != "primary" && role != "secondary" {
-            errors.push(ValidationError::InvalidFlagRole(role.clone()));
+        for role in base.flags.values() {
+            if role != "primary" && role != "secondary" {
+                errors.push(ValidationError::InvalidFlagRole(role.clone()));
+            }
         }
     }
 

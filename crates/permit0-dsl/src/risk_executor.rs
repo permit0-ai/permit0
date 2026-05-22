@@ -6,6 +6,20 @@ use permit0_types::FlagRole;
 use crate::eval::matcher::{MatchContext, NamedSets, eval_condition};
 use crate::schema::risk_rule::{MutationDef, RiskRuleDef};
 
+/// Parse a DSL tier string into a `Tier`. Returns `None` for unrecognised
+/// values — callers should have validated the string first.
+pub fn parse_tier(s: &str) -> Option<permit0_types::Tier> {
+    use permit0_types::Tier;
+    match s.to_ascii_lowercase().as_str() {
+        "minimal" => Some(Tier::Minimal),
+        "low" => Some(Tier::Low),
+        "medium" => Some(Tier::Medium),
+        "high" => Some(Tier::High),
+        "critical" => Some(Tier::Critical),
+        _ => None,
+    }
+}
+
 /// Build a RiskTemplate from a risk rule definition and action data.
 ///
 /// Back-compat wrapper: evaluates rules with no named sets available. Rules
@@ -32,7 +46,10 @@ pub fn execute_risk_rules_with_sets(
     tool_name: Option<&str>,
     named_sets: Option<&NamedSets>,
 ) -> RiskTemplate {
-    let mut template = build_base(&rule_def.base);
+    let mut template = build_base(rule_def.base.as_ref());
+    if let Some(tier_str) = &rule_def.tier {
+        template.fixed_tier = parse_tier(tier_str);
+    }
 
     let ctx = MatchContext::with_sets(data, tool_name, named_sets);
 
@@ -45,9 +62,12 @@ pub fn execute_risk_rules_with_sets(
     template
 }
 
-/// Build template from base definition.
-fn build_base(base: &crate::schema::risk_rule::RiskBaseDef) -> RiskTemplate {
+/// Build template from an optional base definition.
+fn build_base(base: Option<&crate::schema::risk_rule::RiskBaseDef>) -> RiskTemplate {
     let mut template = RiskTemplate::new();
+    let Some(base) = base else {
+        return template;
+    };
     for (flag, role_str) in &base.flags {
         let role = match role_str.as_str() {
             "primary" => FlagRole::Primary,
@@ -271,5 +291,29 @@ session_rules:
         assert!(!template.blocked);
         assert_eq!(template.flags.len(), 2);
         assert_eq!(template.amplifiers.get("amount"), Some(&5));
+    }
+
+    #[test]
+    fn fixed_tier_rule_sets_template_fixed_tier() {
+        let yaml = r#"
+permit0_pack: "permit0/email"
+action_type: "email.delete"
+tier: high
+base:
+  flags: { MUTATION: primary }
+session_rules:
+  - when: { record_count: { gt: 10 } }
+    then:
+      - gate: "bulk delete"
+"#;
+        let rule_def: RiskRuleDef = serde_yaml::from_str(yaml).unwrap();
+        let template = execute_risk_rules(&rule_def, &json!({}), None);
+        assert_eq!(template.fixed_tier, Some(permit0_types::Tier::High));
+        assert_eq!(template.flags.get("MUTATION"), Some(&FlagRole::Primary));
+
+        // Bulk-delete session gate still fires.
+        let mut t2 = execute_risk_rules(&rule_def, &json!({}), None);
+        execute_session_rules(&rule_def, &mut t2, &json!({"record_count": 50}));
+        assert!(t2.blocked);
     }
 }
