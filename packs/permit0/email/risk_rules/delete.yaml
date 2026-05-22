@@ -1,27 +1,17 @@
 permit0_pack: "permit0/email"
 action_type: "email.delete"
-# default tier: HIGH — even soft delete (Trash / Deleted Items) means the
-# user can't find the message. Bulk delete is a known cover-up vector.
+# Fixed tier: HIGH. Even a soft delete (Trash / Deleted Items) means the
+# user can no longer find the message — an intrinsically human-review action.
+# Scoring is bypassed; `base.flags` are kept only as audit/UI labels.
+tier: high
 base:
   flags:
     MUTATION: primary
     GOVERNANCE: secondary
-  amplifiers:
-    scope: 22
-    irreversibility: 22
-    boundary: 14
-rules: []
 session_rules:
+  # Bulk delete is a known cover-up vector — escalate to CRITICAL (Deny).
   - when:
       record_count:
         gt: 10
     then:
-      - add_flag:
-          flag: DESTRUCTION
-          role: primary
-      - upgrade:
-          dim: scope
-          delta: 12
-      - upgrade:
-          dim: irreversibility
-          delta: 6
+      - gate: "bulk delete (>10 messages) — known cover-up vector"

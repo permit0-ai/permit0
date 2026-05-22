@@ -2,11 +2,11 @@ lockfile_version: 1
 permit0_pack: permit0/email
 pack_version: 0.4.0
 pack_format: 2
-generated_at: 2026-05-10T20:07:39Z
+generated_at: 2026-05-22T15:28:41Z
 files:
 - path: normalizers/gmail/_channel.yaml
-  sha256: eab5d02a787d943e55a2c105207a2510d3436907e5e7d0417a201e088f30d7ab
-  size: 697
+  sha256: bda34d38d8789344d41a8a474b6dd912315577667cc2031f7350a5cf4aaaa713
+  size: 701
 - path: normalizers/gmail/add_delegate.yaml
   sha256: e0ff3849c03915f7b05504360a1eaf27eb0b1848077843373437c551d41719bd
   size: 398
@@ -59,8 +59,8 @@ files:
   sha256: dd1741f9f0d9c189b089ad7e0b1b47388de548f89218d448f1d06308a8205c94
   size: 404
 - path: normalizers/outlook/_channel.yaml
-  sha256: 728fb1f59ce22f71f767c822ed6d3de4e5cdcb68390cd8a80b0b8f58e6700a17
-  size: 384
+  sha256: fedbd82eef0ed4a31bc59395ee7c79d383078e15ff98a46a6cb6a6c09168aee4
+  size: 388
 - path: normalizers/outlook/add_delegate.yaml
   sha256: a8ca8f4428e92c6a8217ee5604a6646ced5c4954ad4fa0dc8b3334e87421364b
   size: 398
@@ -113,8 +113,8 @@ files:
   sha256: b5174f73a8d65075f9ad6efe6aacb8d04167142a02fcdf26531e286fd04b7411
   size: 412
 - path: pack.yaml
-  sha256: bc54a08366c9212c1acd293820711d77ff3893412a21a55353d59736e8ddbc05
-  size: 2159
+  sha256: 3dab47f28e1873f180e1d80c784b08392decd6f7b6b3f04ed70cf83b09922417
+  size: 2167
 - path: risk_rules/add_delegate.yaml
   sha256: c61f5237f02c03702b5087044a8de0d47dc169e341dca3de59bbbf9af91518cc
   size: 469
@@ -125,8 +125,8 @@ files:
   sha256: 19aa4619a0b83c50fcdedbf19202200af01ea26921373ac1284ed02636ce8abc
   size: 294
 - path: risk_rules/delete.yaml
-  sha256: f388c562e06573e4e3b0efebc6ab5950acc389e078a5329dc9a7f9dec2db65f1
-  size: 612
+  sha256: 40fd008f500f139b72efcd758aab2fd104feeb4be66e39f5b0a8f2acdfcfd284
+  size: 570
 - path: risk_rules/draft.yaml
   sha256: 52ae7430a4ac0fb104cc0ec749b90e59a671cdc8182fdc4976c24a0ec58c0416
   size: 562
