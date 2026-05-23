@@ -75,7 +75,7 @@ enum Commands {
         /// Override via PERMIT0_REMOTE env var. Example:
         ///   permit0 hook --remote http://127.0.0.1:9090
         ///
-        /// Also configurable in ~/.config/permit0/config.toml as `remote = "…"`
+        /// Also configurable in ~/.permit0/config.yaml as `remote: "…"`
         /// (see `--config`).
         #[arg(long, value_name = "URL")]
         remote: Option<String>,
@@ -92,10 +92,10 @@ enum Commands {
         /// Override via PERMIT0_UNKNOWN env var.
         #[arg(long, value_name = "MODE")]
         unknown: Option<String>,
-        /// Path to the hook config TOML file. Discovery order:
+        /// Path to the hook config YAML file. Discovery order:
         ///   1. this flag (if present)
         ///   2. $PERMIT0_CONFIG env var
-        ///   3. ~/.config/permit0/config.toml
+        ///   3. ~/.permit0/config.yaml
         ///
         /// A missing file is fine; a malformed file is a fatal error.
         #[arg(long, value_name = "PATH")]

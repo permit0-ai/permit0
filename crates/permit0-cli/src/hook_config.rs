@@ -1,6 +1,6 @@
 #![forbid(unsafe_code)]
 
-//! Per-user TOML config for the `permit0 hook` adapter.
+//! Per-user YAML config for the `permit0 hook` adapter.
 
 use std::path::{Path, PathBuf};
 
@@ -9,7 +9,7 @@ use serde::Deserialize;
 
 use crate::cmd::hook::{ClientKind, UnknownMode};
 
-/// Routing for HITL verdicts (configured per-hook in the TOML file).
+/// Routing for HITL verdicts (configured per-hook in the YAML file).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum HitlRouting {
     /// Default — Claude Code's inline ask UI.
@@ -32,7 +32,7 @@ impl std::str::FromStr for HitlRouting {
     }
 }
 
-/// Raw deserialized form of `~/.config/permit0/config.toml`.
+/// Raw deserialized form of `~/.permit0/config.yaml`.
 ///
 /// All fields are optional; a field that fails to parse (wrong type,
 /// unknown enum value) is a hard error — silent fallback to defaults
@@ -98,16 +98,16 @@ impl HookEnv {
     }
 }
 
-/// Parse a TOML string into `HookConfigFile`. Hard-errors on unknown
+/// Parse a YAML string into `HookConfigFile`. Hard-errors on unknown
 /// fields and on type mismatches.
 pub fn parse(s: &str) -> Result<HookConfigFile> {
-    toml::from_str(s).context("parsing hook TOML config")
+    serde_yaml::from_str(s).context("parsing hook YAML config")
 }
 
 /// Resolve the path the hook should load. Order:
 /// 1. `explicit` (the `--config <path>` CLI flag value)
 /// 2. `$PERMIT0_CONFIG`
-/// 3. `~/.config/permit0/config.toml` (only this layer is existence-checked)
+/// 3. `~/.permit0/config.yaml` (only this layer is existence-checked)
 ///
 /// Returns `None` only when no layer produces a candidate. Explicit
 /// and env-var paths are returned verbatim so `load_from_path` can
@@ -123,7 +123,7 @@ pub fn resolve_path(explicit: Option<&Path>) -> Option<PathBuf> {
         }
     }
     let home = dirs::home_dir()?;
-    let candidate = home.join(".config").join("permit0").join("config.toml");
+    let candidate = home.join(".permit0").join("config.yaml");
     if candidate.exists() {
         Some(candidate)
     } else {
@@ -232,16 +232,16 @@ mod tests {
 
     #[test]
     fn parse_full_file() {
-        let toml = r#"
-remote = "http://127.0.0.1:9090"
-hitl_routing = "ui-wait"
-hitl_timeout_secs = 600
-unknown_mode = "defer"
-org_domain = "acme.example"
-client = "claude-code"
-shadow = true
+        let yaml = r#"
+remote: "http://127.0.0.1:9090"
+hitl_routing: "ui-wait"
+hitl_timeout_secs: 600
+unknown_mode: "defer"
+org_domain: "acme.example"
+client: "claude-code"
+shadow: true
 "#;
-        let f = parse(toml).unwrap();
+        let f = parse(yaml).unwrap();
         assert_eq!(f.remote.as_deref(), Some("http://127.0.0.1:9090"));
         assert_eq!(f.hitl_routing.as_deref(), Some("ui-wait"));
         assert_eq!(f.hitl_timeout_secs, Some(600));
@@ -255,16 +255,17 @@ shadow = true
     fn parse_unknown_field_is_fatal() {
         // Mis-config in a security tool must be loud. Silent ignore would
         // mask typos like `hitl_route` vs `hitl_routing`.
-        let toml = r#"hitl_route = "ui-wait""#;
-        let err = parse(toml).unwrap_err();
+        let yaml = r#"hitl_route: "ui-wait""#;
+        let err = parse(yaml).unwrap_err();
         let msg = format!("{err:?}");
         assert!(msg.contains("hitl_route") || msg.contains("unknown field"));
     }
 
     #[test]
-    fn parse_malformed_toml_is_fatal() {
-        let err = parse("this is not valid = = toml").unwrap_err();
-        assert!(format!("{err:?}").contains("parsing hook TOML config"));
+    fn parse_malformed_yaml_is_fatal() {
+        // Unclosed flow sequence — definitively invalid YAML.
+        let err = parse("remote: [unclosed").unwrap_err();
+        assert!(format!("{err:?}").contains("parsing hook YAML config"));
     }
 
     #[test]
