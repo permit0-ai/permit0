@@ -69,6 +69,12 @@ services:
       PERMIT0_DIGEST_DIR: /var/lib/permit0/digests
       PERMIT0_DIGEST_INTERVAL_SECS: "300"
       PERMIT0_DIGEST_BATCH_MAX: "1000"
+      # Policy-cache TTL. Cached Allow/Deny verdicts expire this many
+      # seconds after they were written; the cache also clears on
+      # startup whenever the scoring-config fingerprint changes (model
+      # version, profile, or any pack lockfile). Default 3600. Lower
+      # this if you want session-dependent decisions to refresh sooner.
+      # PERMIT0_POLICY_CACHE_TTL_SECS: "3600"
       # Uncomment to also tee every audit entry to an OpenTelemetry
       # collector (S3 / Datadog / Splunk via the otel-collector service
       # below). The Postgres audit DB remains the source of truth;
