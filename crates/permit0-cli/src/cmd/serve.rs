@@ -500,11 +500,15 @@ async fn apply_calibration(
 
     // Persist the human's decision in the cache so future identical calls
     // reflect the calibrated answer (overwriting the engine's recommendation).
-    let _ = state
-        .engine
-        .state()
-        .policy_cache_set(norm_hash, decision.permission, None)
-        .await;
+    // Per spec §4.2 step 4(i), do NOT cache HumanInTheLoop verdicts —
+    // that would pin the call and re-park the operator on every retry.
+    if decision.permission != permit0_types::Permission::HumanInTheLoop {
+        let _ = state
+            .engine
+            .state()
+            .policy_cache_set(norm_hash, decision.permission, None)
+            .await;
+    }
 
     let meta = CalibrationMeta {
         engine_permission: Some(original_permission),
@@ -588,9 +592,13 @@ pub(crate) async fn await_ui_wait_approval(
         Ok(Ok(decision)) => {
             // Persist the resolution and update the cache so the next
             // identical call hits the cache instead of re-prompting.
-            let _ = policy_state
-                .policy_cache_set(norm_hash, decision.permission, risk_score.clone())
-                .await;
+            // Per spec §4.2 step 4(i), do NOT cache HumanInTheLoop verdicts —
+            // that would pin the call and re-park the operator on every retry.
+            if decision.permission != Permission::HumanInTheLoop {
+                let _ = policy_state
+                    .policy_cache_set(norm_hash, decision.permission, risk_score.clone())
+                    .await;
+            }
             let _ = policy_state
                 .approval_resolve(
                     &approval_id,
@@ -1330,6 +1338,80 @@ mod tests {
                 .and_then(|s| s.block_reason.as_deref())
                 .unwrap_or_default()
                 .contains("approval timed out"),
+        );
+    }
+
+    #[tokio::test]
+    async fn await_ui_wait_approval_does_not_cache_hitl_verdict() {
+        use permit0_store::{InMemoryPolicyState, PolicyState};
+        use permit0_types::{ActionType, ExecutionMeta, NormAction, Permission, RiskScore, Tier};
+        use permit0_ui::{ApprovalManager, HumanDecision};
+        use std::sync::Arc;
+
+        let manager = Arc::new(ApprovalManager::new());
+        let policy_state: Arc<dyn PolicyState> = Arc::new(InMemoryPolicyState::new());
+
+        let norm = NormAction {
+            action_type: ActionType::parse("email.send").unwrap(),
+            channel: "gmail".into(),
+            entities: serde_json::Map::new(),
+            execution: ExecutionMeta {
+                surface_tool: "test".into(),
+                surface_command: "test".into(),
+            },
+        };
+        let risk = RiskScore {
+            raw: 0.55,
+            score: 55,
+            tier: Tier::High,
+            blocked: false,
+            flags: vec![],
+            block_reason: None,
+            reason: "test".into(),
+        };
+
+        let manager_for_decider = manager.clone();
+        let decider = tokio::spawn(async move {
+            for _ in 0..50 {
+                let pending = manager_for_decider.list_pending();
+                if let Some(p) = pending.first() {
+                    // Reviewer submits HITL — must NOT pin the cache.
+                    manager_for_decider.submit_decision(
+                        &p.approval_id,
+                        HumanDecision {
+                            permission: Permission::HumanInTheLoop,
+                            reason: "needs more eyes".into(),
+                            reviewer: "alice".into(),
+                        },
+                    );
+                    return;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+            panic!("no pending approval appeared");
+        });
+
+        let result = await_ui_wait_approval(
+            manager.clone(),
+            policy_state.as_ref(),
+            norm.clone(),
+            Some(risk),
+            std::time::Duration::from_secs(5),
+        )
+        .await
+        .expect("approval should resolve");
+
+        decider.await.unwrap();
+        assert_eq!(result.permission, Permission::HumanInTheLoop);
+
+        // Cache must be empty — a HITL verdict shouldn't pin the cache.
+        let cached = policy_state
+            .policy_cache_get(&norm.norm_hash(), 3600)
+            .await
+            .unwrap();
+        assert!(
+            cached.is_none(),
+            "HITL verdicts must not populate the policy cache (would re-park every call)",
         );
     }
 }
