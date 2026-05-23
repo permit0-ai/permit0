@@ -111,9 +111,12 @@ pub fn parse(s: &str) -> Result<HookConfigFile> {
 /// Resolve the path the hook should load. Order:
 /// 1. `explicit` (the `--config <path>` CLI flag value)
 /// 2. `$PERMIT0_CONFIG`
-/// 3. `~/.config/permit0/config.toml`
+/// 3. `~/.config/permit0/config.toml` (only this layer is existence-checked)
 ///
-/// Returns `None` if no candidate exists.
+/// Returns `None` only when no layer produces a candidate. Explicit
+/// and env-var paths are returned verbatim so `load_from_path` can
+/// produce a loud "file at PATH not found" error when the operator
+/// pointed at a missing file.
 pub fn resolve_path(explicit: Option<&Path>) -> Option<PathBuf> {
     if let Some(p) = explicit {
         return Some(p.to_path_buf());
@@ -156,11 +159,7 @@ pub fn load(explicit: Option<&Path>) -> Result<(HookConfigFile, Option<PathBuf>)
 
 /// Layer file < env < CLI, returning the fully-resolved config. Returns
 /// an error if any string field fails to parse to its typed form.
-pub fn resolve(
-    file: HookConfigFile,
-    env: HookEnv,
-    cli: HookCliArgs,
-) -> Result<ResolvedHookConfig> {
+pub fn resolve(file: HookConfigFile, env: HookEnv, cli: HookCliArgs) -> Result<ResolvedHookConfig> {
     use std::str::FromStr;
 
     // remote: cli > env > file > None
@@ -173,6 +172,7 @@ pub fn resolve(
         Some(s) => HitlRouting::from_str(s).map_err(anyhow::Error::msg)?,
         None => HitlRouting::default(),
     };
+    // hitl_timeout_secs: file-only for symmetry with hitl_routing.
     let hitl_timeout_secs = file.hitl_timeout_secs.unwrap_or(300);
 
     // unknown_mode: cli > env > file > default(Defer)
@@ -182,7 +182,9 @@ pub fn resolve(
         None => UnknownMode::default(),
     };
 
-    // org_domain: cli > file > "default.org" default
+    // org_domain: cli > file > default. No env layer — the daemon
+    // owns the org for remote evaluation; the hook only needs to
+    // override at the local boundary.
     let org_domain = cli
         .org_domain
         .or(file.org_domain)
