@@ -75,12 +75,10 @@ struct CheckRequest {
     /// HITL routing mode. `"ui-wait"` blocks this handler until a human
     /// resolves the call in the dashboard; absent / `"cc-prompt"` keeps
     /// today's behavior (verdict returned immediately).
-    #[allow(dead_code)]
     #[serde(default)]
     hitl_routing: Option<String>,
     /// `ui-wait` block timeout in seconds. On expiry the handler returns
     /// `permission: "deny"` with an "approval timed out" reason.
-    #[allow(dead_code)]
     #[serde(default)]
     hitl_timeout_secs: Option<u64>,
 }
@@ -103,37 +101,48 @@ struct CheckResponse {
     source: String,
 }
 
+/// Should this request be routed through the `ui-wait` blocking path?
+/// Returns true only when the field is explicitly `"ui-wait"` (or its
+/// underscore variant). Treats absent / empty / `"cc-prompt"` as the
+/// today-default behavior.
+fn should_dispatch_ui_wait(field: Option<&str>) -> bool {
+    matches!(field, Some("ui-wait") | Some("ui_wait"))
+}
+
 /// POST /api/v1/check handler.
 async fn check_handler(
     State(state): State<ServerState>,
     Json(req): Json<CheckRequest>,
 ) -> Result<Json<CheckResponse>, (StatusCode, String)> {
-    // Pull well-known fields out of metadata before moving it into the
-    // tool_call. Anything else stays in metadata for normalizers/risk
-    // rules to inspect.
     let session_id = extract_string_field(&req.metadata, "session_id");
     let task_goal = extract_string_field(&req.metadata, "task_goal");
 
-    // Resolve client_kind. Default is Raw (passthrough) — clients that
-    // already pass bare tool names work without sending the field.
-    // Unknown values silently fall back to Raw rather than 400-ing, since
-    // a strict deserializer on a host hint creates a deployment coupling
-    // we'd rather not enforce at the wire boundary.
     let client_kind = req
         .client_kind
         .as_deref()
         .and_then(|s| ClientKind::from_str(s).ok())
         .unwrap_or(ClientKind::Raw);
-
-    // Strip host-specific tool-name prefix so YAML normalizers can match
-    // the bare name. Mirrors the stdin-hook adapter (see hook.rs).
     let stripped_tool_name = client_kind.strip_prefix(&req.tool_name).to_string();
+
+    // Pull routing knobs out before moving the rest into `tool_call`.
+    let want_ui_wait = should_dispatch_ui_wait(req.hitl_routing.as_deref());
+    let ui_wait_timeout = std::time::Duration::from_secs(req.hitl_timeout_secs.unwrap_or(300));
 
     let tool_call = RawToolCall {
         tool_name: stripped_tool_name,
         parameters: req.parameters,
         metadata: req.metadata,
     };
+
+    // ui-wait requested but the daemon was started without --ui: fail
+    // loud so the operator sees the misconfiguration rather than a
+    // silent fallback.
+    if want_ui_wait && state.approval_manager.is_none() {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "ui-wait routing not supported by this daemon (start with --ui)".to_string(),
+        ));
+    }
 
     let mut ctx = PermissionCtx::new(NormalizeCtx::new().with_org_domain(&state.org_domain))
         .with_skip_audit(state.calibrate);
@@ -150,6 +159,26 @@ async fn check_handler(
             format!("engine error: {e}"),
         )
     })?;
+
+    // ui-wait dispatch: only when the verdict is genuinely HITL.
+    let result =
+        if want_ui_wait && matches!(result.permission, permit0_types::Permission::HumanInTheLoop) {
+            let manager = state
+                .approval_manager
+                .as_ref()
+                .expect("checked above")
+                .clone();
+            await_ui_wait_approval(
+                manager,
+                state.engine.state(),
+                result.norm_action,
+                result.risk_score,
+                ui_wait_timeout,
+            )
+            .await?
+        } else {
+            result
+        };
 
     let (result, meta) = apply_calibration(&state, result).await?;
 
@@ -510,7 +539,6 @@ struct CalibrationMeta {
 /// was `HumanInTheLoop` AND `req.hitl_routing == Some("ui-wait")`.
 /// Other paths must bypass this helper so cc-prompt callers and
 /// cached / fast-path verdicts are not double-blocked.
-#[allow(dead_code)] // wired into check_handler in Task 8
 pub(crate) async fn await_ui_wait_approval(
     manager: std::sync::Arc<permit0_ui::ApprovalManager>,
     policy_state: &dyn permit0_store::PolicyState,
@@ -1166,6 +1194,19 @@ mod tests {
         let req: CheckRequest = serde_json::from_str(json).unwrap();
         assert!(req.hitl_routing.is_none());
         assert!(req.hitl_timeout_secs.is_none());
+    }
+
+    #[test]
+    fn ui_wait_requested_returns_true_when_field_matches() {
+        assert!(should_dispatch_ui_wait(Some("ui-wait")));
+        assert!(should_dispatch_ui_wait(Some("ui_wait")));
+    }
+
+    #[test]
+    fn ui_wait_requested_returns_false_for_cc_prompt_or_absent() {
+        assert!(!should_dispatch_ui_wait(None));
+        assert!(!should_dispatch_ui_wait(Some("cc-prompt")));
+        assert!(!should_dispatch_ui_wait(Some("")));
     }
 
     #[tokio::test]
