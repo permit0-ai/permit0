@@ -487,6 +487,8 @@ pub fn run(
     client: ClientKind,
     remote: Option<String>,
     unknown: UnknownMode,
+    _hitl_routing: crate::hook_config::HitlRouting,
+    _hitl_timeout_secs: u64,
 ) -> Result<()> {
     let shadow = shadow || std::env::var("PERMIT0_SHADOW").is_ok_and(|v| !v.is_empty() && v != "0");
     // Read hook input from stdin

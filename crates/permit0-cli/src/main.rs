@@ -89,6 +89,14 @@ enum Commands {
         /// Override via PERMIT0_UNKNOWN env var.
         #[arg(long, value_name = "MODE")]
         unknown: Option<String>,
+        /// Path to the hook config TOML file. Discovery order:
+        ///   1. this flag (if present)
+        ///   2. $PERMIT0_CONFIG env var
+        ///   3. ~/.config/permit0/config.toml
+        ///
+        /// A missing file is fine; a malformed file is a fatal error.
+        #[arg(long, value_name = "PATH")]
+        config: Option<String>,
     },
     /// Generic stdin/stdout JSON gateway (JSONL mode)
     Gateway {
@@ -263,43 +271,37 @@ fn main() -> anyhow::Result<()> {
             client,
             remote,
             unknown,
+            config,
         } => {
-            // Precedence: --client flag > PERMIT0_CLIENT env var > default.
-            let client_str = client.or_else(|| std::env::var("PERMIT0_CLIENT").ok());
-            let client_kind = match client_str {
-                Some(s) => s
-                    .parse::<cmd::hook::ClientKind>()
-                    .map_err(anyhow::Error::msg)?,
-                None => cmd::hook::ClientKind::default(),
+            use std::path::PathBuf;
+            let explicit_path = config.as_deref().map(PathBuf::from);
+            let (file, _used_path) = hook_config::load(explicit_path.as_deref())?;
+            let env = hook_config::HookEnv::from_process();
+            // The current Hook variant always provides an org_domain
+            // (default "default.org"). We treat the CLI value as
+            // authoritative so the precedence rule remains
+            // file < env < CLI — operators can still override via
+            // the existing flag without surprises.
+            let cli = hook_config::HookCliArgs {
+                remote,
+                unknown,
+                org_domain: Some(org_domain),
+                client,
+                shadow: if shadow { Some(true) } else { None },
             };
-            // Precedence: --remote flag > PERMIT0_REMOTE env var > local.
-            let remote_url = remote.or_else(|| {
-                std::env::var("PERMIT0_REMOTE")
-                    .ok()
-                    .filter(|s| !s.is_empty())
-            });
-            // Precedence: --unknown flag > PERMIT0_UNKNOWN env var > default (defer).
-            let unknown_str = unknown.or_else(|| {
-                std::env::var("PERMIT0_UNKNOWN")
-                    .ok()
-                    .filter(|s| !s.is_empty())
-            });
-            let unknown_mode = match unknown_str {
-                Some(s) => s
-                    .parse::<cmd::hook::UnknownMode>()
-                    .map_err(anyhow::Error::msg)?,
-                None => cmd::hook::UnknownMode::default(),
-            };
+            let resolved = hook_config::resolve(file, env, cli)?;
             cmd::hook::run(
                 profile,
-                &org_domain,
+                &resolved.org_domain,
                 db,
                 session_id,
                 packs_dir,
-                shadow,
-                client_kind,
-                remote_url,
-                unknown_mode,
+                resolved.shadow,
+                resolved.client,
+                resolved.remote,
+                resolved.unknown_mode,
+                resolved.hitl_routing,
+                resolved.hitl_timeout_secs,
             )
         }
         Commands::Gateway {

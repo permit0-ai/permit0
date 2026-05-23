@@ -1,8 +1,4 @@
 #![forbid(unsafe_code)]
-// Public API is wired in by Task 4 (hook entry point); until then the
-// surface is intentionally dormant. Remove this once `cmd::hook` calls
-// `hook_config::load` / `hook_config::resolve`.
-#![allow(dead_code)]
 
 //! Per-user TOML config for the `permit0 hook` adapter.
 
