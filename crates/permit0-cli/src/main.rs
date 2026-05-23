@@ -2,6 +2,7 @@
 
 mod cmd;
 mod engine_factory;
+mod hook_config;
 
 use clap::{Parser, Subcommand};
 

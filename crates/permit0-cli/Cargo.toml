@@ -23,6 +23,7 @@ permit0-ui = { workspace = true }
 axum = { workspace = true }
 tower-http = { workspace = true }
 clap = { workspace = true }
+dirs = { workspace = true }
 tokio = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

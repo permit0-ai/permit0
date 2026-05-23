@@ -105,6 +105,9 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 # CLI
 clap = { version = "4", features = ["derive"] }
 
+# Filesystem standard directories (home dir lookup for hook config)
+dirs = "5"
+
 # HTTP client (used by `permit0 hook --remote` to delegate to a daemon)
 # Sync API; rustls TLS (the `tls` feature is on by default in ureq 2.x).
 ureq = { version = "2", features = ["json"] }
