@@ -427,6 +427,34 @@ fn remote_error_to_hook_output(err: &RemoteError) -> (HookOutput, bool) {
     }
 }
 
+/// Build the JSON body POSTed to `/api/v1/check`. When `routing` is
+/// `UiWait`, two extra fields opt the daemon into a synchronous wait
+/// for a human decision in the dashboard. Otherwise the body has the
+/// same shape it has had since v1, so legacy daemons keep accepting
+/// requests without change.
+fn build_check_body(
+    tool_call: &RawToolCall,
+    routing: crate::hook_config::HitlRouting,
+    timeout_secs: u64,
+) -> serde_json::Value {
+    let mut body = serde_json::json!({
+        "tool_name": tool_call.tool_name,
+        "parameters": tool_call.parameters,
+    });
+    if matches!(routing, crate::hook_config::HitlRouting::UiWait) {
+        let map = body.as_object_mut().expect("body is an object");
+        map.insert(
+            "hitl_routing".into(),
+            serde_json::Value::String("ui-wait".into()),
+        );
+        map.insert(
+            "hitl_timeout_secs".into(),
+            serde_json::Value::Number(timeout_secs.into()),
+        );
+    }
+    body
+}
+
 /// POST the tool call to a remote `permit0 serve` daemon and translate
 /// the response into a HookOutput plus an `is_unknown` flag for the
 /// `--unknown` policy. The error variant tells the caller whether the
@@ -435,12 +463,11 @@ fn remote_error_to_hook_output(err: &RemoteError) -> (HookOutput, bool) {
 fn evaluate_remote_with_meta(
     remote: &str,
     tool_call: &RawToolCall,
+    routing: crate::hook_config::HitlRouting,
+    timeout_secs: u64,
 ) -> std::result::Result<(HookOutput, bool), RemoteError> {
     let endpoint = build_check_endpoint(remote);
-    let body = serde_json::json!({
-        "tool_name": tool_call.tool_name,
-        "parameters": tool_call.parameters,
-    });
+    let body = build_check_body(tool_call, routing, timeout_secs);
 
     let response = match ureq::post(&endpoint)
         .set("content-type", "application/json")
@@ -487,8 +514,8 @@ pub fn run(
     client: ClientKind,
     remote: Option<String>,
     unknown: UnknownMode,
-    _hitl_routing: crate::hook_config::HitlRouting,
-    _hitl_timeout_secs: u64,
+    hitl_routing: crate::hook_config::HitlRouting,
+    hitl_timeout_secs: u64,
 ) -> Result<()> {
     let shadow = shadow || std::env::var("PERMIT0_SHADOW").is_ok_and(|v| !v.is_empty() && v != "0");
     // Read hook input from stdin
@@ -516,7 +543,12 @@ pub fn run(
                 "permit0: --remote set; ignoring --db / --session-id (remote daemon governs sessions)"
             );
         }
-        let (output, is_unknown) = match evaluate_remote_with_meta(&remote_url, &tool_call) {
+        let (output, is_unknown) = match evaluate_remote_with_meta(
+            &remote_url,
+            &tool_call,
+            hitl_routing,
+            hitl_timeout_secs,
+        ) {
             Ok(pair) => pair,
             Err(err) => {
                 // stderr breadcrumb — kept in run() so the helper stays
@@ -1244,5 +1276,32 @@ mod tests {
         assert_eq!(parsed.permission, "humanintheloop");
         assert_eq!(parsed.action_type.as_deref(), Some("email.send"));
         assert_eq!(parsed.score, Some(62));
+    }
+
+    #[test]
+    fn build_check_body_omits_hitl_fields_when_default() {
+        // cc-prompt is the default — body should match today's exact shape
+        // (no hitl_* fields) so existing daemons keep accepting requests.
+        let tool_call = RawToolCall {
+            tool_name: "Bash".into(),
+            parameters: serde_json::json!({"command": "ls"}),
+            metadata: Default::default(),
+        };
+        let body = build_check_body(&tool_call, crate::hook_config::HitlRouting::CcPrompt, 300);
+        assert!(!body.to_string().contains("hitl_routing"), "got: {body}");
+        assert!(!body.to_string().contains("hitl_timeout"), "got: {body}");
+        assert_eq!(body["tool_name"], "Bash");
+    }
+
+    #[test]
+    fn build_check_body_includes_hitl_fields_when_ui_wait() {
+        let tool_call = RawToolCall {
+            tool_name: "Bash".into(),
+            parameters: serde_json::json!({"command": "ls"}),
+            metadata: Default::default(),
+        };
+        let body = build_check_body(&tool_call, crate::hook_config::HitlRouting::UiWait, 420);
+        assert_eq!(body["hitl_routing"], "ui-wait");
+        assert_eq!(body["hitl_timeout_secs"], 420);
     }
 }
