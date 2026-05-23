@@ -72,6 +72,17 @@ struct CheckRequest {
     metadata: serde_json::Map<String, serde_json::Value>,
     #[serde(default)]
     client_kind: Option<String>,
+    /// HITL routing mode. `"ui-wait"` blocks this handler until a human
+    /// resolves the call in the dashboard; absent / `"cc-prompt"` keeps
+    /// today's behavior (verdict returned immediately).
+    #[allow(dead_code)]
+    #[serde(default)]
+    hitl_routing: Option<String>,
+    /// `ui-wait` block timeout in seconds. On expiry the handler returns
+    /// `permission: "deny"` with an "approval timed out" reason.
+    #[allow(dead_code)]
+    #[serde(default)]
+    hitl_timeout_secs: Option<u64>,
 }
 
 /// Response for POST /api/v1/check.
@@ -997,5 +1008,26 @@ mod tests {
         let json = serde_json::to_string(&resp).unwrap();
         assert!(json.contains(r#""accepted":12"#));
         assert!(json.contains(r#""event_id":"01JX-bad""#));
+    }
+
+    #[test]
+    fn check_request_accepts_hitl_routing_fields() {
+        let json = r#"{
+            "tool_name": "Bash",
+            "parameters": {"command": "ls"},
+            "hitl_routing": "ui-wait",
+            "hitl_timeout_secs": 600
+        }"#;
+        let req: CheckRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.hitl_routing.as_deref(), Some("ui-wait"));
+        assert_eq!(req.hitl_timeout_secs, Some(600));
+    }
+
+    #[test]
+    fn check_request_hitl_fields_default_to_none() {
+        let json = r#"{"tool_name": "Bash", "parameters": {}}"#;
+        let req: CheckRequest = serde_json::from_str(json).unwrap();
+        assert!(req.hitl_routing.is_none());
+        assert!(req.hitl_timeout_secs.is_none());
     }
 }
