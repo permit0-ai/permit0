@@ -500,6 +500,143 @@ struct CalibrationMeta {
     reason: Option<String>,
 }
 
+/// Block the current request until a human resolves the call via the
+/// dashboard, then return a `PermissionResult` with the resolved verdict
+/// and `DecisionSource::HumanApproval`. On timeout, returns a `Deny`
+/// result with an "approval timed out" block reason and persists the
+/// auto-deny via `approval_resolve` so the queue stays consistent.
+///
+/// Caller invariant: only call this when the original engine verdict
+/// was `HumanInTheLoop` AND `req.hitl_routing == Some("ui-wait")`.
+/// Other paths must bypass this helper so cc-prompt callers and
+/// cached / fast-path verdicts are not double-blocked.
+#[allow(dead_code)] // wired into check_handler in Task 8
+pub(crate) async fn await_ui_wait_approval(
+    manager: std::sync::Arc<permit0_ui::ApprovalManager>,
+    policy_state: &dyn permit0_store::PolicyState,
+    norm_action: permit0_types::NormAction,
+    risk_score: Option<permit0_types::RiskScore>,
+    timeout: std::time::Duration,
+) -> Result<permit0_engine::PermissionResult, (axum::http::StatusCode, String)> {
+    use permit0_engine::{DecisionSource, PermissionResult};
+    use permit0_store::{HumanDecisionRow, PendingApprovalRow};
+    use permit0_types::{Permission, RiskScore, Tier};
+
+    let synthesized_score = risk_score.clone().unwrap_or_else(|| RiskScore {
+        raw: 0.0,
+        score: 0,
+        tier: Tier::Medium,
+        blocked: false,
+        flags: vec![],
+        block_reason: None,
+        reason: "no risk score (ui-wait synthesized)".into(),
+    });
+
+    let (approval_id, rx) = manager.create_pending(norm_action.clone(), synthesized_score.clone());
+    let norm_hash = norm_action.norm_hash();
+    let created_at = chrono::Utc::now().to_rfc3339();
+
+    // Best-effort durable persistence. Failures here are logged but do
+    // not abort the wait — the in-process channel still works and the
+    // hook still gets its verdict. Operators with multi-process
+    // requirements should monitor this log line.
+    let pending_row = PendingApprovalRow {
+        approval_id: approval_id.clone(),
+        norm_hash,
+        action_type: norm_action.action_type.as_action_str().to_string(),
+        channel: norm_action.channel.clone(),
+        created_at: created_at.clone(),
+        norm_action_json: serde_json::to_string(&norm_action).unwrap_or_default(),
+        risk_score_json: serde_json::to_string(&synthesized_score).unwrap_or_default(),
+    };
+    if let Err(e) = policy_state.approval_create(pending_row).await {
+        tracing::warn!("ui-wait: approval_create failed (in-memory only): {e}");
+    }
+
+    // Block until the human decides or the configured timeout fires.
+    let timeout_outcome = tokio::time::timeout(timeout, rx).await;
+
+    match timeout_outcome {
+        Ok(Ok(decision)) => {
+            // Persist the resolution and update the cache so the next
+            // identical call hits the cache instead of re-prompting.
+            let _ = policy_state
+                .policy_cache_set(norm_hash, decision.permission, risk_score.clone())
+                .await;
+            let _ = policy_state
+                .approval_resolve(
+                    &approval_id,
+                    HumanDecisionRow {
+                        permission: decision.permission,
+                        reason: decision.reason.clone(),
+                        reviewer: decision.reviewer.clone(),
+                        decided_at: chrono::Utc::now().to_rfc3339(),
+                    },
+                )
+                .await;
+            Ok(PermissionResult {
+                permission: decision.permission,
+                norm_action,
+                risk_score,
+                source: DecisionSource::HumanApproval,
+            })
+        }
+        Ok(Err(_recv_err)) => {
+            // Sender dropped without a decision (shouldn't happen unless
+            // the manager was reset). Fail safe to Deny.
+            let block_reason = "approval channel closed unexpectedly".to_string();
+            let scored = risk_score.map(|mut s| {
+                s.block_reason = Some(block_reason.clone());
+                s
+            });
+            Ok(PermissionResult {
+                permission: Permission::Deny,
+                norm_action,
+                risk_score: scored,
+                source: DecisionSource::HumanApproval,
+            })
+        }
+        Err(_elapsed) => {
+            let block_reason = format!("approval timed out after {}s", timeout.as_secs());
+            // Persist an auto-deny resolution so the dashboard's queue
+            // doesn't show the row forever.
+            let _ = policy_state
+                .approval_resolve(
+                    &approval_id,
+                    HumanDecisionRow {
+                        permission: Permission::Deny,
+                        reason: block_reason.clone(),
+                        reviewer: "<timeout>".into(),
+                        decided_at: chrono::Utc::now().to_rfc3339(),
+                    },
+                )
+                .await;
+            let scored = risk_score
+                .map(|mut s| {
+                    s.block_reason = Some(block_reason.clone());
+                    s
+                })
+                .or_else(|| {
+                    Some(RiskScore {
+                        raw: 0.0,
+                        score: 0,
+                        tier: Tier::Medium,
+                        blocked: false,
+                        flags: vec![],
+                        block_reason: Some(block_reason),
+                        reason: "ui-wait timeout".into(),
+                    })
+                });
+            Ok(PermissionResult {
+                permission: Permission::Deny,
+                norm_action,
+                risk_score: scored,
+                source: DecisionSource::HumanApproval,
+            })
+        }
+    }
+}
+
 /// Append the calibration audit entry (when applicable) and serialize the response.
 ///
 /// The audit sink is the sole decision log. For ordinary requests the
@@ -1029,5 +1166,129 @@ mod tests {
         let req: CheckRequest = serde_json::from_str(json).unwrap();
         assert!(req.hitl_routing.is_none());
         assert!(req.hitl_timeout_secs.is_none());
+    }
+
+    #[tokio::test]
+    async fn await_ui_wait_approval_returns_human_decision() {
+        use permit0_engine::DecisionSource;
+        use permit0_store::{InMemoryPolicyState, PolicyState};
+        use permit0_types::{ActionType, ExecutionMeta, NormAction, Permission, RiskScore, Tier};
+        use permit0_ui::{ApprovalManager, HumanDecision};
+        use std::sync::Arc;
+
+        let manager = Arc::new(ApprovalManager::new());
+        let policy_state: Arc<dyn PolicyState> = Arc::new(InMemoryPolicyState::new());
+
+        let norm = NormAction {
+            action_type: ActionType::parse("email.send").unwrap(),
+            channel: "gmail".into(),
+            entities: serde_json::Map::new(),
+            execution: ExecutionMeta {
+                surface_tool: "test".into(),
+                surface_command: "test".into(),
+            },
+        };
+        let risk = RiskScore {
+            raw: 0.55,
+            score: 55,
+            tier: Tier::High,
+            blocked: false,
+            flags: vec!["MUTATION".into()],
+            block_reason: None,
+            reason: "test".into(),
+        };
+
+        let manager_for_decider = manager.clone();
+        let decider = tokio::spawn(async move {
+            // Poll until the pending row appears, then submit.
+            for _ in 0..50 {
+                let pending = manager_for_decider.list_pending();
+                if let Some(p) = pending.first() {
+                    manager_for_decider.submit_decision(
+                        &p.approval_id,
+                        HumanDecision {
+                            permission: Permission::Allow,
+                            reason: "looks fine".into(),
+                            reviewer: "alice".into(),
+                        },
+                    );
+                    return;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+            panic!("no pending approval appeared");
+        });
+
+        let result = await_ui_wait_approval(
+            manager.clone(),
+            policy_state.as_ref(),
+            norm.clone(),
+            Some(risk),
+            std::time::Duration::from_secs(5),
+        )
+        .await
+        .expect("approval should resolve");
+
+        decider.await.unwrap();
+        assert_eq!(result.permission, Permission::Allow);
+        assert_eq!(result.source, DecisionSource::HumanApproval);
+        // Cache was set so the next identical call hits the cache.
+        let cached = policy_state
+            .policy_cache_get(&norm.norm_hash(), 3600)
+            .await
+            .unwrap();
+        assert!(cached.is_some(), "policy cache should be populated");
+        assert_eq!(cached.unwrap().permission, Permission::Allow);
+    }
+
+    #[tokio::test]
+    async fn await_ui_wait_approval_times_out_to_deny() {
+        use permit0_engine::DecisionSource;
+        use permit0_store::{InMemoryPolicyState, PolicyState};
+        use permit0_types::{ActionType, ExecutionMeta, NormAction, Permission, RiskScore, Tier};
+        use permit0_ui::ApprovalManager;
+        use std::sync::Arc;
+
+        let manager = Arc::new(ApprovalManager::new());
+        let policy_state: Arc<dyn PolicyState> = Arc::new(InMemoryPolicyState::new());
+        let norm = NormAction {
+            action_type: ActionType::parse("email.send").unwrap(),
+            channel: "gmail".into(),
+            entities: serde_json::Map::new(),
+            execution: ExecutionMeta {
+                surface_tool: "test".into(),
+                surface_command: "test".into(),
+            },
+        };
+        let risk = RiskScore {
+            raw: 0.5,
+            score: 50,
+            tier: Tier::High,
+            blocked: false,
+            flags: vec![],
+            block_reason: None,
+            reason: "test".into(),
+        };
+
+        let result = await_ui_wait_approval(
+            manager.clone(),
+            policy_state.as_ref(),
+            norm.clone(),
+            Some(risk),
+            std::time::Duration::from_millis(50),
+        )
+        .await
+        .expect("timeout path should yield Ok with Deny");
+
+        assert_eq!(result.permission, Permission::Deny);
+        assert_eq!(result.source, DecisionSource::HumanApproval);
+        assert!(
+            result
+                .risk_score
+                .as_ref()
+                .and_then(|s| s.block_reason.as_deref())
+                .unwrap_or_default()
+                .contains("approval timed out"),
+        );
     }
 }
