@@ -390,7 +390,8 @@ async fn apply_calibration(
         DecisionSource::Allowlist
         | DecisionSource::Denylist
         | DecisionSource::PolicyCache
-        | DecisionSource::HumanReviewer => return Ok((result, CalibrationMeta::default())),
+        | DecisionSource::HumanReviewer
+        | DecisionSource::HumanApproval => return Ok((result, CalibrationMeta::default())),
         // Scorer / AgentReviewer / UnknownFallback — permit0 has no
         // recorded human decision yet, so calibration mode should park
         // the call for human review. UnknownFallback is especially
