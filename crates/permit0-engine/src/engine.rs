@@ -50,6 +50,11 @@ pub enum DecisionSource {
     /// in calibration mode, or the HITL approval flow). The audit record
     /// will also have a `reviewer` field set.
     HumanReviewer,
+    /// Human resolved the call via the dashboard at `:9090/approvals`
+    /// after the hook was configured with `hitl_routing = "ui-wait"`.
+    /// Distinct from `HumanReviewer` (calibration mode) so audit
+    /// consumers can tell the two human paths apart.
+    HumanApproval,
     /// The action normalized to `unknown.unclassified` (no pack matched
     /// it AND no risk rule was registered). The engine returned the
     /// conservative HITL default — there was no real scoring or rule
@@ -67,6 +72,7 @@ impl DecisionSource {
             Self::Scorer => "scorer",
             Self::AgentReviewer => "agent_reviewer",
             Self::HumanReviewer => "human_reviewer",
+            Self::HumanApproval => "human_approval",
             Self::UnknownFallback => "unknown_fallback",
         }
     }
@@ -1953,5 +1959,22 @@ mod tests {
                 "per-stage snapshot must equal top-level redacted form",
             );
         }
+    }
+
+    #[test]
+    fn decision_source_human_approval_as_str() {
+        assert_eq!(DecisionSource::HumanApproval.as_str(), "human_approval");
+    }
+
+    #[test]
+    fn decision_source_human_approval_distinct_from_human_reviewer() {
+        // Both flow through a human, but they have different upstream
+        // semantics: HumanReviewer is the calibration synchronous wait,
+        // HumanApproval is the ui-wait dashboard resolution. Audit
+        // consumers must be able to filter them apart.
+        assert_ne!(
+            DecisionSource::HumanApproval.as_str(),
+            DecisionSource::HumanReviewer.as_str(),
+        );
     }
 }
