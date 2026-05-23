@@ -74,6 +74,9 @@ enum Commands {
         ///
         /// Override via PERMIT0_REMOTE env var. Example:
         ///   permit0 hook --remote http://127.0.0.1:9090
+        ///
+        /// Also configurable in ~/.config/permit0/config.toml as `remote = "…"`
+        /// (see `--config`).
         #[arg(long, value_name = "URL")]
         remote: Option<String>,
         /// What permit0 emits when a tool call has no matching pack
