@@ -487,6 +487,7 @@ async fn apply_calibration(
     });
 
     let original_permission = result.permission;
+    let original_source = result.source;
     let norm_hash = result.norm_action.norm_hash();
 
     let (approval_id, rx) = manager.create_pending(result.norm_action.clone(), risk_score);
@@ -527,9 +528,18 @@ async fn apply_calibration(
 
     // Persist the human's decision in the cache so future identical calls
     // reflect the calibrated answer (overwriting the engine's recommendation).
-    // Per spec §4.2 step 4(i), do NOT cache HumanInTheLoop verdicts —
-    // that would pin the call and re-park the operator on every retry.
-    if decision.permission != permit0_types::Permission::HumanInTheLoop {
+    //
+    // Two skip rules:
+    //  1. Per spec §4.2 step 4(i), HumanInTheLoop verdicts pin the call
+    //     and re-park the operator on every retry — never cache them.
+    //  2. UnknownFallback-origin actions are "permit0 has no opinion";
+    //     a one-time human "allow" must not promote to a permanent
+    //     bypass for the same `norm_hash`. Each unknown call should
+    //     surface afresh so operators can decide each time (or write a
+    //     pack to make it `Scorer`-tier).
+    let should_cache = decision.permission != permit0_types::Permission::HumanInTheLoop
+        && original_source != DecisionSource::UnknownFallback;
+    if should_cache {
         let _ = state
             .engine
             .state()
