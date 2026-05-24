@@ -160,7 +160,7 @@ fn hook_with_safe_email() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     let parsed: serde_json::Value = serde_json::from_str(&stdout).unwrap();
     // PreToolUse envelope: hookSpecificOutput.permissionDecision is one of
-    // allow / deny / ask, or absent for `defer` (let Claude Code decide).
+    // allow / deny / ask, or absent for `bypass` (let Claude Code decide).
     let decision = &parsed["hookSpecificOutput"]["permissionDecision"];
     assert!(
         decision.is_null() || decision == "allow" || decision == "ask" || decision == "deny",

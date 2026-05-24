@@ -171,7 +171,7 @@ pub fn resolve(file: HookConfigFile, env: HookEnv, cli: HookCliArgs) -> Result<R
     // hitl_timeout_secs: file-only for symmetry with hitl_routing.
     let hitl_timeout_secs = file.hitl_timeout_secs.unwrap_or(300);
 
-    // unknown: cli > env > file > default(Defer)
+    // unknown: cli > env > file > default(Bypass)
     let unknown_str = cli.unknown.or(env.permit0_unknown).or(file.unknown);
     let unknown = match unknown_str {
         Some(s) => UnknownMode::from_str(&s).map_err(anyhow::Error::msg)?,
@@ -236,7 +236,7 @@ mod tests {
 remote: "http://127.0.0.1:9090"
 hitl_routing: "ui-wait"
 hitl_timeout_secs: 600
-unknown: "defer"
+unknown: "bypass"
 org_domain: "acme.example"
 client: "claude-code"
 shadow: true
@@ -245,7 +245,7 @@ shadow: true
         assert_eq!(f.remote.as_deref(), Some("http://127.0.0.1:9090"));
         assert_eq!(f.hitl_routing.as_deref(), Some("ui-wait"));
         assert_eq!(f.hitl_timeout_secs, Some(600));
-        assert_eq!(f.unknown.as_deref(), Some("defer"));
+        assert_eq!(f.unknown.as_deref(), Some("bypass"));
         assert_eq!(f.org_domain.as_deref(), Some("acme.example"));
         assert_eq!(f.client.as_deref(), Some("claude-code"));
         assert_eq!(f.shadow, Some(true));

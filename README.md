@@ -56,7 +56,7 @@ Now wire Claude Code with two files (use absolute paths — `~` doesn't expand i
 remote: "http://127.0.0.1:9090"
 hitl_routing: "ui-wait"        # block at the dashboard; alternative: "cc-prompt"
 org_domain: "yourcompany.com"  # drives internal/external recipient classification
-unknown: "defer"               # tools with no pack fall through to CC's permission flow
+unknown: "bypass"              # tools with no pack fall through to CC's permission flow
 ```
 
 ```jsonc
@@ -75,7 +75,7 @@ unknown: "defer"               # tools with no pack fall through to CC's permiss
 }
 ```
 
-The hook reads `~/.permit0/config.yaml` each invocation; `remote:` points it at the daemon, `hitl_routing: "ui-wait"` blocks the call at `:9090/ui/approvals` until you approve, `org_domain:` is the per-request override that drives internal/external recipient classification, and `unknown: "defer"` returns "no opinion" so Claude Code's normal permission flow handles tools without a pack. Alternatives for `unknown:` are `ask` / `allow` / `deny`.
+The hook reads `~/.permit0/config.yaml` each invocation; `remote:` points it at the daemon, `hitl_routing: "ui-wait"` blocks the call at `:9090/ui/approvals` until you approve, `org_domain:` is the per-request override that drives internal/external recipient classification, and `unknown: "bypass"` returns "no opinion" so Claude Code's normal permission flow handles tools without a pack (these surface in the dashboard's `bypass` filter for audit). Alternatives for `unknown:` are `ask` / `allow` / `deny`.
 
 Restart Claude Code. Ask it: *"list recent emails and archive any newsletters,"* then *"send alice@external.com a draft of my notes."* Every action shows up in the dashboard's **Approvals** tab with Permit0's tier, the risk flags that fired (`OUTBOUND`, `EXPOSURE`, `GOVERNANCE`, …), the full normalized action (domain.verb + surface tool + norm_hash), and the message body. Approve or deny; verdicts cache in the policy store.
 

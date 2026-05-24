@@ -133,14 +133,15 @@ hitl_routing: "ui-wait"            # "ui-wait" blocks at the dashboard; "cc-prom
 hitl_timeout_secs: 300             # auto-deny after this many seconds
 org_domain: "yourcompany.com"      # internal/external recipient classification
 client: "claude-code"              # MCP tool-name prefix stripping
-unknown: "defer"                   # "defer" / "ask" / "allow" / "deny" — fallback for unpacked tools
+unknown: "bypass"                  # "bypass" / "ask" / "allow" / "deny" — fallback for unpacked tools
 shadow: false                      # true → log decisions, always allow
 ```
 
-`unknown: "defer"` lets Claude Code's own permission UI handle tools
+`unknown: "bypass"` lets Claude Code's own permission UI handle tools
 permit0 has no pack for — recommended so unknown tools don't pile up in
-the human queue. Override per-invocation with `--config`, `--remote`,
-`--unknown`, `--shadow`, etc.
+the human queue. They surface in the dashboard's `bypass` filter so you
+can still audit what flowed through. Override per-invocation with
+`--config`, `--remote`, `--unknown`, `--shadow`, etc.
 
 Then wire the hook + MCPs into Claude Code. Pick the matching `mcpServers`
 shape for your path:

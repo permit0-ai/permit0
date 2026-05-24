@@ -1279,7 +1279,7 @@ mod tests {
         ));
         // Unknown-fallback HITL is the engine saying "no opinion" — the
         // hook's `--unknown` policy handles it; ui-wait must NOT park
-        // the operator with `unknown: defer` set.
+        // the operator with `unknown: bypass` set.
         assert!(!verdict_qualifies_for_ui_wait(
             Permission::HumanInTheLoop,
             DecisionSource::UnknownFallback

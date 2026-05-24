@@ -88,11 +88,11 @@ enum Commands {
         ///   ask    — prompt the user with permit0's reasoning
         ///   allow  — let the tool run unprompted
         ///   deny   — block the tool
-        ///   defer  — emit no permissionDecision; Claude Code's own
+        ///   bypass — emit no permissionDecision; Claude Code's own
         ///            permission flow handles it (default)
         ///
         /// Override via PERMIT0_UNKNOWN env var. When unset on the CLI,
-        /// env, and config file, the resolver defaults to `defer`.
+        /// env, and config file, the resolver defaults to `bypass`.
         #[arg(long, value_name = "MODE")]
         unknown: Option<String>,
         /// Path to the hook config YAML file. Discovery order:

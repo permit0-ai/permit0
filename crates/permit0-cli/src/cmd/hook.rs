@@ -134,9 +134,10 @@ pub enum UnknownMode {
     /// Emit a hook output with **no** `permissionDecision`, letting Claude
     /// Code's own permission flow take over (settings allowlists, then its
     /// native ask UI). Default — permit0 only intervenes for tools it has
-    /// packs for.
+    /// packs for. Surfaces in the audit log as `decision_source =
+    /// unknown_fallback` and the dashboard filter labels it `bypass`.
     #[default]
-    Defer,
+    Bypass,
 }
 
 impl FromStr for UnknownMode {
@@ -146,9 +147,9 @@ impl FromStr for UnknownMode {
             "ask" => Ok(Self::Ask),
             "allow" => Ok(Self::Allow),
             "deny" => Ok(Self::Deny),
-            "defer" => Ok(Self::Defer),
+            "bypass" => Ok(Self::Bypass),
             other => Err(format!(
-                "unknown unknown-mode '{other}' (supported: ask, allow, deny, defer)"
+                "unknown unknown-mode '{other}' (supported: ask, allow, deny, bypass)"
             )),
         }
     }
@@ -191,7 +192,7 @@ pub struct HookOutput {
 pub struct HookSpecificOutput {
     #[serde(rename = "hookEventName")]
     pub hook_event_name: &'static str,
-    /// Optional so we can emit a "no opinion" envelope for `--unknown defer`:
+    /// Optional so we can emit a "no opinion" envelope for `--unknown bypass`:
     /// when omitted, Claude Code falls back to its own permission flow.
     #[serde(rename = "permissionDecision")]
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -232,8 +233,10 @@ impl HookOutput {
     /// Emit an envelope with no `permissionDecision`. Claude Code interprets
     /// this as "no opinion" and falls back to its own permission flow
     /// (settings.local.json allowlists, then its native ask UI). Used by
-    /// `--unknown defer` for tools permit0 has no packs for.
-    pub fn defer() -> Self {
+    /// `--unknown bypass` for tools permit0 has no packs for. Surfaces in
+    /// the audit log as `decision_source = unknown_fallback` and shows up
+    /// under the dashboard's `bypass` filter.
+    pub fn bypass() -> Self {
         Self {
             hook_specific_output: HookSpecificOutput {
                 hook_event_name: "PreToolUse",
@@ -338,12 +341,12 @@ fn remote_response_to_hook_output(resp: &RemoteCheckResponse) -> HookOutput {
 
 /// Convert a HookOutput to (decision_label, reason) for shadow logging.
 /// Mirrors the local-path tuple shape so shadow mode prints uniformly.
-/// `defer` (no permissionDecision) is reported as `"defer"` for the log.
+/// `bypass` (no permissionDecision) is reported as `"bypass"` for the log.
 fn hook_output_summary(out: &HookOutput) -> (&'static str, String) {
     let d = out
         .hook_specific_output
         .permission_decision
-        .unwrap_or("defer");
+        .unwrap_or("bypass");
     let reason = out
         .hook_specific_output
         .permission_decision_reason
@@ -369,7 +372,7 @@ fn apply_unknown_policy(output: HookOutput, is_unknown: bool, mode: UnknownMode)
         UnknownMode::Deny => {
             HookOutput::deny("permit0: unknown action denied by --unknown deny policy".to_string())
         }
-        UnknownMode::Defer => HookOutput::defer(),
+        UnknownMode::Bypass => HookOutput::bypass(),
     }
 }
 
@@ -412,7 +415,7 @@ impl std::fmt::Display for RemoteError {
 ///
 /// `is_unknown` is intentionally always `false` here — fail-safes shouldn't
 /// be silently rewritten by `--unknown`. If the daemon was unreachable
-/// permit0 has no opinion at all, but rewriting that into `defer`/`allow`
+/// permit0 has no opinion at all, but rewriting that into `bypass`/`allow`
 /// would let outages quietly nullify governance.
 fn remote_error_to_hook_output(err: &RemoteError) -> (HookOutput, bool) {
     match err {
@@ -653,7 +656,7 @@ pub fn run(
     //   allow  → tool runs unprompted
     //   deny   → tool blocked, reason shown to user/agent
     //   ask    → user prompted; their choice routes the call
-    //   defer  → fall through to next hook / default behavior
+    //   bypass → fall through to next hook / default behavior
     let (decision_label, reason): (&'static str, String) = match result.permission {
         Permission::Allow => ("allow", String::new()),
         Permission::Deny => (
@@ -775,13 +778,13 @@ mod tests {
     }
 
     #[test]
-    fn hook_output_defer_omits_permission_decision() {
-        // Critical contract: a deferred output must serialize WITHOUT
+    fn hook_output_bypass_omits_permission_decision() {
+        // Critical contract: a bypass output must serialize WITHOUT
         // `permissionDecision` so Claude Code falls back to its native
         // permission flow (allowlists, then ask UI). If this key is
         // present — even as null — Claude Code will treat the response
         // as authoritative.
-        let json = serde_json::to_string(&HookOutput::defer()).unwrap();
+        let json = serde_json::to_string(&HookOutput::bypass()).unwrap();
         assert!(
             json.contains(r#""hookEventName":"PreToolUse""#),
             "got: {json}"
@@ -791,11 +794,11 @@ mod tests {
     }
 
     #[test]
-    fn unknown_mode_default_is_defer() {
+    fn unknown_mode_default_is_bypass() {
         // Documents the user-visible default: tools without packs fall
         // through to Claude Code's own permission flow rather than being
         // forced through permit0's "ask" UI on every call.
-        assert_eq!(UnknownMode::default(), UnknownMode::Defer);
+        assert_eq!(UnknownMode::default(), UnknownMode::Bypass);
     }
 
     #[test]
@@ -803,15 +806,19 @@ mod tests {
         assert_eq!("ask".parse::<UnknownMode>().unwrap(), UnknownMode::Ask);
         assert_eq!("allow".parse::<UnknownMode>().unwrap(), UnknownMode::Allow);
         assert_eq!("deny".parse::<UnknownMode>().unwrap(), UnknownMode::Deny);
-        assert_eq!("defer".parse::<UnknownMode>().unwrap(), UnknownMode::Defer);
+        assert_eq!(
+            "bypass".parse::<UnknownMode>().unwrap(),
+            UnknownMode::Bypass
+        );
+        assert!("defer".parse::<UnknownMode>().is_err());
         assert!("HITL".parse::<UnknownMode>().is_err());
     }
 
     #[test]
     fn apply_unknown_policy_passes_known_actions_unchanged() {
-        // Pack-backed verdicts must not be touched, even on Defer mode.
+        // Pack-backed verdicts must not be touched, even on Bypass mode.
         let out = HookOutput::ask("permit0: payment.charge — risk 70/100 High");
-        let result = apply_unknown_policy(out, false, UnknownMode::Defer);
+        let result = apply_unknown_policy(out, false, UnknownMode::Bypass);
         assert_eq!(result.hook_specific_output.permission_decision, Some("ask"),);
     }
 
@@ -828,7 +835,7 @@ mod tests {
 
         // Same for denylist hits on unknown tool names.
         let out = HookOutput::deny("operator denylist");
-        let result = apply_unknown_policy(out, true, UnknownMode::Defer);
+        let result = apply_unknown_policy(out, true, UnknownMode::Bypass);
         assert_eq!(
             result.hook_specific_output.permission_decision,
             Some("deny"),
@@ -875,9 +882,9 @@ mod tests {
     }
 
     #[test]
-    fn apply_unknown_policy_defer_mode_drops_permission_decision() {
+    fn apply_unknown_policy_bypass_mode_drops_permission_decision() {
         let out = HookOutput::ask("permit0: unknown.unclassified");
-        let result = apply_unknown_policy(out, true, UnknownMode::Defer);
+        let result = apply_unknown_policy(out, true, UnknownMode::Bypass);
         assert!(result.hook_specific_output.permission_decision.is_none());
         let json = serde_json::to_string(&result).unwrap();
         assert!(!json.contains("permissionDecision"), "got: {json}");
