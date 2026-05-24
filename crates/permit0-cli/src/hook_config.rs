@@ -44,7 +44,7 @@ pub struct HookConfigFile {
     pub remote: Option<String>,
     pub hitl_routing: Option<String>,
     pub hitl_timeout_secs: Option<u64>,
-    pub unknown_mode: Option<String>,
+    pub unknown: Option<String>,
     pub org_domain: Option<String>,
     pub client: Option<String>,
     pub shadow: Option<bool>,
@@ -56,7 +56,7 @@ pub struct ResolvedHookConfig {
     pub remote: Option<String>,
     pub hitl_routing: HitlRouting,
     pub hitl_timeout_secs: u64,
-    pub unknown_mode: UnknownMode,
+    pub unknown: UnknownMode,
     pub org_domain: String,
     pub client: ClientKind,
     pub shadow: bool,
@@ -171,9 +171,9 @@ pub fn resolve(file: HookConfigFile, env: HookEnv, cli: HookCliArgs) -> Result<R
     // hitl_timeout_secs: file-only for symmetry with hitl_routing.
     let hitl_timeout_secs = file.hitl_timeout_secs.unwrap_or(300);
 
-    // unknown_mode: cli > env > file > default(Defer)
-    let unknown_str = cli.unknown.or(env.permit0_unknown).or(file.unknown_mode);
-    let unknown_mode = match unknown_str {
+    // unknown: cli > env > file > default(Defer)
+    let unknown_str = cli.unknown.or(env.permit0_unknown).or(file.unknown);
+    let unknown = match unknown_str {
         Some(s) => UnknownMode::from_str(&s).map_err(anyhow::Error::msg)?,
         None => UnknownMode::default(),
     };
@@ -204,7 +204,7 @@ pub fn resolve(file: HookConfigFile, env: HookEnv, cli: HookCliArgs) -> Result<R
         remote,
         hitl_routing,
         hitl_timeout_secs,
-        unknown_mode,
+        unknown,
         org_domain,
         client,
         shadow,
@@ -236,7 +236,7 @@ mod tests {
 remote: "http://127.0.0.1:9090"
 hitl_routing: "ui-wait"
 hitl_timeout_secs: 600
-unknown_mode: "defer"
+unknown: "defer"
 org_domain: "acme.example"
 client: "claude-code"
 shadow: true
@@ -245,7 +245,7 @@ shadow: true
         assert_eq!(f.remote.as_deref(), Some("http://127.0.0.1:9090"));
         assert_eq!(f.hitl_routing.as_deref(), Some("ui-wait"));
         assert_eq!(f.hitl_timeout_secs, Some(600));
-        assert_eq!(f.unknown_mode.as_deref(), Some("defer"));
+        assert_eq!(f.unknown.as_deref(), Some("defer"));
         assert_eq!(f.org_domain.as_deref(), Some("acme.example"));
         assert_eq!(f.client.as_deref(), Some("claude-code"));
         assert_eq!(f.shadow, Some(true));
@@ -274,7 +274,7 @@ shadow: true
         assert!(r.remote.is_none());
         assert_eq!(r.hitl_routing, HitlRouting::CcPrompt);
         assert_eq!(r.hitl_timeout_secs, 300);
-        assert_eq!(r.unknown_mode, UnknownMode::default());
+        assert_eq!(r.unknown, UnknownMode::default());
         assert_eq!(r.org_domain, "default.org");
         assert_eq!(r.client, ClientKind::default());
         assert!(!r.shadow);
@@ -294,6 +294,23 @@ shadow: true
         assert_eq!(r.hitl_timeout_secs, 120);
         assert_eq!(r.org_domain, "acme.example");
         assert!(r.shadow);
+    }
+
+    #[test]
+    fn resolve_org_domain_and_unknown_from_file_when_cli_absent() {
+        // Regression: the dispatcher used to wrap clap's `default_value`
+        // for `org_domain` / `unknown` in `Some(...)` before passing it
+        // here, which silently won the precedence layering. After the
+        // fix both flags are plain `Option<String>` with `None` when
+        // the user did not pass them, so the file values win.
+        let file = HookConfigFile {
+            org_domain: Some("acme.example".into()),
+            unknown: Some("allow".into()),
+            ..HookConfigFile::default()
+        };
+        let r = resolve(file, empty_env(), empty_cli()).unwrap();
+        assert_eq!(r.org_domain, "acme.example");
+        assert_eq!(r.unknown, UnknownMode::Allow);
     }
 
     #[test]
@@ -341,9 +358,9 @@ shadow: true
     }
 
     #[test]
-    fn resolve_invalid_unknown_mode_is_fatal() {
+    fn resolve_invalid_unknown_is_fatal() {
         let file = HookConfigFile {
-            unknown_mode: Some("yolo".into()),
+            unknown: Some("yolo".into()),
             ..HookConfigFile::default()
         };
         let err = resolve(file, empty_env(), empty_cli()).unwrap_err();

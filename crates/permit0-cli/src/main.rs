@@ -40,9 +40,11 @@ enum Commands {
         /// Domain profile to use
         #[arg(long)]
         profile: Option<String>,
-        /// Organization domain
-        #[arg(long, default_value = "default.org")]
-        org_domain: String,
+        /// Organization domain. Falls back to `org_domain` in the hook
+        /// config file, then to "default.org" if neither is set, so the
+        /// file can be authoritative for everyday operators.
+        #[arg(long)]
+        org_domain: Option<String>,
         /// SQLite database path for session persistence
         #[arg(long)]
         db: Option<String>,
@@ -89,7 +91,8 @@ enum Commands {
         ///   defer  — emit no permissionDecision; Claude Code's own
         ///            permission flow handles it (default)
         ///
-        /// Override via PERMIT0_UNKNOWN env var.
+        /// Override via PERMIT0_UNKNOWN env var. When unset on the CLI,
+        /// env, and config file, the resolver defaults to `defer`.
         #[arg(long, value_name = "MODE")]
         unknown: Option<String>,
         /// Path to the hook config YAML file. Discovery order:
@@ -280,15 +283,16 @@ fn main() -> anyhow::Result<()> {
             let explicit_path = config.as_deref().map(PathBuf::from);
             let (file, _used_path) = hook_config::load(explicit_path.as_deref())?;
             let env = hook_config::HookEnv::from_process();
-            // The current Hook variant always provides an org_domain
-            // (default "default.org"). We treat the CLI value as
-            // authoritative so the precedence rule remains
-            // file < env < CLI — operators can still override via
-            // the existing flag without surprises.
+            // All fields below are honest `Option`s — `None` means the
+            // user did not pass the flag, so the resolver can layer
+            // env > file > built-in default underneath. (If we wrapped
+            // a clap-default value in `Some(...)` here, the CLI layer
+            // would always win and the config file would be silently
+            // ignored.)
             let cli = hook_config::HookCliArgs {
                 remote,
                 unknown,
-                org_domain: Some(org_domain),
+                org_domain,
                 client,
                 shadow: if shadow { Some(true) } else { None },
             };
@@ -302,7 +306,7 @@ fn main() -> anyhow::Result<()> {
                 resolved.shadow,
                 resolved.client,
                 resolved.remote,
-                resolved.unknown_mode,
+                resolved.unknown,
                 resolved.hitl_routing,
                 resolved.hitl_timeout_secs,
             )

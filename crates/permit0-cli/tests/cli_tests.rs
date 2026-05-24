@@ -7,6 +7,15 @@ fn permit0_bin() -> Command {
     let mut cmd = Command::new(env!("CARGO_BIN_EXE_permit0"));
     // Run from the workspace root so packs/ and profiles/ are found
     cmd.current_dir(env!("CARGO_MANIFEST_DIR").to_string() + "/../..");
+    // Isolate from the developer's $HOME so a real `~/.permit0/config.yaml`
+    // doesn't bleed into hermetic CLI tests. The crate dir has no
+    // `.permit0/` subdir, so discovery short-circuits.
+    cmd.env("HOME", env!("CARGO_MANIFEST_DIR"));
+    cmd.env_remove("PERMIT0_CONFIG");
+    cmd.env_remove("PERMIT0_REMOTE");
+    cmd.env_remove("PERMIT0_UNKNOWN");
+    cmd.env_remove("PERMIT0_CLIENT");
+    cmd.env_remove("PERMIT0_SHADOW");
     cmd
 }
 
