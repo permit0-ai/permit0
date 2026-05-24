@@ -1800,9 +1800,11 @@ select.input{padding-right:22px}
     }).join('');
   }
 
-  // Render the entity payload + risk flags so the human can audit before
-  // approving. Long string values (body, etc.) are rendered with line breaks
-  // preserved so multi-line emails are readable.
+  // Render the full normalized action the engine scored: taxonomy
+  // metadata (domain / verb / channel), the raw MCP tool surface, the
+  // norm_hash (handy for denylist/allowlist), risk flags, and the
+  // entity payload extracted by the normalizer. The reviewer should be
+  // able to audit everything permit0 saw — not just the action verb.
   function renderApprovalDetails(a) {
     var html = '';
     var flags = (a.flags && a.flags.length) ? a.flags : [];
@@ -1811,6 +1813,31 @@ select.input{padding-right:22px}
         + flags.map(function(f) { return '<span class="badge badge-flag">' + esc(f) + '</span>'; }).join(' ')
         + '</div>';
     }
+
+    // Action metadata table — always rendered; these fields are
+    // present on every approval (taxonomy guarantees them).
+    var actionRows = [
+      ['Action', a.action_type || ''],
+      ['Domain', a.domain || ''],
+      ['Verb', a.verb || ''],
+      ['Channel', a.channel || ''],
+      ['Surface tool', a.surface_tool || ''],
+      ['Surface command', a.surface_command || ''],
+      ['Norm hash', a.norm_hash || '']
+    ].map(function(pair) {
+      var k = pair[0], v = pair[1];
+      var displayValue = v
+        ? '<div class="kv-value-string">' + esc(v) + '</div>'
+        : '<span class="kv-null">—</span>';
+      return '<tr><td class="kv-key">' + esc(k) + '</td><td class="kv-value">' + displayValue + '</td></tr>';
+    }).join('');
+    html += '<details class="approval-entities" open>'
+      + '<summary>Action (7 fields)</summary>'
+      + '<table class="kv-table"><tbody>' + actionRows + '</tbody></table>'
+      + '</details>';
+
+    // Parameter payload — what the normalizer extracted from the
+    // agent's tool call. Domain-agnostic title (was "Message details").
     var ents = a.entities || {};
     var keys = Object.keys(ents);
     if (keys.length) {
@@ -1829,7 +1856,7 @@ select.input{padding-right:22px}
         return '<tr><td class="kv-key">' + esc(k) + '</td><td class="kv-value">' + displayValue + '</td></tr>';
       }).join('');
       html += '<details class="approval-entities" open>'
-        + '<summary>Message details (' + keys.length + ' field' + (keys.length === 1 ? '' : 's') + ')</summary>'
+        + '<summary>Parameters (' + keys.length + ' field' + (keys.length === 1 ? '' : 's') + ')</summary>'
         + '<table class="kv-table"><tbody>' + rows + '</tbody></table>'
         + '</details>';
     }

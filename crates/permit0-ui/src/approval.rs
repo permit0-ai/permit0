@@ -34,11 +34,31 @@ pub struct HumanDecision {
 }
 
 /// Summary of a pending approval for the API response.
+///
+/// Surfaces the complete `NormAction` that permit0 was asked to score —
+/// not just the entity payload — so the human reviewer can audit
+/// everything the engine saw: the `domain.verb` taxonomy classification,
+/// the upstream MCP tool name + raw command, and the norm_hash they
+/// would deny/allow-list against.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PendingApprovalSummary {
     pub approval_id: String,
+    /// `domain.verb` e.g. `email.delete` (canonical taxonomy form).
     pub action_type: String,
+    /// Domain alone, split from `action_type` (e.g. `email`).
+    pub domain: String,
+    /// Verb alone, split from `action_type` (e.g. `delete`).
+    pub verb: String,
     pub channel: String,
+    /// The original MCP tool the agent invoked, before normalization
+    /// (e.g. `gmail_delete`). Useful when a single `domain.verb` can be
+    /// reached through several different tool surfaces.
+    pub surface_tool: String,
+    /// Audit-friendly stringification of the original tool call.
+    pub surface_command: String,
+    /// 32-byte hex norm_hash. Operators can copy this into the
+    /// denylist/allowlist forms to make the verdict stick.
+    pub norm_hash: String,
     pub risk_score: u32,
     pub tier: String,
     pub created_at: String,
@@ -119,15 +139,27 @@ impl ApprovalManager {
         let guard = self.pending.lock().unwrap();
         guard
             .values()
-            .map(|p| PendingApprovalSummary {
-                approval_id: p.approval_id.clone(),
-                action_type: p.norm_action.action_type.as_action_str(),
-                channel: p.norm_action.channel.clone(),
-                risk_score: p.risk_score.score,
-                tier: p.risk_score.tier.to_string(),
-                created_at: p.created_at.clone(),
-                entities: p.norm_action.entities.clone(),
-                flags: p.risk_score.flags.clone(),
+            .map(|p| {
+                let action_type_str = p.norm_action.action_type.as_action_str();
+                let (domain, verb) = match action_type_str.split_once('.') {
+                    Some((d, v)) => (d.to_string(), v.to_string()),
+                    None => (action_type_str.clone(), String::new()),
+                };
+                PendingApprovalSummary {
+                    approval_id: p.approval_id.clone(),
+                    action_type: action_type_str,
+                    domain,
+                    verb,
+                    channel: p.norm_action.channel.clone(),
+                    surface_tool: p.norm_action.execution.surface_tool.clone(),
+                    surface_command: p.norm_action.execution.surface_command.clone(),
+                    norm_hash: hex::encode(p.norm_action.norm_hash()),
+                    risk_score: p.risk_score.score,
+                    tier: p.risk_score.tier.to_string(),
+                    created_at: p.created_at.clone(),
+                    entities: p.norm_action.entities.clone(),
+                    flags: p.risk_score.flags.clone(),
+                }
             })
             .collect()
     }
