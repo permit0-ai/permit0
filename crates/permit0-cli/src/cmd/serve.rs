@@ -115,6 +115,20 @@ fn should_dispatch_ui_wait(field: Option<&str>) -> bool {
     matches!(field, Some("ui-wait") | Some("ui_wait"))
 }
 
+/// Does this engine verdict warrant blocking on the ui-wait approval
+/// dashboard? Only HumanInTheLoop verdicts produced by actual risk
+/// scoring qualify — `UnknownFallback` HITL is the engine saying "I
+/// have no opinion", and the hook's `--unknown` policy is what the
+/// operator configured to handle that case. Intercepting here would
+/// override their bypass and defeat the whole point of `--unknown`.
+fn verdict_qualifies_for_ui_wait(
+    permission: permit0_types::Permission,
+    source: DecisionSource,
+) -> bool {
+    matches!(permission, permit0_types::Permission::HumanInTheLoop)
+        && source != DecisionSource::UnknownFallback
+}
+
 /// POST /api/v1/check handler.
 async fn check_handler(
     State(state): State<ServerState>,
@@ -172,25 +186,26 @@ async fn check_handler(
         )
     })?;
 
-    // ui-wait dispatch: only when the verdict is genuinely HITL.
-    let result =
-        if want_ui_wait && matches!(result.permission, permit0_types::Permission::HumanInTheLoop) {
-            let manager = state
-                .approval_manager
-                .as_ref()
-                .expect("checked above")
-                .clone();
-            await_ui_wait_approval(
-                manager,
-                state.engine.state(),
-                result.norm_action,
-                result.risk_score,
-                ui_wait_timeout,
-            )
-            .await?
-        } else {
-            result
-        };
+    // ui-wait dispatch: only when the verdict is genuinely HITL AND the
+    // engine actually scored the action. See `verdict_qualifies_for_ui_wait`.
+    let result = if want_ui_wait && verdict_qualifies_for_ui_wait(result.permission, result.source)
+    {
+        let manager = state
+            .approval_manager
+            .as_ref()
+            .expect("checked above")
+            .clone();
+        await_ui_wait_approval(
+            manager,
+            state.engine.state(),
+            result.norm_action,
+            result.risk_score,
+            ui_wait_timeout,
+        )
+        .await?
+    } else {
+        result
+    };
 
     let (result, meta) = apply_calibration(&state, result).await?;
 
@@ -1237,6 +1252,37 @@ mod tests {
     fn ui_wait_requested_returns_true_when_field_matches() {
         assert!(should_dispatch_ui_wait(Some("ui-wait")));
         assert!(should_dispatch_ui_wait(Some("ui_wait")));
+    }
+
+    #[test]
+    fn verdict_qualifies_for_ui_wait_only_for_scored_hitl() {
+        use permit0_types::Permission;
+        // Real HITL — from the scorer or agent reviewer — IS the case
+        // ui-wait was designed for.
+        assert!(verdict_qualifies_for_ui_wait(
+            Permission::HumanInTheLoop,
+            DecisionSource::Scorer
+        ));
+        assert!(verdict_qualifies_for_ui_wait(
+            Permission::HumanInTheLoop,
+            DecisionSource::AgentReviewer
+        ));
+        // Unknown-fallback HITL is the engine saying "no opinion" — the
+        // hook's `--unknown` policy handles it; ui-wait must NOT park
+        // the operator with `unknown: defer` set.
+        assert!(!verdict_qualifies_for_ui_wait(
+            Permission::HumanInTheLoop,
+            DecisionSource::UnknownFallback
+        ));
+        // Non-HITL verdicts never park, regardless of source.
+        assert!(!verdict_qualifies_for_ui_wait(
+            Permission::Allow,
+            DecisionSource::Scorer
+        ));
+        assert!(!verdict_qualifies_for_ui_wait(
+            Permission::Deny,
+            DecisionSource::Scorer
+        ));
     }
 
     #[test]
