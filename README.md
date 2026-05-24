@@ -27,26 +27,37 @@ The vocabulary is published. The first pack is shipped. The rest is the work.
 
 > **On OpenClaw?** Skip to [`integrations/permit0-openclaw/`](integrations/permit0-openclaw/) — wrap a skill with `permit0Skill(...)` and gate every dispatch through the same daemon. The rest of this section is the Claude Code path.
 
+Docker brings up everything except the per-call hook binary: the engine + dashboard (`:9090`), Gmail MCP (`:8000`), Outlook MCP (`:8001`). Prefer a from-source build, or need finer control? See [`docs/installation.md`](docs/installation.md).
+
 ```bash
-# 1. Build
-git clone https://github.com/permit0-ai/permit0.git && cd permit0
-cargo build --release
-
-# 2. Run server 
-cargo run -p permit0-cli -- serve --ui --port 9090
-
-# Open http://localhost:9090/ui/
-
-# 3. MCP servers (in another terminal — see github.com/permit0-ai/permit0-mcp)
+# 1. Clone the engine and the MCP servers side-by-side
+git clone https://github.com/permit0-ai/permit0.git
 git clone https://github.com/permit0-ai/permit0-mcp.git
-pip install -e permit0-mcp/outlook-mcp    # 13 outlook_* tools
-pip install -e permit0-mcp/gmail-mcp      # 13 gmail_*  tools  (skip if unused)
 
-# 4. One-time auth (zero-config for Outlook; Gmail needs a Google OAuth app)
-python -c "from permit0_outlook_mcp.auth import get_token; get_token()"
+# 2. Engine + dashboard (Postgres state + audit + ed25519 signing key)
+cd permit0 && docker compose up -d --build
+# → http://localhost:9090/ui/
+
+# 3. Gmail + Outlook MCP servers (HTTP transport, talk to the engine on the host)
+cd ../permit0-mcp && docker compose up -d --build
+# OAuth setup per server: see permit0-mcp/{gmail,outlook}-mcp/README.md
+
+# 4. Extract the host-side hook binary from the engine image (no Rust needed)
+cd ../permit0
+docker create --name _p0tmp permit0-engine:latest
+docker cp _p0tmp:/usr/local/bin/permit0 ~/.local/bin/permit0
+docker rm _p0tmp && chmod +x ~/.local/bin/permit0
 ```
 
-Wire into Claude Code with two files (use absolute paths — `~` doesn't expand in JSON):
+Now wire Claude Code with two files (use absolute paths — `~` doesn't expand in JSON):
+
+```yaml
+# ~/.permit0/config.yaml — read by the hook on every call
+remote: "http://127.0.0.1:9090"
+hitl_routing: "ui-wait"        # block at the dashboard; alternative: "cc-prompt"
+org_domain: "yourcompany.com"  # drives internal/external recipient classification
+unknown: "defer"               # tools with no pack fall through to CC's permission flow
+```
 
 ```jsonc
 // ~/.claude/settings.json — gates every tool call before it runs
@@ -54,26 +65,21 @@ Wire into Claude Code with two files (use absolute paths — `~` doesn't expand 
   "hooks": {
     "PreToolUse": [{ "hooks": [{
       "type": "command",
-      "command": "/abs/path/to/permit0 hook --remote http://127.0.0.1:9090 --unknown defer"
+      "command": "/abs/path/to/permit0 hook"
     }]}]
-  }
-}
-```
-
-`--remote <url>` forwards each call to the daemon you started in step 2, so the hook and dashboard share one engine instance and one audit trail. `--unknown <mode>` controls what happens when permit0 has no pack for a tool — `defer` (recommended) returns "no opinion" and lets Claude Code's normal permission flow handle it; alternatives are `ask`, `allow`, `deny`.
-
-```jsonc
-{
+  },
   "mcpServers": {
-    "permit0-outlook": { "command": "/abs/path/to/permit0-outlook-mcp" },
-    "permit0-gmail":   { "command": "/abs/path/to/permit0-gmail-mcp" }
+    "permit0-gmail":   { "type": "http", "url": "http://localhost:8000/mcp" },
+    "permit0-outlook": { "type": "http", "url": "http://localhost:8001/mcp" }
   }
 }
 ```
 
-Restart Claude Code. Ask it: *"list recent emails and archive any newsletters,"* then *"send alice@example.com a draft of my notes."* Every action shows up in the dashboard's **Approvals** tab with Permit0's tier, the risk flags that fired (`OUTBOUND`, `EXPOSURE`, `GOVERNANCE`, …), and the full message body. Approve or deny; verdicts cache in the policy store. Once calibration agrees with you, drop `--calibrate` to enforce.
+The hook reads `~/.permit0/config.yaml` each invocation; `remote:` points it at the daemon, `hitl_routing: "ui-wait"` blocks the call at `:9090/ui/approvals` until you approve, `org_domain:` is the per-request override that drives internal/external recipient classification, and `unknown: "defer"` returns "no opinion" so Claude Code's normal permission flow handles tools without a pack. Alternatives for `unknown:` are `ask` / `allow` / `deny`.
 
-Shadow mode (`permit0 hook --shadow`) logs decisions without blocking, if you want to observe before enforcing.
+Restart Claude Code. Ask it: *"list recent emails and archive any newsletters,"* then *"send alice@external.com a draft of my notes."* Every action shows up in the dashboard's **Approvals** tab with Permit0's tier, the risk flags that fired (`OUTBOUND`, `EXPOSURE`, `GOVERNANCE`, …), the full normalized action (domain.verb + surface tool + norm_hash), and the message body. Approve or deny; verdicts cache in the policy store.
+
+Shadow mode (`permit0 hook --shadow` or `PERMIT0_SHADOW=1`) logs decisions without blocking — useful for observing before you enforce.
 
 ---
 
