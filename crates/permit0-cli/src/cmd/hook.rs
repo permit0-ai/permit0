@@ -434,12 +434,18 @@ fn remote_error_to_hook_output(err: &RemoteError) -> (HookOutput, bool) {
 /// requests without change.
 fn build_check_body(
     tool_call: &RawToolCall,
+    org_domain: &str,
     routing: crate::hook_config::HitlRouting,
     timeout_secs: u64,
 ) -> serde_json::Value {
     let mut body = serde_json::json!({
         "tool_name": tool_call.tool_name,
         "parameters": tool_call.parameters,
+        // Hook-resolved org_domain overrides the daemon's own default so
+        // `~/.permit0/config.yaml` controls internal/external recipient
+        // classification (and any other org-aware normalizer). Daemons
+        // that ignore the field fall back to their --org-domain.
+        "org_domain": org_domain,
     });
     if matches!(routing, crate::hook_config::HitlRouting::UiWait) {
         let map = body.as_object_mut().expect("body is an object");
@@ -463,11 +469,12 @@ fn build_check_body(
 fn evaluate_remote_with_meta(
     remote: &str,
     tool_call: &RawToolCall,
+    org_domain: &str,
     routing: crate::hook_config::HitlRouting,
     timeout_secs: u64,
 ) -> std::result::Result<(HookOutput, bool), RemoteError> {
     let endpoint = build_check_endpoint(remote);
-    let body = build_check_body(tool_call, routing, timeout_secs);
+    let body = build_check_body(tool_call, org_domain, routing, timeout_secs);
 
     let response = match ureq::post(&endpoint)
         .set("content-type", "application/json")
@@ -546,6 +553,7 @@ pub fn run(
         let (output, is_unknown) = match evaluate_remote_with_meta(
             &remote_url,
             &tool_call,
+            org_domain,
             hitl_routing,
             hitl_timeout_secs,
         ) {
@@ -1280,17 +1288,25 @@ mod tests {
 
     #[test]
     fn build_check_body_omits_hitl_fields_when_default() {
-        // cc-prompt is the default — body should match today's exact shape
-        // (no hitl_* fields) so existing daemons keep accepting requests.
+        // cc-prompt is the default — body should not contain the hitl_*
+        // fields. org_domain is always present so older daemons that
+        // ignore it still work, while newer daemons normalize against
+        // the hook's resolved value.
         let tool_call = RawToolCall {
             tool_name: "Bash".into(),
             parameters: serde_json::json!({"command": "ls"}),
             metadata: Default::default(),
         };
-        let body = build_check_body(&tool_call, crate::hook_config::HitlRouting::CcPrompt, 300);
+        let body = build_check_body(
+            &tool_call,
+            "acme.example",
+            crate::hook_config::HitlRouting::CcPrompt,
+            300,
+        );
         assert!(!body.to_string().contains("hitl_routing"), "got: {body}");
         assert!(!body.to_string().contains("hitl_timeout"), "got: {body}");
         assert_eq!(body["tool_name"], "Bash");
+        assert_eq!(body["org_domain"], "acme.example");
     }
 
     #[test]
@@ -1300,8 +1316,14 @@ mod tests {
             parameters: serde_json::json!({"command": "ls"}),
             metadata: Default::default(),
         };
-        let body = build_check_body(&tool_call, crate::hook_config::HitlRouting::UiWait, 420);
+        let body = build_check_body(
+            &tool_call,
+            "acme.example",
+            crate::hook_config::HitlRouting::UiWait,
+            420,
+        );
         assert_eq!(body["hitl_routing"], "ui-wait");
         assert_eq!(body["hitl_timeout_secs"], 420);
+        assert_eq!(body["org_domain"], "acme.example");
     }
 }

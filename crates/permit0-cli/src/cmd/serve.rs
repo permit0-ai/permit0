@@ -81,6 +81,12 @@ struct CheckRequest {
     /// `permission: "deny"` with an "approval timed out" reason.
     #[serde(default)]
     hitl_timeout_secs: Option<u64>,
+    /// Override for the daemon's `--org-domain` on a per-request basis.
+    /// Lets a hook configured via `~/.permit0/config.yaml` control
+    /// internal/external recipient classification without reconfiguring
+    /// the daemon. Falls back to `state.org_domain` when absent.
+    #[serde(default)]
+    org_domain: Option<String>,
 }
 
 /// Response for POST /api/v1/check.
@@ -127,6 +133,12 @@ async fn check_handler(
     // Pull routing knobs out before moving the rest into `tool_call`.
     let want_ui_wait = should_dispatch_ui_wait(req.hitl_routing.as_deref());
     let ui_wait_timeout = std::time::Duration::from_secs(req.hitl_timeout_secs.unwrap_or(300));
+    // Hook-supplied org_domain wins; fall back to the daemon's own.
+    let effective_org_domain = req
+        .org_domain
+        .as_deref()
+        .unwrap_or(state.org_domain.as_str())
+        .to_string();
 
     let tool_call = RawToolCall {
         tool_name: stripped_tool_name,
@@ -144,7 +156,7 @@ async fn check_handler(
         ));
     }
 
-    let mut ctx = PermissionCtx::new(NormalizeCtx::new().with_org_domain(&state.org_domain))
+    let mut ctx = PermissionCtx::new(NormalizeCtx::new().with_org_domain(&effective_org_domain))
         .with_skip_audit(state.calibrate);
     if let Some(sid) = session_id {
         ctx = ctx.with_session(SessionContext::new(sid));
@@ -1202,6 +1214,23 @@ mod tests {
         let req: CheckRequest = serde_json::from_str(json).unwrap();
         assert!(req.hitl_routing.is_none());
         assert!(req.hitl_timeout_secs.is_none());
+        // org_domain is the same shape — also defaults to None so the
+        // handler falls back to state.org_domain.
+        assert!(req.org_domain.is_none());
+    }
+
+    #[test]
+    fn check_request_accepts_org_domain_override() {
+        // The hook posts this so `~/.permit0/config.yaml`'s `org_domain`
+        // wins over the daemon's --org-domain for the request's
+        // internal/external recipient classification.
+        let json = r#"{
+            "tool_name": "gmail_send",
+            "parameters": {"to": "bob@permit0.com"},
+            "org_domain": "permit0.com"
+        }"#;
+        let req: CheckRequest = serde_json::from_str(json).unwrap();
+        assert_eq!(req.org_domain.as_deref(), Some("permit0.com"));
     }
 
     #[test]
