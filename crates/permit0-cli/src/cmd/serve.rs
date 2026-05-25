@@ -537,15 +537,13 @@ async fn apply_calibration(
     //     bypass for the same `norm_hash`. Each unknown call should
     //     surface afresh so operators can decide each time (or write a
     //     pack to make it `Scorer`-tier).
-    let should_cache = decision.permission != permit0_types::Permission::HumanInTheLoop
-        && original_source != DecisionSource::UnknownFallback;
-    if should_cache {
-        let _ = state
-            .engine
-            .state()
-            .policy_cache_set(norm_hash, decision.permission, None)
-            .await;
-    }
+    // Policy: HITL-originated decisions are NEVER cached, even after a
+    // human approves or denies. Every Medium-tier (or higher) action
+    // must re-prompt the reviewer on each call — a one-time approval
+    // must not silently whitelist the same norm_hash forever.
+    // See companion guard in await_ui_wait_approval().
+    let _ = norm_hash;
+    let _ = original_source;
 
     let meta = CalibrationMeta {
         engine_permission: Some(original_permission),
@@ -627,15 +625,13 @@ pub(crate) async fn await_ui_wait_approval(
 
     match timeout_outcome {
         Ok(Ok(decision)) => {
-            // Persist the resolution and update the cache so the next
-            // identical call hits the cache instead of re-prompting.
-            // Per spec §4.2 step 4(i), do NOT cache HumanInTheLoop verdicts —
-            // that would pin the call and re-park the operator on every retry.
-            if decision.permission != Permission::HumanInTheLoop {
-                let _ = policy_state
-                    .policy_cache_set(norm_hash, decision.permission, risk_score.clone())
-                    .await;
-            }
+            // Policy: HITL-originated decisions are NEVER cached, even
+            // after a human approves or denies. Every Medium-tier (or
+            // higher) action must re-prompt the reviewer on each call.
+            // A one-time approval must not silently whitelist the same
+            // norm_hash. See companion guard in apply_calibration().
+            let _ = norm_hash;
+            let _ = risk_score;
             let _ = policy_state
                 .approval_resolve(
                     &approval_id,
