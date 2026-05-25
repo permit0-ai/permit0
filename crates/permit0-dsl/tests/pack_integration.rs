@@ -57,9 +57,9 @@ fn gmail_normalizes_send() {
     let norm = n.normalize(&raw, &ctx).unwrap();
 
     assert_eq!(norm.action_type.as_action_str(), "email.send");
-    assert_eq!(norm.channel, "gmail");
-    assert_eq!(norm.entities["to"], json!("bob@external.com"));
-    assert_eq!(norm.entities["domain"], json!("external.com"));
+    assert_eq!(norm.source, "gmail");
+    assert_eq!(norm.parameters["to"], json!("bob@external.com"));
+    assert_eq!(norm.parameters["domain"], json!("external.com"));
 }
 
 #[test]
@@ -80,9 +80,9 @@ fn outlook_normalizes_send() {
     let norm = n.normalize(&raw, &ctx).unwrap();
 
     assert_eq!(norm.action_type.as_action_str(), "email.send");
-    assert_eq!(norm.channel, "outlook");
-    assert_eq!(norm.entities["to"], json!("alice@external.com"));
-    assert_eq!(norm.entities["domain"], json!("external.com"));
+    assert_eq!(norm.source, "outlook");
+    assert_eq!(norm.parameters["to"], json!("alice@external.com"));
+    assert_eq!(norm.parameters["domain"], json!("external.com"));
 }
 
 // Regression: NormalizeCtx::org_domain must reach `recipient_scope` so that
@@ -103,7 +103,7 @@ fn gmail_recipient_scope_uses_org_domain_from_ctx() {
     };
     let ctx = NormalizeCtx::new().with_org_domain("acme.com");
     let norm = n.normalize(&raw, &ctx).unwrap();
-    assert_eq!(norm.entities["recipient_scope"], json!("self"));
+    assert_eq!(norm.parameters["recipient_scope"], json!("self"));
 
     // External recipient stays external.
     let raw_ext = RawToolCall {
@@ -116,7 +116,7 @@ fn gmail_recipient_scope_uses_org_domain_from_ctx() {
         metadata: Default::default(),
     };
     let norm_ext = n.normalize(&raw_ext, &ctx).unwrap();
-    assert_eq!(norm_ext.entities["recipient_scope"], json!("external"));
+    assert_eq!(norm_ext.parameters["recipient_scope"], json!("external"));
 }
 
 // Regression: the canonical `permit0-gmail` MCP wrapper sends `gmail_read`
@@ -139,8 +139,8 @@ fn gmail_normalizes_read_message_id() {
         .expect("gmail_read must extract message_id from canonical wrapper params");
 
     assert_eq!(norm.action_type.as_action_str(), "email.read");
-    assert_eq!(norm.channel, "gmail");
-    assert_eq!(norm.entities["message_id"], json!("19e03c9bf13c2edf"));
+    assert_eq!(norm.source, "gmail");
+    assert_eq!(norm.parameters["message_id"], json!("19e03c9bf13c2edf"));
 }
 
 // Regression: hooks reported "missing required field 'message_id' in tool
@@ -162,7 +162,7 @@ fn gmail_normalizes_delete_canonical_message_id() {
         .normalize(&raw, &NormalizeCtx::new())
         .expect("canonical permit0 wrapper params must extract");
     assert_eq!(norm.action_type.as_action_str(), "email.delete");
-    assert_eq!(norm.entities["message_id"], json!("19e1366cc00beb46"));
+    assert_eq!(norm.parameters["message_id"], json!("19e1366cc00beb46"));
 }
 
 #[test]
@@ -176,7 +176,7 @@ fn gmail_normalizes_delete_google_id_fallback() {
     let norm = n
         .normalize(&raw, &NormalizeCtx::new())
         .expect("Google-style `id` parameter must fall back from `from_any`");
-    assert_eq!(norm.entities["message_id"], json!("19e1366cc00beb46"));
+    assert_eq!(norm.parameters["message_id"], json!("19e1366cc00beb46"));
 }
 
 #[test]
@@ -202,9 +202,9 @@ fn outlook_does_not_match_gmail_tool() {
 }
 
 // Regression: the `external recipient` rule in send.yaml should fire when
-// `entity.recipient_scope == "external"` and add GOVERNANCE+PRIVILEGE flags.
+// `parameter.recipient_scope == "external"` and add GOVERNANCE+PRIVILEGE flags.
 // The rule originally referenced `recipient_scope` (top-level), but the engine
-// merges entities under a sibling `entity` object — so the predicate resolved
+// merges parameters under a sibling `parameter` object — so the predicate resolved
 // to None and the rule silently never fired, leaving external sends in LOW.
 #[test]
 fn email_risk_external_recipient_fires_governance() {
@@ -213,7 +213,7 @@ fn email_risk_external_recipient_fires_governance() {
         "to": "huiying.lan93@gmail.com",
         "subject": "hello",
         "body": "hello",
-        "entity": {
+        "parameter": {
             "to": "huiying.lan93@gmail.com",
             "recipient_scope": "external",
             "domain": "gmail.com"

@@ -6,16 +6,16 @@ use serde_json::Value;
 
 use crate::eval::path::resolve_path;
 use crate::helpers::HelperFn;
-use crate::schema::normalizer::EntityDef;
+use crate::schema::normalizer::ParameterDef;
 
-/// Extract entities from raw parameters according to entity definitions.
-pub fn extract_entities(
+/// Extract parameters from raw inputs according to parameter definitions.
+pub fn extract_parameters(
     params: &Value,
-    entity_defs: &HashMap<String, EntityDef>,
+    parameter_defs: &HashMap<String, ParameterDef>,
     helpers: &HashMap<&str, (HelperFn, usize)>,
-) -> Result<HashMap<String, Value>, EntityError> {
+) -> Result<HashMap<String, Value>, ParameterError> {
     let mut result = HashMap::new();
-    for (name, def) in entity_defs {
+    for (name, def) in parameter_defs {
         let val = extract_one(params, def, helpers)?;
         let is_required = def.required.unwrap_or(false);
         let is_optional = def.optional.unwrap_or(false);
@@ -26,7 +26,7 @@ pub fn extract_entities(
             }
             None => {
                 if is_required && !is_optional {
-                    return Err(EntityError::MissingRequired(name.clone()));
+                    return Err(ParameterError::MissingRequired(name.clone()));
                 }
                 if let Some(ref default) = def.default {
                     result.insert(name.clone(), default.clone());
@@ -39,12 +39,12 @@ pub fn extract_entities(
 
 fn extract_one(
     params: &Value,
-    def: &EntityDef,
+    def: &ParameterDef,
     helpers: &HashMap<&str, (HelperFn, usize)>,
-) -> Result<Option<Value>, EntityError> {
+) -> Result<Option<Value>, ParameterError> {
     // If compute is specified, use a helper function
     if let Some(ref compute) = def.compute {
-        return compute_entity(params, compute, def.args.as_deref(), helpers);
+        return compute_parameter(params, compute, def.args.as_deref(), helpers);
     }
 
     // Try the primary `from` path first, then any `from_any` fallbacks.
@@ -97,19 +97,19 @@ fn resolve_first(
     None
 }
 
-fn compute_entity(
+fn compute_parameter(
     params: &Value,
     helper_name: &str,
     args: Option<&[String]>,
     helpers: &HashMap<&str, (HelperFn, usize)>,
-) -> Result<Option<Value>, EntityError> {
+) -> Result<Option<Value>, ParameterError> {
     let (func, arity) = helpers
         .get(helper_name)
-        .ok_or_else(|| EntityError::UnknownHelper(helper_name.to_string()))?;
+        .ok_or_else(|| ParameterError::UnknownHelper(helper_name.to_string()))?;
 
     let arg_paths = args.unwrap_or(&[]);
     if arg_paths.len() != *arity {
-        return Err(EntityError::ArityMismatch {
+        return Err(ParameterError::ArityMismatch {
             helper: helper_name.to_string(),
             expected: *arity,
             got: arg_paths.len(),
@@ -161,7 +161,7 @@ fn coerce_to_bool(v: &Value) -> Value {
     }
 }
 
-fn apply_transforms(v: &Value, def: &EntityDef) -> Value {
+fn apply_transforms(v: &Value, def: &ParameterDef) -> Value {
     let mut val = v.clone();
     if let Value::String(ref mut s) = val {
         if def.trim.unwrap_or(false) {
@@ -177,10 +177,10 @@ fn apply_transforms(v: &Value, def: &EntityDef) -> Value {
     val
 }
 
-/// Entity extraction errors.
+/// Parameter extraction errors.
 #[derive(Debug, thiserror::Error)]
-pub enum EntityError {
-    #[error("missing required entity: {0}")]
+pub enum ParameterError {
+    #[error("missing required parameter: {0}")]
     MissingRequired(String),
     #[error("unknown helper: {0}")]
     UnknownHelper(String),
@@ -198,8 +198,8 @@ mod tests {
     use crate::helpers::build_helper_registry;
     use serde_json::json;
 
-    fn make_def(from: Option<&str>) -> EntityDef {
-        EntityDef {
+    fn make_def(from: Option<&str>) -> ParameterDef {
+        ParameterDef {
             from: from.map(|s| s.to_string()),
             from_any: None,
             value_type: None,
@@ -222,7 +222,7 @@ mod tests {
         defs.insert("method".to_string(), make_def(Some("method")));
 
         let helpers = build_helper_registry();
-        let result = extract_entities(&params, &defs, &helpers).unwrap();
+        let result = extract_parameters(&params, &defs, &helpers).unwrap();
         assert_eq!(result["url"], json!("https://api.stripe.com"));
         assert_eq!(result["method"], json!("POST"));
     }
@@ -234,7 +234,7 @@ mod tests {
         defs.insert("amount".to_string(), make_def(Some("body.amount")));
 
         let helpers = build_helper_registry();
-        let result = extract_entities(&params, &defs, &helpers).unwrap();
+        let result = extract_parameters(&params, &defs, &helpers).unwrap();
         assert_eq!(result["amount"], json!(5000));
     }
 
@@ -247,7 +247,7 @@ mod tests {
         defs.insert("val".to_string(), def);
 
         let helpers = build_helper_registry();
-        let result = extract_entities(&params, &defs, &helpers);
+        let result = extract_parameters(&params, &defs, &helpers);
         assert!(result.is_err());
     }
 
@@ -260,7 +260,7 @@ mod tests {
         defs.insert("val".to_string(), def);
 
         let helpers = build_helper_registry();
-        let result = extract_entities(&params, &defs, &helpers).unwrap();
+        let result = extract_parameters(&params, &defs, &helpers).unwrap();
         assert_eq!(result["val"], json!("fallback"));
     }
 
@@ -274,7 +274,7 @@ mod tests {
         defs.insert("host".to_string(), def);
 
         let helpers = build_helper_registry();
-        let result = extract_entities(&params, &defs, &helpers).unwrap();
+        let result = extract_parameters(&params, &defs, &helpers).unwrap();
         assert_eq!(result["host"], json!("api.stripe.com"));
     }
 
@@ -288,7 +288,7 @@ mod tests {
         defs.insert("name".to_string(), def);
 
         let helpers = build_helper_registry();
-        let result = extract_entities(&params, &defs, &helpers).unwrap();
+        let result = extract_parameters(&params, &defs, &helpers).unwrap();
         assert_eq!(result["name"], json!("hello"));
     }
 
@@ -301,7 +301,7 @@ mod tests {
         defs.insert("count".to_string(), def);
 
         let helpers = build_helper_registry();
-        let result = extract_entities(&params, &defs, &helpers).unwrap();
+        let result = extract_parameters(&params, &defs, &helpers).unwrap();
         assert_eq!(result["count"], json!("42"));
     }
 }

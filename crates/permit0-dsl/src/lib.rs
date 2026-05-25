@@ -16,10 +16,10 @@ pub use lockfile::{
     sha256_hex,
 };
 pub use pack_loader::{
-    ALIASES_FILENAME, CHANNEL_MANIFEST_FILENAME, DiscoveryError, PACK_MANIFEST_FILENAME,
+    ALIASES_FILENAME, DiscoveryError, PACK_MANIFEST_FILENAME, SOURCE_MANIFEST_FILENAME,
     discover_alias_yamls, discover_normalizer_yamls, discover_packs,
 };
 pub use pack_validate::{
     ALWAYS_HUMAN_ACTION_TYPES, PackViolation, ViolationCode, tool_pattern_matches,
-    validate_channel_directories, validate_pack,
+    validate_pack, validate_source_directories,
 };

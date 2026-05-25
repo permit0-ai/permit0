@@ -92,7 +92,7 @@ pub struct NormalizerMeta {
     pub id: String,
     pub action_type: String,
     pub priority: i32,
-    pub channel: String,
+    pub source: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -363,7 +363,7 @@ pub async fn get_normalizer(
             id: def.id,
             action_type: def.normalize.action_type,
             priority: def.priority,
-            channel: def.normalize.channel,
+            source: def.normalize.source,
         });
 
     Ok(ok_response(FileDetail {

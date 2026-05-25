@@ -6,7 +6,7 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use biscuit_auth::builder::{Term, fact, string};
 use biscuit_auth::{Authorizer, Biscuit, KeyPair};
 
-use permit0_types::{Entities, Tier};
+use permit0_types::{Parameters, Tier};
 
 use crate::error::TokenError;
 use crate::types::{
@@ -104,7 +104,7 @@ impl BiscuitTokenProvider {
         // Safeguards
         for sg in &claims.safeguards {
             let sg_str = match sg {
-                Safeguard::LogEntities => "log_entities",
+                Safeguard::LogParameters => "log_parameters",
                 Safeguard::LogBody => "log_body",
                 Safeguard::ConfirmBeforeExecute => "confirm_before_execute",
             };
@@ -162,12 +162,12 @@ impl BiscuitTokenProvider {
 
     /// Verify a token: check signature, expiry, action type, and scope constraints.
     ///
-    /// `actual_entities` are the entities from the current request to verify against scope.
+    /// `actual_parameters` are the parameters from the current request to verify against scope.
     pub fn verify(
         &self,
         token_bytes: &[u8],
         expected_action_type: &str,
-        actual_entities: &Entities,
+        actual_parameters: &Parameters,
     ) -> Result<VerificationResult, TokenError> {
         let biscuit = Biscuit::from(token_bytes, self.root_keypair.public())
             .map_err(|_| TokenError::InvalidSignature)?;
@@ -220,8 +220,8 @@ impl BiscuitTokenProvider {
         // Extract claims from authority facts
         let claims = self.extract_claims(&biscuit)?;
 
-        // Verify scope constraints against actual entities
-        self.verify_scope(&claims.scope, actual_entities)?;
+        // Verify scope constraints against actual parameters
+        self.verify_scope(&claims.scope, actual_parameters)?;
 
         Ok(VerificationResult {
             claims,
@@ -344,7 +344,7 @@ impl BiscuitTokenProvider {
         let safeguards = query_all_string_facts(&mut authorizer, "data($x) <- safeguard($x)")
             .into_iter()
             .filter_map(|s| match s.as_str() {
-                "log_entities" => Some(Safeguard::LogEntities),
+                "log_parameters" => Some(Safeguard::LogParameters),
                 "log_body" => Some(Safeguard::LogBody),
                 "confirm_before_execute" => Some(Safeguard::ConfirmBeforeExecute),
                 _ => None,
@@ -391,10 +391,10 @@ impl BiscuitTokenProvider {
         })
     }
 
-    /// Verify scope constraints against actual entities.
-    fn verify_scope(&self, scope: &TokenScope, entities: &Entities) -> Result<(), TokenError> {
+    /// Verify scope constraints against actual parameters.
+    fn verify_scope(&self, scope: &TokenScope, parameters: &Parameters) -> Result<(), TokenError> {
         if let Some(ref expected_recipient) = scope.recipient {
-            if let Some(actual) = entities.get("to").or_else(|| entities.get("recipient")) {
+            if let Some(actual) = parameters.get("to").or_else(|| parameters.get("recipient")) {
                 if let Some(actual_str) = actual.as_str() {
                     if actual_str != expected_recipient {
                         return Err(TokenError::ScopeViolation(format!(
@@ -406,7 +406,7 @@ impl BiscuitTokenProvider {
         }
 
         if let Some(ref prefix) = scope.path_prefix {
-            if let Some(actual) = entities.get("path").or_else(|| entities.get("file_path")) {
+            if let Some(actual) = parameters.get("path").or_else(|| parameters.get("file_path")) {
                 if let Some(actual_str) = actual.as_str() {
                     if !actual_str.starts_with(prefix.as_str()) {
                         return Err(TokenError::ScopeViolation(format!(
@@ -418,7 +418,7 @@ impl BiscuitTokenProvider {
         }
 
         if let Some(ceiling) = scope.amount_ceiling {
-            if let Some(actual) = entities.get("amount") {
+            if let Some(actual) = parameters.get("amount") {
                 let actual_amount = actual.as_f64().unwrap_or(0.0);
                 if actual_amount > ceiling {
                     return Err(TokenError::ScopeViolation(format!(
@@ -429,7 +429,7 @@ impl BiscuitTokenProvider {
         }
 
         if let Some(ref expected_env) = scope.environment {
-            if let Some(actual) = entities.get("environment") {
+            if let Some(actual) = parameters.get("environment") {
                 if let Some(actual_str) = actual.as_str() {
                     if actual_str != expected_env {
                         return Err(TokenError::ScopeViolation(format!(

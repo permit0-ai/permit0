@@ -167,8 +167,8 @@ mod tests {
             decision_source: "scorer".into(),
             norm_action: NormAction {
                 action_type: ActionType::parse("email.send").unwrap(),
-                channel: "gmail".into(),
-                entities: serde_json::Map::new(),
+                source: "gmail".into(),
+                parameters: serde_json::Map::new(),
                 execution: ExecutionMeta {
                     surface_tool: "test".into(),
                     surface_command: "test cmd".into(),
@@ -335,8 +335,8 @@ mod tests {
             "decision_source": "scorer",
             "norm_action": {
                 "action_type": {"domain": "email", "verb": "send"},
-                "channel": "gmail",
-                "entities": {},
+                "source": "gmail",
+                "parameters": {},
                 "execution": {"surface_tool": "test", "surface_command": "test cmd"}
             },
             "norm_hash": [0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0],

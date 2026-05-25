@@ -1,9 +1,9 @@
-# Channel metadata for the outlook backend.
+# Source metadata for the outlook backend.
 #
-# See gmail/_channel.yaml for the field contract — same shape, just a
+# See gmail/_source.yaml for the field contract — same shape, just a
 # different vendor surface.
 
-channel: outlook
+source: outlook
 display_name: "Outlook (Microsoft 365)"
 mcp_server: permit0-mcp/outlook-mcp
 auth: oauth_user

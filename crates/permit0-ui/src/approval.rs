@@ -18,7 +18,7 @@ pub struct PendingApproval {
     pub risk_score: RiskScore,
     /// ISO 8601 timestamp when the approval was created.
     pub created_at: String,
-    /// Channel to send the human decision back to the waiting engine.
+    /// Sender to deliver the human decision back to the waiting engine.
     sender: Option<oneshot::Sender<HumanDecision>>,
 }
 
@@ -36,7 +36,7 @@ pub struct HumanDecision {
 /// Summary of a pending approval for the API response.
 ///
 /// Surfaces the complete `NormAction` that permit0 was asked to score —
-/// not just the entity payload — so the human reviewer can audit
+/// not just the parameter payload — so the human reviewer can audit
 /// everything the engine saw: the `domain.verb` taxonomy classification,
 /// the upstream MCP tool name + raw command, and the norm_hash they
 /// would deny/allow-list against.
@@ -49,7 +49,7 @@ pub struct PendingApprovalSummary {
     pub domain: String,
     /// Verb alone, split from `action_type` (e.g. `delete`).
     pub verb: String,
-    pub channel: String,
+    pub source: String,
     /// The original MCP tool the agent invoked, before normalization
     /// (e.g. `gmail_delete`). Useful when a single `domain.verb` can be
     /// reached through several different tool surfaces.
@@ -62,10 +62,10 @@ pub struct PendingApprovalSummary {
     pub risk_score: u32,
     pub tier: String,
     pub created_at: String,
-    /// The normalized entities (to, subject, body, message_id, …) the agent
+    /// The normalized parameters (to, subject, body, message_id, …) the agent
     /// passed in. Lets the human reviewer audit the actual content before
     /// approving / denying.
-    pub entities: serde_json::Map<String, serde_json::Value>,
+    pub parameters: serde_json::Map<String, serde_json::Value>,
     /// Risk flags that fired during scoring (e.g. ["OUTBOUND", "MUTATION",
     /// "EXPOSURE", "GOVERNANCE"]). Helps the reviewer understand WHY this
     /// reached the current tier.
@@ -150,14 +150,14 @@ impl ApprovalManager {
                     action_type: action_type_str,
                     domain,
                     verb,
-                    channel: p.norm_action.channel.clone(),
+                    source: p.norm_action.source.clone(),
                     surface_tool: p.norm_action.execution.surface_tool.clone(),
                     surface_command: p.norm_action.execution.surface_command.clone(),
                     norm_hash: hex::encode(p.norm_action.norm_hash()),
                     risk_score: p.risk_score.score,
                     tier: p.risk_score.tier.to_string(),
                     created_at: p.created_at.clone(),
-                    entities: p.norm_action.entities.clone(),
+                    parameters: p.norm_action.parameters.clone(),
                     flags: p.risk_score.flags.clone(),
                 }
             })
@@ -200,8 +200,8 @@ mod tests {
     fn make_norm_action() -> NormAction {
         NormAction {
             action_type: ActionType::parse("email.send").unwrap(),
-            channel: "gmail".into(),
-            entities: serde_json::Map::new(),
+            source: "gmail".into(),
+            parameters: serde_json::Map::new(),
             execution: ExecutionMeta {
                 surface_tool: "test".into(),
                 surface_command: "test cmd".into(),

@@ -25,7 +25,7 @@ use permit0_session::SessionContext;
 use permit0_store::audit::{AuditSigner, AuditSink, FailedOpenContext, FileKeyStore};
 use permit0_store::{InMemoryPolicyState, PolicyState, SqliteAuditSink, SqlitePolicyState};
 use permit0_types::{
-    ActionType, Entities, ExecutionMeta, NormAction, RawToolCall, RiskScore, Tier,
+    ActionType, ExecutionMeta, NormAction, Parameters, RawToolCall, RiskScore, Tier,
 };
 use permit0_ui::{AppState, ApprovalManager, TokenStore};
 use tower_http::services::ServeDir;
@@ -94,7 +94,7 @@ struct CheckRequest {
 struct CheckResponse {
     permission: String,
     action_type: String,
-    channel: String,
+    source: String,
     norm_hash: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     score: Option<u32>,
@@ -104,7 +104,7 @@ struct CheckResponse {
     blocked: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     block_reason: Option<String>,
-    source: String,
+    decision_source: String,
 }
 
 /// Should this request be routed through the `ui-wait` blocking path?
@@ -380,13 +380,13 @@ async fn audit_replay_handler(
 #[derive(Debug, Deserialize)]
 struct CheckActionRequest {
     action_type: String,
-    #[serde(default = "default_channel")]
-    channel: String,
+    #[serde(default = "default_source")]
+    source: String,
     #[serde(default)]
-    entities: Entities,
+    parameters: Parameters,
 }
 
-fn default_channel() -> String {
+fn default_source() -> String {
     "app".to_string()
 }
 
@@ -405,8 +405,8 @@ async fn check_action_handler(
     let surface_tool = format!("__action:{}", req.action_type);
     let norm = NormAction {
         action_type,
-        channel: req.channel,
-        entities: req.entities.clone(),
+        source: req.source,
+        parameters: req.parameters.clone(),
         execution: ExecutionMeta {
             surface_tool: surface_tool.clone(),
             surface_command: String::new(),
@@ -420,7 +420,7 @@ async fn check_action_handler(
     // internally, so the audit chain has something to record on calibration.
     let synthetic_tool_call = RawToolCall {
         tool_name: surface_tool,
-        parameters: serde_json::Value::Object(req.entities),
+        parameters: serde_json::Value::Object(req.parameters),
         metadata: Default::default(),
     };
 
@@ -496,7 +496,7 @@ async fn apply_calibration(
     eprintln!(
         "[calibrate] awaiting human decision for {} ({}) — engine says {:?}, approval_id={}",
         result.norm_action.action_type.as_action_str(),
-        result.norm_action.channel,
+        result.norm_action.source,
         original_permission,
         approval_id,
     );
@@ -613,7 +613,7 @@ pub(crate) async fn await_ui_wait_approval(
         approval_id: approval_id.clone(),
         norm_hash,
         action_type: norm_action.action_type.as_action_str().to_string(),
-        channel: norm_action.channel.clone(),
+        source: norm_action.source.clone(),
         created_at: created_at.clone(),
         norm_action_json: serde_json::to_string(&norm_action).unwrap_or_default(),
         risk_score_json: serde_json::to_string(&synthesized_score).unwrap_or_default(),
@@ -742,7 +742,7 @@ async fn record_and_respond(
     Ok(Json(CheckResponse {
         permission: result.permission.to_string().to_lowercase(),
         action_type: result.norm_action.action_type.as_action_str().to_string(),
-        channel: result.norm_action.channel.clone(),
+        source: result.norm_action.source.clone(),
         norm_hash: result.norm_action.norm_hash_hex(),
         score: result.risk_score.as_ref().map(|s| s.score),
         tier: result.risk_score.as_ref().map(|s| s.tier.to_string()),
@@ -751,7 +751,7 @@ async fn record_and_respond(
             .risk_score
             .as_ref()
             .and_then(|s| s.block_reason.clone()),
-        source: format!("{:?}", result.source),
+        decision_source: format!("{:?}", result.source),
     }))
 }
 
@@ -1055,13 +1055,13 @@ mod tests {
         let resp = CheckResponse {
             permission: "allow".into(),
             action_type: "system.exec".into(),
-            channel: "bash".into(),
+            source: "bash".into(),
             norm_hash: "abc123".into(),
             score: Some(12),
             tier: Some("Minimal".into()),
             blocked: Some(false),
             block_reason: None,
-            source: "Scoring".into(),
+            decision_source: "Scoring".into(),
         };
         let json = serde_json::to_string(&resp).unwrap();
         assert!(json.contains(r#""permission":"allow""#));
@@ -1315,8 +1315,8 @@ mod tests {
 
         let norm = NormAction {
             action_type: ActionType::parse("email.send").unwrap(),
-            channel: "gmail".into(),
-            entities: serde_json::Map::new(),
+            source: "gmail".into(),
+            parameters: serde_json::Map::new(),
             execution: ExecutionMeta {
                 surface_tool: "test".into(),
                 surface_command: "test".into(),
@@ -1387,8 +1387,8 @@ mod tests {
         let policy_state: Arc<dyn PolicyState> = Arc::new(InMemoryPolicyState::new());
         let norm = NormAction {
             action_type: ActionType::parse("email.send").unwrap(),
-            channel: "gmail".into(),
-            entities: serde_json::Map::new(),
+            source: "gmail".into(),
+            parameters: serde_json::Map::new(),
             execution: ExecutionMeta {
                 surface_tool: "test".into(),
                 surface_command: "test".into(),
@@ -1438,8 +1438,8 @@ mod tests {
 
         let norm = NormAction {
             action_type: ActionType::parse("email.send").unwrap(),
-            channel: "gmail".into(),
-            entities: serde_json::Map::new(),
+            source: "gmail".into(),
+            parameters: serde_json::Map::new(),
             execution: ExecutionMeta {
                 surface_tool: "test".into(),
                 surface_command: "test".into(),

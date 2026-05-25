@@ -180,7 +180,7 @@ impl AuditSink for PostgresAuditSink {
 
         sqlx::query(
             "INSERT INTO audit_entries
-                (entry_id, sequence, timestamp, action_type, channel, decision, tier,
+                (entry_id, sequence, timestamp, action_type, source, decision, tier,
                  session_id, prev_hash, entry_hash, signature, has_human_review, entry_json)
              VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)",
         )
@@ -188,7 +188,7 @@ impl AuditSink for PostgresAuditSink {
         .bind(entry.sequence as i64)
         .bind(&entry.timestamp)
         .bind(action_type)
-        .bind(&entry.norm_action.channel)
+        .bind(&entry.norm_action.source)
         .bind(permission_to_str(entry.decision))
         .bind(tier_str)
         .bind(entry.session_id.as_deref())

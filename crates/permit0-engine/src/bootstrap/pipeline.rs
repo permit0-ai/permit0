@@ -153,9 +153,9 @@ Respond with EXACTLY this structure:
 ```yaml
 tool_name: "<tool_name>"
 action_type: "<domain>.<verb>"
-channel: "<channel>"
-entities:
-  <entity_name>:
+source: "<source>"
+parameters:
+  <parameter_name>:
     path: "parameters.<path>"
     type: "string"
 execution:
@@ -220,8 +220,8 @@ mod tests {
 ```normalizer
 tool_name: "custom_api"
 action_type: "custom.invoke"
-channel: "api"
-entities:
+source: "api"
+parameters:
   endpoint:
     path: "parameters.url"
     type: "string"

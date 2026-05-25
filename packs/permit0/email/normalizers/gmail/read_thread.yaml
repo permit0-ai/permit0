@@ -7,8 +7,8 @@ normalize:
   action_type: "email.read_thread"
   domain: "email"
   verb: "read_thread"
-  channel: "gmail"
-  entities:
+  source: "gmail"
+  parameters:
     # Optional rather than required because aliased calls from
     # Google's official Gmail MCP arrive as `get_thread(id=...)` —
     # alias rewrites the tool name only, so `thread_id` is empty in

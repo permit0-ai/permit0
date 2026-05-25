@@ -20,7 +20,7 @@ pub struct PendingApprovalRow {
     pub approval_id: String,
     pub norm_hash: NormHash,
     pub action_type: String,
-    pub channel: String,
+    pub source: String,
     pub created_at: String,
     /// Full normalized action serialized as JSON, so we can reconstruct
     /// the dashboard summary without joining other tables.

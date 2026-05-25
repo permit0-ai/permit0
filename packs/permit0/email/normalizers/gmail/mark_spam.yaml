@@ -7,8 +7,8 @@ normalize:
   action_type: "email.mark_spam"
   domain: "email"
   verb: "mark_spam"
-  channel: "gmail"
-  entities:
+  source: "gmail"
+  parameters:
     message_id:
       from: "message_id"
       from_any: ["id"]

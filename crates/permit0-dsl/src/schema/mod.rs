@@ -6,9 +6,9 @@ pub mod pack;
 pub mod risk_rule;
 
 pub use condition::{AnyMatch, ConditionExpr, Predicate, PredicateOps, UrlMatch};
-pub use normalizer::{ApiVersionDef, EntityDef, NormalizeDef, NormalizerDef};
+pub use normalizer::{ApiVersionDef, NormalizeDef, NormalizerDef, ParameterDef};
 pub use pack::{
-    ChannelManifest, ChannelMeta, Maintainer, PACK_FORMAT_VERSION, PackManifest, TrustTier,
+    Maintainer, PACK_FORMAT_VERSION, PackManifest, SourceManifest, SourceMeta, TrustTier,
     derive_trust_tier, extract_owner,
 };
 pub use risk_rule::{

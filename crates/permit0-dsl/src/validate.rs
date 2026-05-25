@@ -21,8 +21,8 @@ pub enum ValidationError {
         expected: usize,
         got: usize,
     },
-    #[error("unknown entity type: {0} (valid: string, int, bool, float, list)")]
-    UnknownEntityType(String),
+    #[error("unknown parameter type: {0} (valid: string, int, bool, float, list)")]
+    UnknownParameterType(String),
     #[error("conflicting field requirements: `{0}` has both required=true and optional=true")]
     ConflictingRequirements(String),
     #[error("required field `{0}` cannot have a default value")]
@@ -39,7 +39,7 @@ pub enum ValidationError {
     TierInvariant(String),
 }
 
-const VALID_ENTITY_TYPES: &[&str] = &[
+const VALID_PARAMETER_TYPES: &[&str] = &[
     "string", "int", "integer", "bool", "boolean", "float", "number", "list",
 ];
 
@@ -55,20 +55,20 @@ pub fn validate_normalizer(def: &NormalizerDef) -> Vec<ValidationError> {
         ));
     }
 
-    // Check entities
-    for (name, entity) in &def.normalize.entities {
-        // Check entity type
-        if let Some(ref t) = entity.value_type {
-            if !VALID_ENTITY_TYPES.contains(&t.as_str()) {
-                errors.push(ValidationError::UnknownEntityType(t.clone()));
+    // Check parameters
+    for (name, param) in &def.normalize.parameters {
+        // Check parameter type
+        if let Some(ref t) = param.value_type {
+            if !VALID_PARAMETER_TYPES.contains(&t.as_str()) {
+                errors.push(ValidationError::UnknownParameterType(t.clone()));
             }
         }
 
         // Check compute helper exists and arity
-        if let Some(ref helper_name) = entity.compute {
+        if let Some(ref helper_name) = param.compute {
             match helpers.get(helper_name.as_str()) {
                 Some((_, expected_arity)) => {
-                    let got = entity.args.as_ref().map_or(0, |a| a.len());
+                    let got = param.args.as_ref().map_or(0, |a| a.len());
                     if got != *expected_arity {
                         errors.push(ValidationError::WrongArgCount {
                             helper: helper_name.clone(),
@@ -84,12 +84,12 @@ pub fn validate_normalizer(def: &NormalizerDef) -> Vec<ValidationError> {
         }
 
         // Check conflicting requirements
-        if entity.required == Some(true) && entity.optional == Some(true) {
+        if param.required == Some(true) && param.optional == Some(true) {
             errors.push(ValidationError::ConflictingRequirements(name.clone()));
         }
 
         // Check required with default
-        if entity.required == Some(true) && entity.default.is_some() {
+        if param.required == Some(true) && param.default.is_some() {
             errors.push(ValidationError::RequiredWithDefault(name.clone()));
         }
     }
@@ -234,7 +234,7 @@ pub fn check_duplicate_ids(normalizers: &[NormalizerDef]) -> Vec<ValidationError
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::schema::normalizer::{EntityDef, NormalizeDef, NormalizerDef};
+    use crate::schema::normalizer::{NormalizeDef, NormalizerDef, ParameterDef};
     use crate::schema::risk_rule::RiskRuleDef;
     use std::collections::HashMap;
 
@@ -324,8 +324,8 @@ rules:
                 action_type: action_type.into(),
                 domain: "payment".into(),
                 verb: "charge".into(),
-                channel: "test".into(),
-                entities: HashMap::new(),
+                source: "test".into(),
+                parameters: HashMap::new(),
             },
         }
     }
@@ -351,9 +351,9 @@ rules:
     #[test]
     fn unknown_helper() {
         let mut def = minimal_normalizer("payment.charge");
-        def.normalize.entities.insert(
+        def.normalize.parameters.insert(
             "test".into(),
-            EntityDef {
+            ParameterDef {
                 from: None,
                 from_any: None,
                 value_type: None,
@@ -378,9 +378,9 @@ rules:
     #[test]
     fn wrong_arity() {
         let mut def = minimal_normalizer("payment.charge");
-        def.normalize.entities.insert(
+        def.normalize.parameters.insert(
             "test".into(),
-            EntityDef {
+            ParameterDef {
                 from: None,
                 from_any: None,
                 value_type: None,
@@ -403,11 +403,11 @@ rules:
     }
 
     #[test]
-    fn unknown_entity_type() {
+    fn unknown_parameter_type() {
         let mut def = minimal_normalizer("payment.charge");
-        def.normalize.entities.insert(
+        def.normalize.parameters.insert(
             "test".into(),
-            EntityDef {
+            ParameterDef {
                 from: Some("field".into()),
                 from_any: None,
                 value_type: Some("invalid_type".into()),
@@ -425,16 +425,16 @@ rules:
         assert!(
             errors
                 .iter()
-                .any(|e| matches!(e, ValidationError::UnknownEntityType(_)))
+                .any(|e| matches!(e, ValidationError::UnknownParameterType(_)))
         );
     }
 
     #[test]
     fn conflicting_required_optional() {
         let mut def = minimal_normalizer("payment.charge");
-        def.normalize.entities.insert(
+        def.normalize.parameters.insert(
             "test".into(),
-            EntityDef {
+            ParameterDef {
                 from: Some("field".into()),
                 from_any: None,
                 value_type: None,
@@ -459,9 +459,9 @@ rules:
     #[test]
     fn required_with_default() {
         let mut def = minimal_normalizer("payment.charge");
-        def.normalize.entities.insert(
+        def.normalize.parameters.insert(
             "test".into(),
-            EntityDef {
+            ParameterDef {
                 from: Some("field".into()),
                 from_any: None,
                 value_type: None,

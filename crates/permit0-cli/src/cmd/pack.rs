@@ -6,7 +6,7 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use permit0_dsl::discover_normalizer_yamls;
 use permit0_dsl::normalizer::DslNormalizer;
-use permit0_dsl::pack_validate::{ViolationCode, validate_channel_directories, validate_pack};
+use permit0_dsl::pack_validate::{ViolationCode, validate_pack, validate_source_directories};
 use permit0_dsl::schema::PackManifest;
 use permit0_dsl::schema::risk_rule::RiskRuleDef;
 use permit0_dsl::validate;
@@ -27,7 +27,7 @@ pub fn validate(pack_path: &str) -> Result<()> {
     // manifest-level coverage / orphan checks below).
     //
     // Uses `discover_normalizer_yamls` so both the flat legacy layout
-    // and the per-channel layout (PR 4 of the pack taxonomy refactor)
+    // and the per-source layout (PR 4 of the pack taxonomy refactor)
     // are walked transparently.
     let mut normalizer_action_types = BTreeSet::new();
     let normalizer_paths = discover_normalizer_yamls(pack_dir)
@@ -142,17 +142,17 @@ pub fn validate(pack_path: &str) -> Result<()> {
         }
     }
 
-    // ── Per-channel tool_pattern enforcement (PR 8) ──
-    match validate_channel_directories(pack_dir) {
-        Ok(channel_violations) if !channel_violations.is_empty() => {
-            println!("\n── Channel manifest checks ──");
-            for v in &channel_violations {
+    // ── Per-source tool_pattern enforcement (PR 8) ──
+    match validate_source_directories(pack_dir) {
+        Ok(source_violations) if !source_violations.is_empty() => {
+            println!("\n── Source manifest checks ──");
+            for v in &source_violations {
                 let icon = match v.code {
-                    // Missing _channel.yaml in a per-channel directory
+                    // Missing _source.yaml in a per-source directory
                     // is a warning during the migration window;
                     // tool-pattern mismatches are hard errors because
-                    // they signal active cross-channel poisoning.
-                    ViolationCode::MissingChannelManifest => "⚠",
+                    // they signal active cross-source poisoning.
+                    ViolationCode::MissingSourceManifest => "⚠",
                     ViolationCode::ToolPatternMismatch => "✗",
                     _ => "✗",
                 };
@@ -164,7 +164,7 @@ pub fn validate(pack_path: &str) -> Result<()> {
         }
         Ok(_) => {}
         Err(e) => {
-            println!("  ⚠ channel manifest check failed: {e}");
+            println!("  ⚠ source manifest check failed: {e}");
         }
     }
 
@@ -290,7 +290,7 @@ struct FixtureDef {
 
 /// Scaffold a new pack at `packs/<owner>/<name>/` by copying the
 /// in-tree template at `packs/_template/` and substituting TODO
-/// markers (`TODO_OWNER`, `TODO_NAME`, `TODO_CHANNEL`) with the
+/// markers (`TODO_OWNER`, `TODO_NAME`, `TODO_SOURCE`) with the
 /// caller-supplied values.
 ///
 /// Argument shape: `<owner>/<name>` (e.g. `permit0/slack`,
@@ -327,29 +327,29 @@ pub fn new_pack(name_arg: &str) -> Result<()> {
     }
 
     // Recursive copy with substitution. We can't `cp -r` because we
-    // need to (a) rename TODO_CHANNEL directories and (b) substitute
+    // need to (a) rename TODO_SOURCE directories and (b) substitute
     // TODO markers inside YAML / Markdown contents.
-    let single_channel = pack_name; // sensible default; user renames later if multi-channel
-    copy_template_tree(&template_dir, &pack_dir, owner, pack_name, single_channel)?;
+    let single_source = pack_name; // sensible default; user renames later if multi-source
+    copy_template_tree(&template_dir, &pack_dir, owner, pack_name, single_source)?;
 
     println!("Created pack scaffold at {}", pack_dir.display());
-    println!("  normalizers/{single_channel}/_channel.yaml");
-    println!("  normalizers/{single_channel}/aliases.yaml");
-    println!("  normalizers/{single_channel}/<verb>.yaml   ← rename TODO_VERB.yaml");
+    println!("  normalizers/{single_source}/_source.yaml");
+    println!("  normalizers/{single_source}/aliases.yaml");
+    println!("  normalizers/{single_source}/<verb>.yaml   ← rename TODO_VERB.yaml");
     println!("  risk_rules/<verb>.yaml                    ← rename TODO_VERB.yaml");
     println!("  pack.yaml");
     println!("  README.md");
     println!("  CHANGELOG.md");
     println!();
     println!("Next steps:");
-    println!("  1. Edit pack.yaml — fill in description, action_types, channels");
+    println!("  1. Edit pack.yaml — fill in description, action_types, sources");
     println!(
-        "  2. Rename normalizers/{single_channel}/TODO_VERB.yaml → <verb>.yaml; fill match.tool, action_type, entities"
+        "  2. Rename normalizers/{single_source}/TODO_VERB.yaml → <verb>.yaml; fill match.tool, action_type, parameters"
     );
     println!(
         "  3. Rename risk_rules/TODO_VERB.yaml → <verb>.yaml; fill flags / amplifiers / rules"
     );
-    println!("  4. Add at least one fixture under tests/{single_channel}/");
+    println!("  4. Add at least one fixture under tests/{single_source}/");
     println!("  5. Run: permit0 pack validate {}", pack_dir.display());
 
     Ok(())
@@ -365,7 +365,7 @@ fn is_yaml(path: &Path) -> bool {
 /// Substitutions:
 /// - `TODO_OWNER`   → `owner`
 /// - `TODO_NAME`    → `pack_name`
-/// - `TODO_CHANNEL` → `channel`
+/// - `TODO_SOURCE`  → `source`
 ///
 /// `.gitkeep` files in the template are dropped (they exist only to
 /// keep empty directories tracked by git in the source repo). Empty
@@ -375,7 +375,7 @@ fn copy_template_tree(
     dst: &Path,
     owner: &str,
     pack_name: &str,
-    channel: &str,
+    source: &str,
 ) -> Result<()> {
     std::fs::create_dir_all(dst).with_context(|| format!("creating {}", dst.display()))?;
 
@@ -389,11 +389,11 @@ fn copy_template_tree(
             continue;
         }
 
-        let dst_basename = substitute_markers(&basename_str, owner, pack_name, channel);
+        let dst_basename = substitute_markers(&basename_str, owner, pack_name, source);
         let dst_path = dst.join(&*dst_basename);
 
         if entry.file_type()?.is_dir() {
-            copy_template_tree(&src_path, &dst_path, owner, pack_name, channel)?;
+            copy_template_tree(&src_path, &dst_path, owner, pack_name, source)?;
         } else {
             let bytes = std::fs::read(&src_path)
                 .with_context(|| format!("reading {}", src_path.display()))?;
@@ -401,7 +401,7 @@ fn copy_template_tree(
             // Markdown is what the template ships; non-utf8 bytes get
             // copied through unchanged.
             let out = match std::str::from_utf8(&bytes) {
-                Ok(text) => substitute_markers(text, owner, pack_name, channel)
+                Ok(text) => substitute_markers(text, owner, pack_name, source)
                     .into_owned()
                     .into_bytes(),
                 Err(_) => bytes,
@@ -417,15 +417,15 @@ fn substitute_markers<'a>(
     s: &'a str,
     owner: &str,
     pack_name: &str,
-    channel: &str,
+    source: &str,
 ) -> std::borrow::Cow<'a, str> {
-    if !s.contains("TODO_OWNER") && !s.contains("TODO_NAME") && !s.contains("TODO_CHANNEL") {
+    if !s.contains("TODO_OWNER") && !s.contains("TODO_NAME") && !s.contains("TODO_SOURCE") {
         return std::borrow::Cow::Borrowed(s);
     }
     let out = s
         .replace("TODO_OWNER", owner)
         .replace("TODO_NAME", pack_name)
-        .replace("TODO_CHANNEL", channel);
+        .replace("TODO_SOURCE", source);
     std::borrow::Cow::Owned(out)
 }
 
@@ -433,7 +433,7 @@ fn substitute_markers<'a>(
 ///
 /// In the default mode this writes a fresh lockfile reflecting the
 /// current contents of the pack — every normalizer YAML, risk rule
-/// YAML, channel manifest, and alias table gets a sha256 + size entry.
+/// YAML, source manifest, and alias table gets a sha256 + size entry.
 ///
 /// With `--check`, the function reads the existing lockfile and
 /// verifies it matches the on-disk contents. Drift exits non-zero
@@ -460,8 +460,8 @@ pub fn lock(pack_path: &str, check: bool) -> Result<()> {
 
     // Collect every loadable file. Order:
     //   1. pack.yaml itself
-    //   2. normalizers (flat + per-channel) and channel metadata
-    //   3. alias tables (pack-root + per-channel)
+    //   2. normalizers (flat + per-source) and source metadata
+    //   3. alias tables (pack-root + per-source)
     //   4. risk rules
     let mut files: Vec<LockedFile> = Vec::new();
     let mut record = |abs: &Path| -> Result<()> {
@@ -483,8 +483,8 @@ pub fn lock(pack_path: &str, check: bool) -> Result<()> {
 
     record(&manifest_path)?;
 
-    // Walk normalizers/ at depth 1 AND depth 2; include _channel.yaml
-    // metadata + per-channel aliases.yaml.
+    // Walk normalizers/ at depth 1 AND depth 2; include _source.yaml
+    // metadata + per-source aliases.yaml.
     let normalizers_dir = pack_dir.join("normalizers");
     if normalizers_dir.is_dir() {
         for entry in std::fs::read_dir(&normalizers_dir)? {

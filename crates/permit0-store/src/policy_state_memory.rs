@@ -286,7 +286,7 @@ mod tests {
             approval_id: "abc".into(),
             norm_hash: h(),
             action_type: "email.send".into(),
-            channel: "gmail".into(),
+            source: "gmail".into(),
             created_at: "2026-01-01T00:00:00Z".into(),
             norm_action_json: "{}".into(),
             risk_score_json: "{}".into(),

@@ -5,8 +5,8 @@ use sha2::{Digest, Sha256};
 
 use crate::taxonomy::ActionType;
 
-/// Opaque entity map — pack-defined fields.
-pub type Entities = serde_json::Map<String, serde_json::Value>;
+/// Opaque parameter map — pack-defined fields.
+pub type Parameters = serde_json::Map<String, serde_json::Value>;
 
 /// SHA-256 hash of the canonical JSON form.
 pub type NormHash = [u8; 32];
@@ -20,10 +20,10 @@ pub type NormHash = [u8; 32];
 pub struct NormAction {
     /// Validated action type from the taxonomy (e.g. payments.charge).
     pub action_type: ActionType,
-    /// Channel/vendor, e.g. "gmail", "stripe".
-    pub channel: String,
+    /// Source/vendor, e.g. "gmail", "stripe".
+    pub source: String,
     /// Semantic parameters extracted by the normalizer.
-    pub entities: Entities,
+    pub parameters: Parameters,
     /// Surface tool and raw command (for audit).
     pub execution: ExecutionMeta,
 }
@@ -72,29 +72,30 @@ fn canonical_json(action: &NormAction) -> String {
         serde_json::Value::String(action.action_type.as_action_str()),
     );
     map.insert(
-        "channel".into(),
-        serde_json::Value::String(action.channel.clone()),
-    );
-    map.insert(
         "domain".into(),
         serde_json::Value::String(action.action_type.domain.to_string()),
     );
 
-    // Sort entities by key
-    let mut sorted_entities = serde_json::Map::new();
-    let mut keys: Vec<&String> = action.entities.keys().collect();
+    // Sort parameters by key
+    let mut sorted_parameters = serde_json::Map::new();
+    let mut keys: Vec<&String> = action.parameters.keys().collect();
     keys.sort();
     for key in keys {
-        if let Some(val) = action.entities.get(key) {
+        if let Some(val) = action.parameters.get(key) {
             // Omit null values
             if !val.is_null() {
-                sorted_entities.insert(key.clone(), val.clone());
+                sorted_parameters.insert(key.clone(), val.clone());
             }
         }
     }
     map.insert(
-        "entities".into(),
-        serde_json::Value::Object(sorted_entities),
+        "parameters".into(),
+        serde_json::Value::Object(sorted_parameters),
+    );
+
+    map.insert(
+        "source".into(),
+        serde_json::Value::String(action.source.clone()),
     );
 
     map.insert(
@@ -123,14 +124,14 @@ mod tests {
     use crate::taxonomy::{Domain, Verb};
 
     fn test_action() -> NormAction {
-        let mut entities = Entities::new();
-        entities.insert("amount".into(), serde_json::json!(5000));
-        entities.insert("currency".into(), serde_json::json!("usd"));
+        let mut parameters = Parameters::new();
+        parameters.insert("amount".into(), serde_json::json!(5000));
+        parameters.insert("currency".into(), serde_json::json!("usd"));
 
         NormAction {
             action_type: ActionType::new(Domain::Payment, Verb::Charge).unwrap(),
-            channel: "stripe".into(),
-            entities,
+            source: "stripe".into(),
+            parameters,
             execution: ExecutionMeta {
                 surface_tool: "http".into(),
                 surface_command: "POST /v1/charges".into(),
@@ -163,12 +164,12 @@ mod tests {
     }
 
     #[test]
-    fn norm_hash_differs_on_entity_change() {
+    fn norm_hash_differs_on_parameter_change() {
         let a = test_action();
         let h1 = a.norm_hash();
 
         let mut b = test_action();
-        b.entities.insert("amount".into(), serde_json::json!(9999));
+        b.parameters.insert("amount".into(), serde_json::json!(9999));
         let h2 = b.norm_hash();
 
         assert_ne!(h1, h2);
@@ -195,9 +196,9 @@ mod tests {
     }
 
     #[test]
-    fn canonical_json_omits_null_entities() {
+    fn canonical_json_omits_null_parameters() {
         let mut a = test_action();
-        a.entities
+        a.parameters
             .insert("customer".into(), serde_json::Value::Null);
         let json = canonical_json(&a);
         assert!(!json.contains("customer"));

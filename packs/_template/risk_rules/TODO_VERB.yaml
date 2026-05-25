@@ -1,5 +1,5 @@
 # Risk rule template for one action_type. One file per
-# domain.verb — channel-agnostic, since rules score the canonical
+# domain.verb — source-agnostic, since rules score the canonical
 # action regardless of which vendor surfaced it.
 #
 # Replace every TODO. The validator rejects rules whose action_type

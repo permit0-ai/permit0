@@ -254,14 +254,14 @@ impl PolicyState for PostgresPolicyState {
             .unwrap_or(serde_json::Value::Object(Default::default()));
         sqlx::query(
             "INSERT INTO pending_approvals
-                (approval_id, norm_hash, action_type, channel, created_at, norm_action_json, risk_score_json)
+                (approval_id, norm_hash, action_type, source, created_at, norm_action_json, risk_score_json)
              VALUES ($1, $2, $3, $4, $5, $6, $7)
              ON CONFLICT (approval_id) DO NOTHING",
         )
         .bind(&row.approval_id)
         .bind(row.norm_hash.as_slice())
         .bind(&row.action_type)
-        .bind(&row.channel)
+        .bind(&row.source)
         .bind(&row.created_at)
         .bind(na)
         .bind(rs)
@@ -281,7 +281,7 @@ impl PolicyState for PostgresPolicyState {
             serde_json::Value,
             serde_json::Value,
         )> = sqlx::query_as(
-            "SELECT approval_id, norm_hash, action_type, channel, created_at,
+            "SELECT approval_id, norm_hash, action_type, source, created_at,
                     norm_action_json, risk_score_json
              FROM pending_approvals WHERE approval_id = $1",
         )
@@ -290,11 +290,11 @@ impl PolicyState for PostgresPolicyState {
         .await
         .map_err(|e| StateError::Io(e.to_string()))?;
         Ok(row.map(
-            |(approval_id, nh, action_type, channel, created_at, na, rs)| PendingApprovalRow {
+            |(approval_id, nh, action_type, source, created_at, na, rs)| PendingApprovalRow {
                 approval_id,
                 norm_hash: blob_to_hash(&nh),
                 action_type,
-                channel,
+                source,
                 created_at,
                 norm_action_json: na.to_string(),
                 risk_score_json: rs.to_string(),
@@ -351,7 +351,7 @@ impl PolicyState for PostgresPolicyState {
             serde_json::Value,
             serde_json::Value,
         )> = sqlx::query_as(
-            "SELECT approval_id, norm_hash, action_type, channel, created_at,
+            "SELECT approval_id, norm_hash, action_type, source, created_at,
                     norm_action_json, risk_score_json
              FROM pending_approvals ORDER BY created_at ASC",
         )
@@ -361,11 +361,11 @@ impl PolicyState for PostgresPolicyState {
         Ok(rows
             .into_iter()
             .map(
-                |(approval_id, nh, action_type, channel, created_at, na, rs)| PendingApprovalRow {
+                |(approval_id, nh, action_type, source, created_at, na, rs)| PendingApprovalRow {
                     approval_id,
                     norm_hash: blob_to_hash(&nh),
                     action_type,
-                    channel,
+                    source,
                     created_at,
                     norm_action_json: na.to_string(),
                     risk_score_json: rs.to_string(),

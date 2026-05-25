@@ -7,8 +7,8 @@ normalize:
   action_type: "email.delete"
   domain: "email"
   verb: "delete"
-  channel: "outlook"
-  entities:
+  source: "outlook"
+  parameters:
     message_id:
       from: "message_id"
       type: "string"

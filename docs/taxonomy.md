@@ -15,8 +15,8 @@ The taxonomy is an **append-only enum** in `permit0-types`. New verbs land via P
 ```
 NormAction {
     action_type: "<domain>.<verb>"   // e.g. "email.send"
-    channel:     "<vendor/surface>"  // e.g. "gmail", "outlook"
-    entities:    { ... }             // semantically extracted fields
+    source:      "<vendor/surface>"  // e.g. "gmail", "outlook"
+    parameters:  { ... }             // semantically extracted fields
     execution:   {
         surface_tool:    "<raw tool name>"
         surface_command: "<human-readable summary>"
@@ -25,9 +25,9 @@ NormAction {
 ```
 
 - **`action_type`** is what **risk rules** match on — `packs/<owner>/<pack>/risk_rules/<verb>.yaml` has a top-level `action_type:` field.
-- **`channel`** is what **per-vendor overrides** can branch on (e.g. "Gmail sends from the org primary domain go to Allow, Outlook from a personal account goes to HumanInTheLoop").
-- **`entities`** are what **rule `when` clauses** look at. They are normalized across tool surfaces — every email-domain normalizer extracts `to`/`subject`/`body`/`recipient_scope`/`domain`, regardless of whether the underlying tool was Gmail or Outlook.
-- Rules can reference entities directly (`subject: { contains: "password" }`) or under the `entity.*` namespace (`entity.recipient_scope: { equals: "external" }`). The `entity.*` form is preferred for normalizer-computed values.
+- **`source`** is what **per-vendor overrides** can branch on (e.g. "Gmail sends from the org primary domain go to Allow, Outlook from a personal account goes to HumanInTheLoop").
+- **`parameters`** are what **rule `when` clauses** look at. They are normalized across tool surfaces — every email-domain normalizer extracts `to`/`subject`/`body`/`recipient_scope`/`domain`, regardless of whether the underlying tool was Gmail or Outlook.
+- Rules can reference parameters directly (`subject: { contains: "password" }`) or under the `parameter.*` namespace (`parameter.recipient_scope: { equals: "external" }`). The `parameter.*` form is preferred for normalizer-computed values.
 
 ## Taxonomy
 
@@ -37,7 +37,7 @@ Phase 1 ships exactly one pack: [`packs/permit0/email`](../packs/permit0/email/)
 
 ### `email` — 16 verbs
 
-Pack: [`packs/permit0/email`](../packs/permit0/email/) (Gmail + Outlook channels).
+Pack: [`packs/permit0/email`](../packs/permit0/email/) (Gmail + Outlook sources).
 
 | action_type | Status | Notes |
 |---|:---:|---|
@@ -359,7 +359,7 @@ Declared-only action_types don't crash; they bypass per-call scoring and always 
 ## Adding a new NormAction
 
 1. Pick a `domain.verb` pair from `permit0_types::taxonomy`. If nothing fits, add a new `Verb` variant to the enum (it's append-only and versioned).
-2. Add a normalizer YAML under `packs/<owner>/<pack>/normalizers/<channel>/<verb>.yaml` with `match:` on the raw tool name + `normalize:` producing the action.
+2. Add a normalizer YAML under `packs/<owner>/<pack>/normalizers/<source>/<verb>.yaml` with `match:` on the raw tool name + `normalize:` producing the action.
 3. Add a risk rule YAML under `packs/<owner>/<pack>/risk_rules/<verb>.yaml` with the same `action_type:`.
 4. List the action_type in `packs/<owner>/<pack>/pack.yaml` under `action_types:`.
 5. Update this document — both the per-domain table and the `taxonomy_doc_in_sync` test will catch you if you forget.

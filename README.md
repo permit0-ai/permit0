@@ -195,8 +195,8 @@ normalize:
   action_type: "doc.archive"
   domain: "doc"
   verb: "archive"
-  channel: "notion"
-  entities:
+  source: "notion"
+  parameters:
     page_id: { from: "page_id", type: "string" }
 ```
 
@@ -209,7 +209,7 @@ The full structure (normalizers + risk rules + tests + `pack.yaml`) is in [`pack
 Good first PRs:
 
 - Write a pack for a tool we don't cover (Slack, Notion, Linear, Stripe, Postgres, Bash, browser)
-- Sharpen an existing normalizer's precision (entity extraction, scope detection)
+- Sharpen an existing normalizer's precision (parameter extraction, scope detection)
 - Open an issue with a tool surface that breaks normalization
 
 Dev setup, branch conventions, and PR review bar live in [`CONTRIBUTING.md`](CONTRIBUTING.md). (Coming with v0.1 — file an issue if you want to start before it lands and I'll walk you through.)

@@ -205,7 +205,7 @@ permit0-engine` shows the admin-dashboard line (Path A).
 **Approval cards only show `message_id` for delete / archive / etc.**
 Known limitation: the MCP server only sees the agent's tool parameters,
 which for these verbs is just an opaque ID. The reviewer sees domain,
-verb, channel, surface tool, and norm_hash on the card — but not the
+verb, source, surface tool, and norm_hash on the card — but not the
 message's subject or body. Enriching this requires a pre-fetch in the
 MCP server before the PreToolUse hook fires; tracked separately.
 

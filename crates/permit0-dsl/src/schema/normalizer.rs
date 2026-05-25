@@ -37,14 +37,14 @@ pub struct NormalizeDef {
     pub action_type: String,
     pub domain: String,
     pub verb: String,
-    pub channel: String,
+    pub source: String,
     #[serde(default)]
-    pub entities: HashMap<String, EntityDef>,
+    pub parameters: HashMap<String, ParameterDef>,
 }
 
-/// Definition of a single entity field.
+/// Definition of a single parameter field.
 #[derive(Debug, Clone, Deserialize)]
-pub struct EntityDef {
+pub struct ParameterDef {
     #[serde(default)]
     pub from: Option<String>,
     /// Fallback paths tried in order when `from` is absent or yields no

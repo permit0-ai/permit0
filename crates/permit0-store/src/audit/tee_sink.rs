@@ -103,8 +103,8 @@ mod tests {
             decision_source: "scorer".into(),
             norm_action: NormAction {
                 action_type: ActionType::parse("email.send").unwrap(),
-                channel: "test".into(),
-                entities: serde_json::Map::new(),
+                source: "test".into(),
+                parameters: serde_json::Map::new(),
                 execution: ExecutionMeta {
                     surface_tool: "t".into(),
                     surface_command: "c".into(),

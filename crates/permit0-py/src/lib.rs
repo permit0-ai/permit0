@@ -156,12 +156,12 @@ pub struct PyNormAction {
     /// Action type string, e.g. "payment.charge".
     #[pyo3(get)]
     pub action_type: String,
-    /// Channel/vendor, e.g. "stripe".
+    /// Source/vendor, e.g. "stripe".
     #[pyo3(get)]
-    pub channel: String,
-    /// Semantic entities as a JSON string.
+    pub source: String,
+    /// Semantic parameters as a JSON string.
     #[pyo3(get)]
-    pub entities_json: String,
+    pub parameters_json: String,
     /// Norm hash hex (16 chars).
     #[pyo3(get)]
     pub norm_hash: String,
@@ -171,14 +171,14 @@ pub struct PyNormAction {
 impl PyNormAction {
     fn __repr__(&self) -> String {
         format!(
-            "NormAction(action_type='{}', channel='{}', norm_hash='{}')",
-            self.action_type, self.channel, self.norm_hash
+            "NormAction(action_type='{}', source='{}', norm_hash='{}')",
+            self.action_type, self.source, self.norm_hash
         )
     }
 
-    /// Get entities as a Python dict.
-    fn entities<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
-        let val: serde_json::Value = serde_json::from_str(&self.entities_json)
+    /// Get parameters as a Python dict.
+    fn parameters<'py>(&self, py: Python<'py>) -> PyResult<Bound<'py, PyDict>> {
+        let val: serde_json::Value = serde_json::from_str(&self.parameters_json)
             .map_err(|e| PyRuntimeError::new_err(format!("JSON parse error: {e}")))?;
         json_value_to_pydict(py, &val)
     }
@@ -199,16 +199,16 @@ pub struct PyDecisionResult {
     pub risk_score: Option<PyRiskScore>,
     /// How the decision was reached.
     #[pyo3(get)]
-    pub source: String,
+    pub decision_source: String,
 }
 
 #[pymethods]
 impl PyDecisionResult {
     fn __repr__(&self) -> String {
         format!(
-            "DecisionResult(permission={}, source='{}')",
+            "DecisionResult(permission={}, decision_source='{}')",
             self.permission.__str__(),
-            self.source
+            self.decision_source
         )
     }
 }
@@ -219,12 +219,13 @@ impl PyDecisionResult {
             permission: r.permission.into(),
             norm_action: PyNormAction {
                 action_type: r.norm_action.action_type.as_action_str(),
-                channel: r.norm_action.channel.clone(),
-                entities_json: serde_json::to_string(&r.norm_action.entities).unwrap_or_default(),
+                source: r.norm_action.source.clone(),
+                parameters_json: serde_json::to_string(&r.norm_action.parameters)
+                    .unwrap_or_default(),
                 norm_hash: r.norm_action.norm_hash_hex(),
             },
             risk_score: r.risk_score.as_ref().map(PyRiskScore::from),
-            source: format!("{:?}", r.source),
+            decision_source: format!("{:?}", r.source),
         }
     }
 }
@@ -369,7 +370,7 @@ impl PyEngine {
                 .map(|s| s.flags.clone())
                 .unwrap_or_default(),
             timestamp: now,
-            entities: result.norm_action.entities.clone(),
+            parameters: result.norm_action.parameters.clone(),
         });
 
         Ok(PyDecisionResult::from_result(&result))

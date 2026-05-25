@@ -143,7 +143,7 @@ impl Engine {
     ) -> Result<PermissionResult, EngineError> {
         let synthetic = RawToolCall {
             tool_name: format!("__action:{}", norm.action_type.as_action_str()),
-            parameters: serde_json::Value::Object(norm.entities.clone()),
+            parameters: serde_json::Value::Object(norm.parameters.clone()),
             metadata: Default::default(),
         };
         self.run_pipeline(norm, &synthetic, ctx).await
@@ -181,7 +181,7 @@ impl Engine {
             &redacted,
             Some(serde_json::json!({
                 "action_type": norm.action_type.as_action_str(),
-                "channel": norm.channel,
+                "source": norm.source,
             })),
         ));
 
@@ -372,12 +372,13 @@ impl Engine {
             .get(&action_key)
             .ok_or_else(|| EngineError::NoRiskRule(action_key.clone()))?;
 
-        // Rules evaluate against the raw parameters + a sibling `entity` object
-        // containing normalized entities (host, is_private, amount_cents, etc.).
-        // Rules written before entity exposure (and the vast majority of existing
-        // rules) keep working because raw params are preserved at the top level;
-        // newer rules can reference `entity.host: { in_set: ... }` etc.
-        let merged_data = merge_raw_with_entities(raw_params, &norm.entities);
+        // Rules evaluate against the raw parameters + a sibling `parameter`
+        // object containing normalized parameters (host, is_private,
+        // amount_cents, etc.). Rules written before parameter exposure (and
+        // the vast majority of existing rules) keep working because raw
+        // inputs are preserved at the top level; newer rules can reference
+        // `parameter.host: { in_set: ... }` etc.
+        let merged_data = merge_raw_with_parameters(raw_params, &norm.parameters);
 
         // Execute per-call risk rules
         let mut template = execute_risk_rules_with_sets(
@@ -405,7 +406,7 @@ impl Engine {
 
             // 3. Evaluate built-in session block rules
             let block_result =
-                evaluate_session_block_rules(session_ctx, &action_key, &norm.entities);
+                evaluate_session_block_rules(session_ctx, &action_key, &norm.parameters);
             if block_result.blocked {
                 template.gate(
                     block_result
@@ -827,19 +828,20 @@ fn score_to_permission(tier: Tier, blocked: bool) -> Permission {
     }
 }
 
-/// Build the JSON value passed to risk-rule evaluation: raw tool params at the
-/// top level plus an `entity` sub-object containing the normalizer-computed
-/// entities. Rules can now use either path:
+/// Build the JSON value passed to risk-rule evaluation: raw tool inputs at the
+/// top level plus a `parameter` sub-object containing the normalizer-computed
+/// parameters. Rules can now use either path:
 ///
-/// - legacy: `when: url: { contains: "localhost" }` — matches raw param
-/// - new:    `when: entity.host: { in_set: "org.trusted_domains" }` — matches entity
+/// - legacy: `when: url: { contains: "localhost" }` — matches raw input
+/// - new:    `when: parameter.host: { in_set: "org.trusted_domains" }` —
+///   matches a normalized parameter
 ///
-/// If the raw params already have an `entity` key at the top level (vanishingly
-/// rare, and semantically weird) we preserve it untouched and skip the injection
-/// to avoid silent shadowing.
-fn merge_raw_with_entities(
+/// If the raw inputs already have a `parameter` key at the top level
+/// (vanishingly rare, and semantically weird) we preserve it untouched and skip
+/// the injection to avoid silent shadowing.
+fn merge_raw_with_parameters(
     raw_params: &serde_json::Value,
-    entities: &permit0_types::Entities,
+    parameters: &permit0_types::Parameters,
 ) -> serde_json::Value {
     let mut out = match raw_params {
         serde_json::Value::Object(m) => m.clone(),
@@ -850,12 +852,12 @@ fn merge_raw_with_entities(
         }
     };
 
-    if !out.contains_key("entity") {
-        let entity_obj: serde_json::Map<String, serde_json::Value> = entities
+    if !out.contains_key("parameter") {
+        let parameter_obj: serde_json::Map<String, serde_json::Value> = parameters
             .iter()
             .map(|(k, v)| (k.clone(), v.clone()))
             .collect();
-        out.insert("entity".into(), serde_json::Value::Object(entity_obj));
+        out.insert("parameter".into(), serde_json::Value::Object(parameter_obj));
     }
 
     serde_json::Value::Object(out)
@@ -1199,7 +1201,7 @@ mod tests {
             .get_permission(&outlook_send("Hi", "body"), &ctx)
             .unwrap();
         assert_eq!(result.norm_action.action_type.as_action_str(), "email.send");
-        assert_eq!(result.norm_action.channel, "outlook");
+        assert_eq!(result.norm_action.source, "outlook");
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -1346,7 +1348,7 @@ mod tests {
                 tier: Tier::High,
                 flags: vec!["OUTBOUND".into()],
                 timestamp: 1_700_000_000.0 + i as f64,
-                entities: serde_json::Map::new(),
+                parameters: serde_json::Map::new(),
             });
         }
 

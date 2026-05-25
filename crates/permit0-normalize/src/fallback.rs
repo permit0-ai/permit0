@@ -1,6 +1,6 @@
 #![forbid(unsafe_code)]
 
-use permit0_types::{ActionType, Entities, ExecutionMeta, NormAction, RawToolCall};
+use permit0_types::{ActionType, ExecutionMeta, NormAction, Parameters, RawToolCall};
 
 use crate::context::NormalizeCtx;
 use crate::error::NormalizeError;
@@ -29,16 +29,16 @@ impl Normalizer for FallbackNormalizer {
         raw: &RawToolCall,
         _ctx: &NormalizeCtx,
     ) -> Result<NormAction, NormalizeError> {
-        let mut entities = Entities::new();
-        entities.insert(
+        let mut parameters = Parameters::new();
+        parameters.insert(
             "raw_tool_name".into(),
             serde_json::Value::String(raw.tool_name.clone()),
         );
 
         Ok(NormAction {
             action_type: ActionType::UNKNOWN,
-            channel: raw.tool_name.clone(),
-            entities,
+            source: raw.tool_name.clone(),
+            parameters,
             execution: ExecutionMeta {
                 surface_tool: raw.tool_name.clone(),
                 surface_command: serde_json::to_string(&raw.parameters).unwrap_or_default(),
@@ -74,6 +74,6 @@ mod tests {
         let action = f.normalize(&raw, &ctx).unwrap();
         assert_eq!(action.action_type, ActionType::UNKNOWN);
         assert_eq!(action.domain(), permit0_types::Domain::Unknown);
-        assert_eq!(action.channel, "my_custom_tool");
+        assert_eq!(action.source, "my_custom_tool");
     }
 }
