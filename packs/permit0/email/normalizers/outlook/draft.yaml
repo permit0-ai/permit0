@@ -7,8 +7,8 @@ normalize:
   action_type: "email.draft"
   domain: "email"
   verb: "draft"
-  channel: "outlook"
-  entities:
+  source: "outlook"
+  parameters:
     draft_id:
       from: "draft_id"
       type: "string"

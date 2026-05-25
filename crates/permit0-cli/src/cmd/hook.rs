@@ -294,7 +294,7 @@ struct RemoteCheckResponse {
     #[serde(default)]
     action_type: Option<String>,
     #[serde(default)]
-    channel: Option<String>,
+    source: Option<String>,
     #[serde(default)]
     score: Option<u32>,
     #[serde(default)]
@@ -327,7 +327,7 @@ fn remote_response_to_hook_output(resp: &RemoteCheckResponse) -> HookOutput {
         "humanintheloop" => HookOutput::ask(format!(
             "permit0: {} ({}) — risk {}/100 {}",
             resp.action_type.as_deref().unwrap_or("?"),
-            resp.channel.as_deref().unwrap_or("?"),
+            resp.source.as_deref().unwrap_or("?"),
             resp.score.unwrap_or(0),
             resp.tier.as_deref().unwrap_or(""),
         )),
@@ -647,7 +647,7 @@ pub fn run(
                 .map(|s| s.flags.clone())
                 .unwrap_or_default(),
             timestamp: now,
-            entities: result.norm_action.entities.clone(),
+            parameters: result.norm_action.parameters.clone(),
         };
         store.record_action(sid, &record);
     }
@@ -672,7 +672,7 @@ pub fn run(
             format!(
                 "permit0: {} ({}) — risk {}/100 {:?}",
                 result.norm_action.action_type.as_action_str(),
-                result.norm_action.channel,
+                result.norm_action.source,
                 result.risk_score.as_ref().map_or(0, |s| s.score),
                 result
                     .risk_score
@@ -703,7 +703,7 @@ pub fn run(
                 "[permit0 shadow] WOULD {}: {} ({}) score={}/100  {}",
                 logged_decision.to_uppercase(),
                 result.norm_action.action_type.as_action_str(),
-                result.norm_action.channel,
+                result.norm_action.source,
                 result.risk_score.as_ref().map_or(0, |s| s.score),
                 logged_reason,
             );
@@ -996,7 +996,7 @@ mod tests {
         let resp = RemoteCheckResponse {
             permission: "humanintheloop".into(),
             action_type: Some("unknown.unclassified".into()),
-            channel: Some("local".into()),
+            source: Some("local".into()),
             score: Some(0),
             tier: Some("Medium".into()),
             block_reason: None,
@@ -1006,7 +1006,7 @@ mod tests {
         let resp = RemoteCheckResponse {
             permission: "humanintheloop".into(),
             action_type: Some("payment.charge".into()),
-            channel: None,
+            source: None,
             score: None,
             tier: None,
             block_reason: None,
@@ -1016,7 +1016,7 @@ mod tests {
         let resp = RemoteCheckResponse {
             permission: "allow".into(),
             action_type: None,
-            channel: None,
+            source: None,
             score: None,
             tier: None,
             block_reason: None,
@@ -1170,7 +1170,7 @@ mod tests {
         let resp = RemoteCheckResponse {
             permission: "allow".into(),
             action_type: Some("file.read".into()),
-            channel: Some("local".into()),
+            source: Some("local".into()),
             score: Some(5),
             tier: Some("Minimal".into()),
             block_reason: None,
@@ -1189,7 +1189,7 @@ mod tests {
         let resp = RemoteCheckResponse {
             permission: "deny".into(),
             action_type: Some("shell.exec".into()),
-            channel: Some("bash".into()),
+            source: Some("bash".into()),
             score: Some(95),
             tier: Some("Critical".into()),
             block_reason: Some("rm -rf /".into()),
@@ -1209,7 +1209,7 @@ mod tests {
         let resp = RemoteCheckResponse {
             permission: "deny".into(),
             action_type: None,
-            channel: None,
+            source: None,
             score: None,
             tier: None,
             block_reason: None,
@@ -1231,7 +1231,7 @@ mod tests {
         let resp = RemoteCheckResponse {
             permission: "humanintheloop".into(),
             action_type: Some("email.send".into()),
-            channel: Some("gmail".into()),
+            source: Some("gmail".into()),
             score: Some(62),
             tier: Some("High".into()),
             block_reason: None,
@@ -1256,7 +1256,7 @@ mod tests {
         let resp = RemoteCheckResponse {
             permission: "quarantine".into(),
             action_type: None,
-            channel: None,
+            source: None,
             score: None,
             tier: None,
             block_reason: None,
@@ -1279,13 +1279,13 @@ mod tests {
         let json = r#"{
             "permission": "humanintheloop",
             "action_type": "email.send",
-            "channel": "gmail",
+            "source": "gmail",
             "norm_hash": "deadbeef",
             "score": 62,
             "tier": "High",
             "blocked": false,
             "block_reason": null,
-            "source": "Scorer"
+            "decision_source": "Scorer"
         }"#;
         let parsed: RemoteCheckResponse = serde_json::from_str(json).unwrap();
         assert_eq!(parsed.permission, "humanintheloop");

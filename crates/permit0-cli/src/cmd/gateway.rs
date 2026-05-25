@@ -18,7 +18,7 @@
 //!
 //! Output format (one per line):
 //! ```json
-//! {"permission": "allow", "action_type": "system.exec", "channel": "bash", "score": 12, "tier": "Minimal"}
+//! {"permission": "allow", "action_type": "system.exec", "source": "bash", "score": 12, "tier": "Minimal"}
 //! ```
 
 use std::io::{self, BufRead, Write};
@@ -46,7 +46,7 @@ use crate::engine_factory;
 pub struct GatewayDecision {
     pub permission: String,
     pub action_type: String,
-    pub channel: String,
+    pub source: String,
     pub norm_hash: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub score: Option<u32>,
@@ -56,7 +56,7 @@ pub struct GatewayDecision {
     pub blocked: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub block_reason: Option<String>,
-    pub source: String,
+    pub decision_source: String,
 }
 
 /// Gateway error output.
@@ -119,7 +119,7 @@ fn process_line(
     Ok(GatewayDecision {
         permission: result.permission.to_string().to_lowercase(),
         action_type: result.norm_action.action_type.as_action_str().to_string(),
-        channel: result.norm_action.channel.clone(),
+        source: result.norm_action.source.clone(),
         norm_hash: result.norm_action.norm_hash_hex(),
         score: result.risk_score.as_ref().map(|s| s.score),
         tier: result.risk_score.as_ref().map(|s| s.tier.to_string()),
@@ -128,7 +128,7 @@ fn process_line(
             .risk_score
             .as_ref()
             .and_then(|s| s.block_reason.clone()),
-        source: format!("{:?}", result.source),
+        decision_source: format!("{:?}", result.source),
     })
 }
 
@@ -141,13 +141,13 @@ mod tests {
         let decision = GatewayDecision {
             permission: "allow".into(),
             action_type: "system.exec".into(),
-            channel: "bash".into(),
+            source: "bash".into(),
             norm_hash: "abc123".into(),
             score: Some(12),
             tier: Some("Minimal".into()),
             blocked: Some(false),
             block_reason: None,
-            source: "Scoring".into(),
+            decision_source: "Scoring".into(),
         };
         let json = serde_json::to_string(&decision).unwrap();
         assert!(json.contains(r#""permission":"allow""#));

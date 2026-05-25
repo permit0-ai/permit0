@@ -553,25 +553,25 @@ select.input{padding-right:22px}
 }
 .approval-card-meta strong{color:var(--text);font-weight:500}
 .approval-flags{display:flex;flex-wrap:wrap;gap:6px;padding:0 16px 10px}
-.approval-entities{
+.approval-parameters{
   margin:0 16px 12px;
   background:var(--bg);border:1px solid var(--border);
   border-radius:var(--radius);
 }
-.approval-entities summary{
+.approval-parameters summary{
   cursor:pointer;padding:8px 12px;
   font-size:12px;color:var(--text-muted);
   list-style:none;user-select:none;
   display:flex;align-items:center;gap:6px;
 }
-.approval-entities summary::-webkit-details-marker{display:none}
-.approval-entities summary::before{
+.approval-parameters summary::-webkit-details-marker{display:none}
+.approval-parameters summary::before{
   content:'';display:inline-block;
   width:6px;height:6px;
   border-right:1.5px solid currentColor;border-bottom:1.5px solid currentColor;
   transform:rotate(-45deg);transition:transform 0.15s;
 }
-.approval-entities[open] summary::before{transform:rotate(45deg)}
+.approval-parameters[open] summary::before{transform:rotate(45deg)}
 
 .kv-table{
   width:100%;border-collapse:collapse;border-top:1px solid var(--border);
@@ -847,7 +847,7 @@ select.input{padding-right:22px}
 .live-card-time{color:var(--text-dim);min-width:110px;font-family:var(--font-mono);font-size:12px}
 .live-card-info{display:flex;gap:12px;align-items:center;flex-wrap:wrap;flex:1}
 .live-card-action{color:var(--text);font-weight:500;font-family:var(--font-mono);font-size:12px}
-.live-card-channel{color:var(--text-muted)}
+.live-card-source{color:var(--text-muted)}
 .live-card-score{color:var(--text-dim);margin-left:auto;font-family:var(--font-mono);font-size:12px}
 
 /* ============================================================
@@ -1053,11 +1053,11 @@ select.input{padding-right:22px}
             <tr>
               <th>Timestamp</th>
               <th>Action Type</th>
-              <th>Channel</th>
+              <th>Source</th>
               <th>Permission</th>
               <th>Tier</th>
               <th>Score</th>
-              <th>Source</th>
+              <th>Decision Source</th>
               <th>permit0 said</th>
               <th>human said</th>
               <th>match?</th>
@@ -1210,7 +1210,7 @@ select.input{padding-right:22px}
             <tr>
               <th>Timestamp</th>
               <th>Action</th>
-              <th>Channel</th>
+              <th>Source</th>
               <th>permit0 said</th>
               <th>human said</th>
               <th>match</th>
@@ -1699,11 +1699,11 @@ select.input{padding-right:22px}
       html += '<tr class="clickable-row" data-audit-idx="' + i + '">'
         + '<td class="mono">' + esc(formatTimestamp(r.timestamp)) + '</td>'
         + '<td>' + esc(r.action_type) + '</td>'
-        + '<td class="mono">' + esc(r.channel || '-') + '</td>'
-        + '<td>' + permissionBadge(r.permission, r.source) + '</td>'
+        + '<td class="mono">' + esc(r.source || '-') + '</td>'
+        + '<td>' + permissionBadge(r.permission, r.decision_source) + '</td>'
         + '<td>' + tierBadge(r.tier) + '</td>'
         + '<td class="mono">' + esc(r.risk_raw != null ? r.risk_raw : '-') + '</td>'
-        + '<td class="mono">' + esc(r.source || '-') + '</td>'
+        + '<td class="mono">' + esc(r.decision_source || '-') + '</td>'
         + '<td>' + calib.engine + '</td>'
         + '<td>' + calib.human + '</td>'
         + '<td style="text-align:center">' + calib.match + '</td>'
@@ -1782,7 +1782,7 @@ select.input{padding-right:22px}
         + tierBadge(a.tier)
         + '</div>'
         + '<div class="approval-card-meta">'
-        + '<span>Channel: ' + esc(a.channel || '-') + '</span>'
+        + '<span>Source: ' + esc(a.source || '-') + '</span>'
         + '<span>Risk: <strong>' + esc(a.risk_score != null ? a.risk_score : '-') + '</strong></span>'
         + '<span>Created: ' + esc(elapsed) + '</span>'
         + '</div>'
@@ -1801,9 +1801,9 @@ select.input{padding-right:22px}
   }
 
   // Render the full normalized action the engine scored: taxonomy
-  // metadata (domain / verb / channel), the raw MCP tool surface, the
+  // metadata (domain / verb / source), the raw MCP tool surface, the
   // norm_hash (handy for denylist/allowlist), risk flags, and the
-  // entity payload extracted by the normalizer. The reviewer should be
+  // parameter payload extracted by the normalizer. The reviewer should be
   // able to audit everything permit0 saw — not just the action verb.
   function renderApprovalDetails(a) {
     var html = '';
@@ -1820,7 +1820,7 @@ select.input{padding-right:22px}
       ['Action', a.action_type || ''],
       ['Domain', a.domain || ''],
       ['Verb', a.verb || ''],
-      ['Channel', a.channel || ''],
+      ['Source', a.source || ''],
       ['Surface tool', a.surface_tool || ''],
       ['Surface command', a.surface_command || ''],
       ['Norm hash', a.norm_hash || '']
@@ -1831,14 +1831,14 @@ select.input{padding-right:22px}
         : '<span class="kv-null">—</span>';
       return '<tr><td class="kv-key">' + esc(k) + '</td><td class="kv-value">' + displayValue + '</td></tr>';
     }).join('');
-    html += '<details class="approval-entities" open>'
+    html += '<details class="approval-parameters" open>'
       + '<summary>Action (7 fields)</summary>'
       + '<table class="kv-table"><tbody>' + actionRows + '</tbody></table>'
       + '</details>';
 
     // Parameter payload — what the normalizer extracted from the
     // agent's tool call. Domain-agnostic title (was "Message details").
-    var ents = a.entities || {};
+    var ents = a.parameters || {};
     var keys = Object.keys(ents);
     if (keys.length) {
       var rows = keys.map(function(k) {
@@ -1855,7 +1855,7 @@ select.input{padding-right:22px}
         }
         return '<tr><td class="kv-key">' + esc(k) + '</td><td class="kv-value">' + displayValue + '</td></tr>';
       }).join('');
-      html += '<details class="approval-entities" open>'
+      html += '<details class="approval-parameters" open>'
         + '<summary>Parameters (' + keys.length + ' field' + (keys.length === 1 ? '' : 's') + ')</summary>'
         + '<table class="kv-table"><tbody>' + rows + '</tbody></table>'
         + '</details>';
@@ -2081,7 +2081,7 @@ select.input{padding-right:22px}
       mHtml += polMetaField('id', meta.id);
       mHtml += polMetaField('action_type', meta.action_type);
       mHtml += polMetaField('priority', meta.priority);
-      mHtml += polMetaField('channel', meta.channel);
+      mHtml += polMetaField('source', meta.source);
     } else {
       mHtml += polMetaField('action_type', meta.action_type);
       mHtml += polMetaFieldArray('flags', meta.flags);
@@ -2363,8 +2363,8 @@ select.input{padding-right:22px}
         + '<div class="live-card-time">' + esc(formatTimestamp(r.timestamp)) + '</div>'
         + '<div class="live-card-info">'
         + '<span class="live-card-action">' + esc(r.action_type) + '</span>'
-        + '<span class="live-card-channel">' + esc(r.channel || '-') + '</span>'
-        + permissionBadge(r.permission, r.source)
+        + '<span class="live-card-source">' + esc(r.source || '-') + '</span>'
+        + permissionBadge(r.permission, r.decision_source)
         + tierBadge(r.tier)
         + '<span class="live-card-score">score: ' + esc(r.risk_raw != null ? r.risk_raw : '-') + '</span>'
         + '</div></div>';
@@ -2524,7 +2524,7 @@ select.input{padding-right:22px}
       return '<tr>'
         + '<td class="mono">' + esc(formatTimestamp(r.timestamp)) + '</td>'
         + '<td>' + esc(r.action_type) + '</td>'
-        + '<td class="mono">' + esc(r.channel || '-') + '</td>'
+        + '<td class="mono">' + esc(r.source || '-') + '</td>'
         + '<td>' + c.engine + '</td>'
         + '<td>' + c.human + '</td>'
         + '<td style="text-align:center">' + c.match + '</td>'

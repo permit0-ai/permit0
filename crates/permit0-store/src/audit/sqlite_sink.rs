@@ -53,7 +53,7 @@ impl SqliteAuditSink {
                 sequence INTEGER NOT NULL UNIQUE,
                 timestamp TEXT NOT NULL,
                 action_type TEXT NOT NULL,
-                channel TEXT NOT NULL,
+                source TEXT NOT NULL,
                 decision TEXT NOT NULL,
                 tier TEXT,
                 session_id TEXT,
@@ -112,7 +112,7 @@ impl AuditSink for SqliteAuditSink {
         let tier_str = entry.risk_score.as_ref().map(|rs| tier_to_str(rs.tier));
         conn.execute(
             "INSERT INTO audit_entries
-                (entry_id, sequence, timestamp, action_type, channel, decision, tier,
+                (entry_id, sequence, timestamp, action_type, source, decision, tier,
                  session_id, prev_hash, entry_hash, signature, has_human_review, entry_json)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)",
             params![
@@ -120,7 +120,7 @@ impl AuditSink for SqliteAuditSink {
                 entry.sequence as i64,
                 entry.timestamp,
                 action_type,
-                entry.norm_action.channel,
+                entry.norm_action.source,
                 permission_to_str(entry.decision),
                 tier_str,
                 entry.session_id,
@@ -349,8 +349,8 @@ mod tests {
             decision_source: "scorer".into(),
             norm_action: NormAction {
                 action_type: ActionType::parse("email.send").unwrap(),
-                channel: "gmail".into(),
-                entities: serde_json::Map::new(),
+                source: "gmail".into(),
+                parameters: serde_json::Map::new(),
                 execution: ExecutionMeta {
                     surface_tool: "test".into(),
                     surface_command: "test".into(),

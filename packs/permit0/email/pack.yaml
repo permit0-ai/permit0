@@ -49,11 +49,11 @@ action_types:
   - email.set_forwarding
   - email.add_delegate
 
-# Channel metadata. Each channel maps to a self-contained subdirectory
-# under normalizers/<channel>/ that holds its own _channel.yaml,
+# Source metadata. Each source maps to a self-contained subdirectory
+# under normalizers/<source>/ that holds its own _source.yaml,
 # aliases.yaml, and per-verb normalizer files. Adding a vendor =
 # create one directory + drop in 16 verbs.
-channels:
+sources:
   gmail:
     mcp_server: permit0-mcp/gmail-mcp
     display_name: "Gmail (Google)"

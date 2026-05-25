@@ -45,10 +45,10 @@ pub struct PackManifest {
     #[serde(default)]
     pub maintainers: Vec<Maintainer>,
 
-    /// Channel metadata. Keyed by channel slug (e.g. `gmail`, `outlook`).
-    /// Empty in PR 2; populated in PR 3 once normalizers are channel-grouped.
+    /// Source metadata. Keyed by source slug (e.g. `gmail`, `outlook`).
+    /// Empty in PR 2; populated in PR 3 once normalizers are source-grouped.
     #[serde(default)]
-    pub channels: std::collections::BTreeMap<String, ChannelMeta>,
+    pub sources: std::collections::BTreeMap<String, SourceMeta>,
 
     /// Self-declared trust tier. **Informational only** — the engine
     /// derives the authoritative tier from `permit0_pack`'s owner prefix
@@ -102,10 +102,10 @@ pub struct Maintainer {
     pub name: Option<String>,
 }
 
-/// Channel-level metadata (per-vendor) declared in `pack.yaml`.
+/// Source-level metadata (per-vendor) declared in `pack.yaml`.
 #[derive(Debug, Clone, Deserialize, Default)]
-pub struct ChannelMeta {
-    /// Path to the MCP server adapter for this channel, e.g.
+pub struct SourceMeta {
+    /// Path to the MCP server adapter for this source, e.g.
     /// `permit0-mcp/gmail-mcp`.
     #[serde(default)]
     pub mcp_server: Option<String>,
@@ -114,23 +114,23 @@ pub struct ChannelMeta {
     pub display_name: Option<String>,
 }
 
-/// `_channel.yaml` — full channel manifest sitting next to per-vendor
-/// normalizers under `normalizers/<channel>/`.
+/// `_source.yaml` — full source manifest sitting next to per-vendor
+/// normalizers under `normalizers/<source>/`.
 ///
-/// Distinct from [`ChannelMeta`] (which is the lightweight summary
-/// declared in `pack.yaml`'s `channels:` block). The `_channel.yaml`
-/// file is the authoritative per-channel record, including the
+/// Distinct from [`SourceMeta`] (which is the lightweight summary
+/// declared in `pack.yaml`'s `sources:` block). The `_source.yaml`
+/// file is the authoritative per-source record, including the
 /// `tool_pattern` glob the validator enforces against every normalizer
-/// in the directory to prevent cross-channel poisoning.
+/// in the directory to prevent cross-source poisoning.
 #[derive(Debug, Clone, Deserialize, Default)]
-pub struct ChannelManifest {
-    /// Channel slug. Should match the directory name.
+pub struct SourceManifest {
+    /// Source slug. Should match the directory name.
     #[serde(default)]
-    pub channel: Option<String>,
+    pub source: Option<String>,
     /// Display name (UI-facing).
     #[serde(default)]
     pub display_name: Option<String>,
-    /// Path to the MCP server adapter for this channel.
+    /// Path to the MCP server adapter for this source.
     #[serde(default)]
     pub mcp_server: Option<String>,
     /// Auth model: `oauth_user`, `api_key`, `mtls`, `none`.
@@ -144,7 +144,7 @@ pub struct ChannelManifest {
     /// semantics see [`tool_pattern_matches`](super::super::pack_validate::tool_pattern_matches).
     ///
     /// The validator rejects normalizers whose `match.tool` doesn't
-    /// match. Guards against cross-channel poisoning where a
+    /// match. Guards against cross-source poisoning where a
     /// malicious normalizer in `normalizers/gmail/` claims
     /// `outlook_send`.
     #[serde(default)]
@@ -224,7 +224,7 @@ permit0_pack: "permit0/email"
         assert_eq!(m.name, "email");
         assert!(m.normalizers.is_empty());
         assert!(m.action_types.is_empty());
-        assert!(m.channels.is_empty());
+        assert!(m.sources.is_empty());
     }
 
     #[test]
@@ -239,7 +239,7 @@ taxonomy: "1.x"
 trust_tier: built-in
 maintainers:
   - github: "@permit0-team"
-channels:
+sources:
   gmail:
     mcp_server: permit0-mcp/gmail-mcp
     display_name: "Gmail"
@@ -255,9 +255,9 @@ content_hash: ""
         let m: PackManifest = serde_yaml::from_str(yaml).unwrap();
         assert_eq!(m.pack_format, Some(2));
         assert_eq!(m.trust_tier, Some(TrustTier::BuiltIn));
-        assert_eq!(m.channels.len(), 2);
+        assert_eq!(m.sources.len(), 2);
         assert_eq!(
-            m.channels
+            m.sources
                 .get("gmail")
                 .and_then(|c| c.mcp_server.as_deref()),
             Some("permit0-mcp/gmail-mcp")

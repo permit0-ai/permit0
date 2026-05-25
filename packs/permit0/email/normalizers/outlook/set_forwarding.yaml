@@ -7,8 +7,8 @@ normalize:
   action_type: "email.set_forwarding"
   domain: "email"
   verb: "set_forwarding"
-  channel: "outlook"
-  entities:
+  source: "outlook"
+  parameters:
     destination:
       from: "forwarding_address"
       type: "string"

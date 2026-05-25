@@ -89,17 +89,17 @@ pub enum ViolationCode {
     /// require explicit human review; gateless rules can let the engine
     /// auto-approve based on score alone.
     MissingGateOnCriticalAction,
-    /// A normalizer's `match.tool` doesn't satisfy the channel's
-    /// `tool_pattern` glob. Indicates cross-channel poisoning — a
+    /// A normalizer's `match.tool` doesn't satisfy the source's
+    /// `tool_pattern` glob. Indicates cross-source poisoning — a
     /// normalizer placed in `normalizers/gmail/` claiming an `outlook_*`
-    /// tool would route Outlook traffic through gmail-channel risk
+    /// tool would route Outlook traffic through gmail-source risk
     /// rules and aliases.
     ToolPatternMismatch,
-    /// A `normalizers/<channel>/` directory exists but lacks an
-    /// `_channel.yaml`. The validator can't enforce `tool_pattern`
+    /// A `normalizers/<source>/` directory exists but lacks an
+    /// `_source.yaml`. The validator can't enforce `tool_pattern`
     /// without the manifest; treat as warning rather than hard error
     /// to keep coexistence with PR 2's flat normalizer layout.
-    MissingChannelManifest,
+    MissingSourceManifest,
 }
 
 /// Run every manifest-level check and return a flat list of violations.
@@ -274,7 +274,7 @@ fn check_orphans(
     }
 }
 
-/// Match a tool name against a `_channel.yaml` `tool_pattern` glob.
+/// Match a tool name against a `_source.yaml` `tool_pattern` glob.
 ///
 /// Supported wildcards (intentionally minimal):
 /// - `*` matches any sequence of characters (including empty).
@@ -321,22 +321,22 @@ pub fn tool_pattern_matches(pattern: &str, tool: &str) -> bool {
     true
 }
 
-/// Walk every `normalizers/<channel>/` subdirectory of a pack and
+/// Walk every `normalizers/<source>/` subdirectory of a pack and
 /// verify each normalizer's `match.tool` satisfies the directory's
-/// `_channel.yaml` `tool_pattern`. Surfaces:
+/// `_source.yaml` `tool_pattern`. Surfaces:
 /// - `ToolPatternMismatch` when a normalizer's tool name escapes
-///   the pattern (cross-channel poisoning).
-/// - `MissingChannelManifest` when a per-channel directory has
-///   normalizer YAMLs but no `_channel.yaml` (warning).
+///   the pattern (cross-source poisoning).
+/// - `MissingSourceManifest` when a per-source directory has
+///   normalizer YAMLs but no `_source.yaml` (warning).
 ///
 /// IO-bound, so this lives outside the pure `validate_pack`
 /// pipeline; the CLI calls it after the manifest checks. Returns an
-/// empty vec if the pack is still on the flat layout (no per-channel
+/// empty vec if the pack is still on the flat layout (no per-source
 /// subdirectories).
-pub fn validate_channel_directories(
+pub fn validate_source_directories(
     pack_dir: &std::path::Path,
 ) -> Result<Vec<PackViolation>, std::io::Error> {
-    use crate::schema::pack::ChannelManifest;
+    use crate::schema::pack::SourceManifest;
     let mut violations = Vec::new();
 
     let normalizers_dir = pack_dir.join("normalizers");
@@ -358,20 +358,20 @@ pub fn validate_channel_directories(
             continue;
         }
 
-        // Try to load _channel.yaml for the pattern. Surface a
+        // Try to load _source.yaml for the pattern. Surface a
         // warning if missing; nothing else to enforce without it.
-        let channel_yaml_path = path.join(crate::CHANNEL_MANIFEST_FILENAME);
-        let pattern: Option<String> = if channel_yaml_path.is_file() {
-            let yaml = std::fs::read_to_string(&channel_yaml_path)?;
-            match serde_yaml::from_str::<ChannelManifest>(&yaml) {
+        let source_yaml_path = path.join(crate::SOURCE_MANIFEST_FILENAME);
+        let pattern: Option<String> = if source_yaml_path.is_file() {
+            let yaml = std::fs::read_to_string(&source_yaml_path)?;
+            match serde_yaml::from_str::<SourceManifest>(&yaml) {
                 Ok(m) => m.tool_pattern,
                 Err(_) => None,
             }
         } else {
             violations.push(PackViolation {
-                code: ViolationCode::MissingChannelManifest,
+                code: ViolationCode::MissingSourceManifest,
                 message: format!(
-                    "normalizers/{basename}/ has normalizer YAMLs but no _channel.yaml \
+                    "normalizers/{basename}/ has normalizer YAMLs but no _source.yaml \
                      declaring `tool_pattern:`; tool-pattern enforcement skipped"
                 ),
             });
@@ -379,14 +379,14 @@ pub fn validate_channel_directories(
         };
 
         let Some(pattern) = pattern else {
-            // _channel.yaml exists but doesn't declare tool_pattern;
+            // _source.yaml exists but doesn't declare tool_pattern;
             // we already surfaced the manifest issue above (or chose
-            // to silently allow patternless channel manifests for
+            // to silently allow patternless source manifests for
             // back-compat). Skip enforcement.
             continue;
         };
 
-        // Check every normalizer YAML in the channel directory.
+        // Check every normalizer YAML in the source directory.
         for sub in std::fs::read_dir(&path)? {
             let sub = sub?;
             let sub_path = sub.path();
@@ -400,7 +400,7 @@ pub fn validate_channel_directories(
             {
                 continue;
             }
-            if sub_basename == crate::CHANNEL_MANIFEST_FILENAME
+            if sub_basename == crate::SOURCE_MANIFEST_FILENAME
                 || sub_basename == crate::ALIASES_FILENAME
             {
                 continue;
@@ -426,8 +426,8 @@ pub fn validate_channel_directories(
                     code: ViolationCode::ToolPatternMismatch,
                     message: format!(
                         "normalizers/{basename}/{sub_basename} has match.tool: \"{tool}\" \
-                         which does not match channel pattern \"{pattern}\" — \
-                         cross-channel poisoning suspected"
+                         which does not match source pattern \"{pattern}\" — \
+                         cross-source poisoning suspected"
                     ),
                 });
             }
@@ -492,7 +492,7 @@ mod tests {
             taxonomy: None,
             action_types: vec![],
             maintainers: vec![],
-            channels: Default::default(),
+            sources: Default::default(),
             trust_tier: None,
             signature: None,
             provenance: None,

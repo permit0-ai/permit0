@@ -92,10 +92,10 @@ impl From<&RiskScore> for JsRiskScore {
 pub struct JsNormAction {
     /// Action type string, e.g. "payment.charge".
     pub action_type: String,
-    /// Channel/vendor, e.g. "stripe".
-    pub channel: String,
-    /// Semantic entities as a JSON string.
-    pub entities_json: String,
+    /// Source/vendor, e.g. "stripe".
+    pub source: String,
+    /// Semantic parameters as a JSON string.
+    pub parameters_json: String,
     /// Norm hash hex (16 chars).
     pub norm_hash: String,
 }
@@ -110,7 +110,7 @@ pub struct JsDecisionResult {
     /// Risk score (None if decision was from cache/list).
     pub risk_score: Option<JsRiskScore>,
     /// How the decision was reached.
-    pub source: String,
+    pub decision_source: String,
 }
 
 impl JsDecisionResult {
@@ -119,12 +119,13 @@ impl JsDecisionResult {
             permission: r.permission.into(),
             norm_action: JsNormAction {
                 action_type: r.norm_action.action_type.as_action_str(),
-                channel: r.norm_action.channel.clone(),
-                entities_json: serde_json::to_string(&r.norm_action.entities).unwrap_or_default(),
+                source: r.norm_action.source.clone(),
+                parameters_json: serde_json::to_string(&r.norm_action.parameters)
+                    .unwrap_or_default(),
                 norm_hash: r.norm_action.norm_hash_hex(),
             },
             risk_score: r.risk_score.as_ref().map(JsRiskScore::from),
-            source: format!("{:?}", r.source),
+            decision_source: format!("{:?}", r.source),
         }
     }
 }

@@ -137,10 +137,10 @@ impl SessionContext {
                         return false;
                     }
                 }
-                // Entity match
-                if let Some(ref matches) = filter.entity_match {
+                // Parameter match
+                if let Some(ref matches) = filter.parameter_match {
                     for (field, expected) in matches {
-                        match r.entities.get(field) {
+                        match r.parameters.get(field) {
                             Some(actual) if actual == expected => {}
                             _ => return false,
                         }
@@ -151,22 +151,22 @@ impl SessionContext {
             .collect()
     }
 
-    /// Filter records, returning those matching + numeric comparison on entity field.
+    /// Filter records, returning those matching + numeric comparison on parameter field.
     fn filter_numeric_values(&self, field: &str, filter: &SessionFilter) -> Vec<f64> {
         self.filter_records(filter)
             .iter()
-            .filter_map(|r| r.entities.get(field).and_then(as_f64))
+            .filter_map(|r| r.parameters.get(field).and_then(as_f64))
             .collect()
     }
 
     // ── Numeric aggregation (10b) ───────────────────────────────
 
-    /// Sum of an entity field across matching records.
+    /// Sum of a parameter field across matching records.
     pub fn sum(&self, field: &str, filter: &SessionFilter) -> f64 {
         self.filter_numeric_values(field, filter).iter().sum()
     }
 
-    /// Maximum value of an entity field.
+    /// Maximum value of a parameter field.
     pub fn max_val(&self, field: &str, filter: &SessionFilter) -> Option<f64> {
         self.filter_numeric_values(field, filter)
             .iter()
@@ -174,7 +174,7 @@ impl SessionContext {
             .reduce(f64::max)
     }
 
-    /// Minimum value of an entity field.
+    /// Minimum value of a parameter field.
     pub fn min_val(&self, field: &str, filter: &SessionFilter) -> Option<f64> {
         self.filter_numeric_values(field, filter)
             .iter()
@@ -182,7 +182,7 @@ impl SessionContext {
             .reduce(f64::min)
     }
 
-    /// Average value of an entity field.
+    /// Average value of a parameter field.
     pub fn avg(&self, field: &str, filter: &SessionFilter) -> Option<f64> {
         let vals = self.filter_numeric_values(field, filter);
         if vals.is_empty() {
@@ -194,21 +194,21 @@ impl SessionContext {
 
     // ── Advanced counting (10c) ─────────────────────────────────
 
-    /// Count records matching filter + entity conditions.
+    /// Count records matching filter + parameter conditions.
     pub fn count_where(&self, filter: &SessionFilter) -> usize {
         self.filter_records(filter).len()
     }
 
-    /// Count distinct values of an entity field across matching records.
+    /// Count distinct values of a parameter field across matching records.
     pub fn distinct_count(&self, field: &str, filter: &SessionFilter) -> usize {
         self.distinct_values(field, filter).len()
     }
 
-    /// Collect distinct values of an entity field.
+    /// Collect distinct values of a parameter field.
     pub fn distinct_values(&self, field: &str, filter: &SessionFilter) -> Vec<Value> {
         let mut seen = Vec::new();
         for record in self.filter_records(filter) {
-            if let Some(val) = record.entities.get(field) {
+            if let Some(val) = record.parameters.get(field) {
                 if !seen.contains(val) {
                     seen.push(val.clone());
                 }
@@ -392,26 +392,26 @@ mod tests {
             tier,
             flags: vec![],
             timestamp: ts,
-            entities: serde_json::Map::new(),
+            parameters: serde_json::Map::new(),
         }
     }
 
-    fn make_record_with_entities(
+    fn make_record_with_parameters(
         action_type: &str,
         tier: Tier,
         ts: f64,
-        entities: Vec<(&str, Value)>,
+        parameters: Vec<(&str, Value)>,
     ) -> ActionRecord {
-        let mut ents = serde_json::Map::new();
-        for (k, v) in entities {
-            ents.insert(k.into(), v);
+        let mut params = serde_json::Map::new();
+        for (k, v) in parameters {
+            params.insert(k.into(), v);
         }
         ActionRecord {
             action_type: action_type.into(),
             tier,
             flags: vec![],
             timestamp: ts,
-            entities: ents,
+            parameters: params,
         }
     }
 
@@ -426,7 +426,7 @@ mod tests {
             tier,
             flags: flags.into_iter().map(String::from).collect(),
             timestamp: ts,
-            entities: serde_json::Map::new(),
+            parameters: serde_json::Map::new(),
         }
     }
 
@@ -531,15 +531,15 @@ mod tests {
     // ── Numeric aggregation tests ───────────────────────────────
 
     #[test]
-    fn sum_entity_field() {
+    fn sum_parameter_field() {
         let mut ctx = SessionContext::new("test");
-        ctx.push(make_record_with_entities(
+        ctx.push(make_record_with_parameters(
             "payments.transfer",
             Tier::Medium,
             base_ts(),
             vec![("amount", json!(50000))],
         ));
-        ctx.push(make_record_with_entities(
+        ctx.push(make_record_with_parameters(
             "payments.transfer",
             Tier::Medium,
             base_ts() + 1.0,
@@ -554,7 +554,7 @@ mod tests {
     fn max_min_avg() {
         let mut ctx = SessionContext::new("test");
         for (i, amt) in [100, 500, 300].iter().enumerate() {
-            ctx.push(make_record_with_entities(
+            ctx.push(make_record_with_parameters(
                 "payments.charge",
                 Tier::Low,
                 base_ts() + i as f64,
@@ -572,19 +572,19 @@ mod tests {
     #[test]
     fn distinct_count_recipients() {
         let mut ctx = SessionContext::new("test");
-        ctx.push(make_record_with_entities(
+        ctx.push(make_record_with_parameters(
             "email.send",
             Tier::Low,
             base_ts(),
             vec![("recipient", json!("alice@a.com"))],
         ));
-        ctx.push(make_record_with_entities(
+        ctx.push(make_record_with_parameters(
             "email.send",
             Tier::Low,
             base_ts() + 1.0,
             vec![("recipient", json!("bob@b.com"))],
         ));
-        ctx.push(make_record_with_entities(
+        ctx.push(make_record_with_parameters(
             "email.send",
             Tier::Low,
             base_ts() + 2.0,
@@ -596,21 +596,21 @@ mod tests {
     }
 
     #[test]
-    fn count_where_with_entity_match() {
+    fn count_where_with_parameter_match() {
         let mut ctx = SessionContext::new("test");
-        ctx.push(make_record_with_entities(
+        ctx.push(make_record_with_parameters(
             "email.send",
             Tier::Low,
             base_ts(),
             vec![("recipient_scope", json!("external"))],
         ));
-        ctx.push(make_record_with_entities(
+        ctx.push(make_record_with_parameters(
             "email.send",
             Tier::Low,
             base_ts() + 1.0,
             vec![("recipient_scope", json!("internal"))],
         ));
-        ctx.push(make_record_with_entities(
+        ctx.push(make_record_with_parameters(
             "email.send",
             Tier::Low,
             base_ts() + 2.0,
@@ -619,7 +619,7 @@ mod tests {
 
         let filter = SessionFilter::new()
             .with_action_type("email.send")
-            .with_entity_match("recipient_scope", json!("external"));
+            .with_parameter_match("recipient_scope", json!("external"));
         assert_eq!(ctx.count_where(&filter), 2);
     }
 

@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use permit0_types::{Entities, Tier};
+use permit0_types::{Parameters, Tier};
 
 /// A record of a single action within a session.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -13,7 +13,7 @@ pub struct ActionRecord {
     pub flags: Vec<String>,
     /// Unix timestamp (seconds, f64 for sub-second precision).
     pub timestamp: f64,
-    pub entities: Entities,
+    pub parameters: Parameters,
 }
 
 /// Filter for scoping session queries.
@@ -23,8 +23,8 @@ pub struct SessionFilter {
     pub action_type: Option<String>,
     /// Multiple action types (OR).
     pub action_types: Option<Vec<String>>,
-    /// Entity field conditions: (field_name, expected_value).
-    pub entity_match: Option<Vec<(String, Value)>>,
+    /// Parameter field conditions: (field_name, expected_value).
+    pub parameter_match: Option<Vec<(String, Value)>>,
     /// Time window in minutes (only records within last N minutes).
     pub within_minutes: Option<u64>,
 }
@@ -44,8 +44,8 @@ impl SessionFilter {
         self
     }
 
-    pub fn with_entity_match(mut self, field: impl Into<String>, value: Value) -> Self {
-        self.entity_match
+    pub fn with_parameter_match(mut self, field: impl Into<String>, value: Value) -> Self {
+        self.parameter_match
             .get_or_insert_with(Vec::new)
             .push((field.into(), value));
         self

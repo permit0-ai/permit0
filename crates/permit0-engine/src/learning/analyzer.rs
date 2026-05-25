@@ -267,8 +267,8 @@ mod tests {
             decision_source: "scorer".into(),
             norm_action: NormAction {
                 action_type: ActionType::parse(action_type).unwrap(),
-                channel: "test".into(),
-                entities: serde_json::Map::new(),
+                source: "test".into(),
+                parameters: serde_json::Map::new(),
                 execution: ExecutionMeta {
                     surface_tool: "test".into(),
                     surface_command: "test cmd".into(),

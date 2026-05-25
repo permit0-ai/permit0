@@ -239,9 +239,9 @@ fn pack_new_creates_scaffold() {
         "pack.yaml missing"
     );
     assert!(
-        tmp.join("packs/alice/test_service/normalizers/test_service/_channel.yaml")
+        tmp.join("packs/alice/test_service/normalizers/test_service/_source.yaml")
             .exists(),
-        "_channel.yaml missing"
+        "_source.yaml missing"
     );
     assert!(
         tmp.join("packs/alice/test_service/normalizers/test_service/aliases.yaml")
@@ -309,7 +309,6 @@ fn check_output_format() {
     assert!(stdout.contains("Permission:"));
     assert!(stdout.contains("Source:"));
     assert!(stdout.contains("Action:"));
-    assert!(stdout.contains("Channel:"));
     assert!(stdout.contains("NormHash:"));
 }
 

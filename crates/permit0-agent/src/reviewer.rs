@@ -117,14 +117,14 @@ impl AgentReviewer {
 /// Build the reviewer prompt from input context.
 fn build_prompt(input: &ReviewInput) -> String {
     let action_str = input.norm_action.action_type.as_action_str();
-    let channel = &input.norm_action.channel;
+    let source = &input.norm_action.source;
     let score = input.risk_score.score;
     let tier = &input.risk_score.tier;
     let flags: Vec<&str> = input.risk_score.flags.iter().map(|s| s.as_str()).collect();
     let reason = &input.risk_score.reason;
 
-    let entities_json =
-        serde_json::to_string_pretty(&input.norm_action.entities).unwrap_or_default();
+    let parameters_json =
+        serde_json::to_string_pretty(&input.norm_action.parameters).unwrap_or_default();
     let raw_json = serde_json::to_string_pretty(&input.raw_tool_call).unwrap_or_default();
 
     let task_goal = input.task_goal.as_deref().unwrap_or("(not provided)");
@@ -155,13 +155,13 @@ You CANNOT approve actions. You CANNOT issue tokens. Your only outputs are Human
 
 ## Action Under Review
 - Action Type: {action_str}
-- Channel: {channel}
+- Source: {source}
 - Risk Score: {score}/100 (Tier: {tier})
 - Risk Flags: {flags:?}
 - Scoring Reason: {reason}
 
-## Entities
-{entities_json}
+## Parameters
+{parameters_json}
 
 ## Raw Tool Call
 {raw_json}
@@ -226,8 +226,8 @@ mod tests {
         ReviewInput {
             norm_action: NormAction {
                 action_type: ActionType::parse(action_type).unwrap(),
-                channel: "test".into(),
-                entities: serde_json::Map::new(),
+                source: "test".into(),
+                parameters: serde_json::Map::new(),
                 execution: ExecutionMeta {
                     surface_tool: "test".into(),
                     surface_command: "test cmd".into(),
@@ -330,7 +330,7 @@ mod tests {
             tier: Tier::Critical,
             flags: vec![],
             timestamp: 1_700_000_000.0,
-            entities: serde_json::Map::new(),
+            parameters: serde_json::Map::new(),
         });
 
         let result = reviewer.handle_medium(&input, Some(&session));

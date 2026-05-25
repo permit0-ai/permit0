@@ -18,7 +18,7 @@ pub fn export_csv(entries: &[AuditEntry], writer: &mut dyn Write) -> Result<(), 
     // Header
     writeln!(
         writer,
-        "entry_id,timestamp,sequence,decision,decision_source,action_type,channel,risk_score,tier,agent_id,session_id,org_id,environment,prev_hash,entry_hash"
+        "entry_id,timestamp,sequence,decision,decision_source,action_type,source,risk_score,tier,agent_id,session_id,org_id,environment,prev_hash,entry_hash"
     )?;
 
     for entry in entries {
@@ -44,7 +44,7 @@ pub fn export_csv(entries: &[AuditEntry], writer: &mut dyn Write) -> Result<(), 
             entry.decision,
             csv_escape(&entry.decision_source),
             csv_escape(&action_str),
-            csv_escape(&entry.norm_action.channel),
+            csv_escape(&entry.norm_action.source),
             risk_score,
             tier,
             csv_escape(&entry.agent_id),
@@ -84,8 +84,8 @@ mod tests {
             decision_source: "scorer".into(),
             norm_action: NormAction {
                 action_type: ActionType::parse("email.send").unwrap(),
-                channel: "gmail".into(),
-                entities: serde_json::Map::new(),
+                source: "gmail".into(),
+                parameters: serde_json::Map::new(),
                 execution: ExecutionMeta {
                     surface_tool: "test".into(),
                     surface_command: "test cmd".into(),

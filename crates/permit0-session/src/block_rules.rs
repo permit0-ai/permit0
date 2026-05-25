@@ -40,7 +40,7 @@ impl SessionBlockResult {
 pub fn evaluate_session_block_rules(
     session: &SessionContext,
     current_action_type: &str,
-    current_entities: &serde_json::Map<String, serde_json::Value>,
+    current_parameters: &serde_json::Map<String, serde_json::Value>,
 ) -> SessionBlockResult {
     type BlockCheckFn = fn(
         &SessionContext,
@@ -58,7 +58,7 @@ pub fn evaluate_session_block_rules(
     ];
 
     for check in checks {
-        let result = check(session, current_action_type, current_entities);
+        let result = check(session, current_action_type, current_parameters);
         if result.blocked {
             return result;
         }
@@ -70,7 +70,7 @@ pub fn evaluate_session_block_rules(
 fn privilege_escalation_then_exec(
     session: &SessionContext,
     current_action_type: &str,
-    _entities: &serde_json::Map<String, serde_json::Value>,
+    _parameters: &serde_json::Map<String, serde_json::Value>,
 ) -> SessionBlockResult {
     // Current action is shell or file write
     let exec_types = ["shell.execute", "files.write"];
@@ -95,7 +95,7 @@ fn privilege_escalation_then_exec(
 fn read_then_exfiltrate(
     session: &SessionContext,
     current_action_type: &str,
-    entities: &serde_json::Map<String, serde_json::Value>,
+    parameters: &serde_json::Map<String, serde_json::Value>,
 ) -> SessionBlockResult {
     // Current action is email.send or network.http_post
     let send_types = ["email.send", "network.http_post"];
@@ -103,7 +103,7 @@ fn read_then_exfiltrate(
         return SessionBlockResult::pass();
     }
     // Check if recipient is external
-    let is_external = entities
+    let is_external = parameters
         .get("recipient_scope")
         .and_then(|v| v.as_str())
         .is_some_and(|s| s == "external");
@@ -125,7 +125,7 @@ fn read_then_exfiltrate(
 fn bulk_external_send(
     session: &SessionContext,
     current_action_type: &str,
-    _entities: &serde_json::Map<String, serde_json::Value>,
+    _parameters: &serde_json::Map<String, serde_json::Value>,
 ) -> SessionBlockResult {
     if current_action_type != "email.send" {
         return SessionBlockResult::pass();
@@ -144,7 +144,7 @@ fn bulk_external_send(
 fn cumulative_transfer_limit(
     session: &SessionContext,
     current_action_type: &str,
-    entities: &serde_json::Map<String, serde_json::Value>,
+    parameters: &serde_json::Map<String, serde_json::Value>,
 ) -> SessionBlockResult {
     if current_action_type != "payments.transfer" {
         return SessionBlockResult::pass();
@@ -152,7 +152,7 @@ fn cumulative_transfer_limit(
     let filter = SessionFilter::new().with_action_type("payments.transfer");
     let mut total = session.sum("amount", &filter);
     // Add current action's amount
-    if let Some(current_amount) = entities.get("amount").and_then(|v| v.as_f64()) {
+    if let Some(current_amount) = parameters.get("amount").and_then(|v| v.as_f64()) {
         total += current_amount;
     }
     if total < 500_000.0 {
@@ -168,7 +168,7 @@ fn cumulative_transfer_limit(
 fn card_testing(
     session: &SessionContext,
     current_action_type: &str,
-    entities: &serde_json::Map<String, serde_json::Value>,
+    parameters: &serde_json::Map<String, serde_json::Value>,
 ) -> SessionBlockResult {
     if current_action_type != "payments.charge" {
         return SessionBlockResult::pass();
@@ -181,20 +181,20 @@ fn card_testing(
     let mut micro_charges: Vec<&serde_json::Map<String, serde_json::Value>> = matching
         .iter()
         .filter(|r| {
-            r.entities
+            r.parameters
                 .get("amount")
                 .and_then(|v| v.as_f64())
                 .is_some_and(|a| a < 200.0) // $2.00 in cents
         })
-        .map(|r| &r.entities)
+        .map(|r| &r.parameters)
         .collect();
     // Check if current is also a micro-charge
-    let current_is_micro = entities
+    let current_is_micro = parameters
         .get("amount")
         .and_then(|v| v.as_f64())
         .is_some_and(|a| a < 200.0);
     if current_is_micro {
-        micro_charges.push(entities);
+        micro_charges.push(parameters);
     }
     if micro_charges.len() < 5 {
         return SessionBlockResult::pass();
@@ -221,7 +221,7 @@ fn card_testing(
 fn scatter_transfer(
     session: &SessionContext,
     current_action_type: &str,
-    entities: &serde_json::Map<String, serde_json::Value>,
+    parameters: &serde_json::Map<String, serde_json::Value>,
 ) -> SessionBlockResult {
     if current_action_type != "payments.transfer" {
         return SessionBlockResult::pass();
@@ -231,7 +231,7 @@ fn scatter_transfer(
         .with_within_minutes(60);
     let mut recipients = session.distinct_values("recipient", &filter);
     // Add current recipient
-    if let Some(recip) = entities.get("recipient") {
+    if let Some(recip) = parameters.get("recipient") {
         if !recipients.contains(recip) {
             recipients.push(recip.clone());
         }
@@ -249,7 +249,7 @@ fn scatter_transfer(
 fn privilege_then_large_transfer(
     session: &SessionContext,
     current_action_type: &str,
-    entities: &serde_json::Map<String, serde_json::Value>,
+    parameters: &serde_json::Map<String, serde_json::Value>,
 ) -> SessionBlockResult {
     if current_action_type != "payments.transfer" {
         return SessionBlockResult::pass();
@@ -261,7 +261,7 @@ fn privilege_then_large_transfer(
     // Cumulative transfers >= $10k
     let filter = SessionFilter::new().with_action_type("payments.transfer");
     let mut total = session.sum("amount", &filter);
-    if let Some(amt) = entities.get("amount").and_then(|v| v.as_f64()) {
+    if let Some(amt) = parameters.get("amount").and_then(|v| v.as_f64()) {
         total += amt;
     }
     if total < 10_000.0 {
@@ -292,10 +292,10 @@ mod tests {
         tier: Tier,
         ts: f64,
         flags: &[&str],
-        entities: Vec<(&str, serde_json::Value)>,
+        parameters: Vec<(&str, serde_json::Value)>,
     ) -> ActionRecord {
         let mut ents = serde_json::Map::new();
-        for (k, v) in entities {
+        for (k, v) in parameters {
             ents.insert(k.into(), v);
         }
         ActionRecord {
@@ -303,7 +303,7 @@ mod tests {
             tier,
             flags: flags.iter().map(|s| s.to_string()).collect(),
             timestamp: ts,
-            entities: ents,
+            parameters: ents,
         }
     }
 
@@ -320,8 +320,8 @@ mod tests {
             vec![],
         ));
 
-        let entities = serde_json::Map::new();
-        let result = evaluate_session_block_rules(&session, "shell.execute", &entities);
+        let parameters = serde_json::Map::new();
+        let result = evaluate_session_block_rules(&session, "shell.execute", &parameters);
         assert!(result.blocked);
         assert_eq!(
             result.rule_name.as_deref(),
@@ -341,9 +341,9 @@ mod tests {
             vec![],
         ));
 
-        let mut entities = serde_json::Map::new();
-        entities.insert("recipient_scope".into(), json!("external"));
-        let result = evaluate_session_block_rules(&session, "email.send", &entities);
+        let mut parameters = serde_json::Map::new();
+        parameters.insert("recipient_scope".into(), json!("external"));
+        let result = evaluate_session_block_rules(&session, "email.send", &parameters);
         assert!(result.blocked);
         assert_eq!(result.rule_name.as_deref(), Some("read_then_exfiltrate"));
     }
@@ -368,9 +368,9 @@ mod tests {
         ));
 
         // Current transfer of $150k would push total to $550k
-        let mut entities = serde_json::Map::new();
-        entities.insert("amount".into(), json!(150000));
-        let result = evaluate_session_block_rules(&session, "payments.transfer", &entities);
+        let mut parameters = serde_json::Map::new();
+        parameters.insert("amount".into(), json!(150000));
+        let result = evaluate_session_block_rules(&session, "payments.transfer", &parameters);
         assert!(result.blocked);
         assert_eq!(
             result.rule_name.as_deref(),
@@ -412,10 +412,10 @@ mod tests {
         ));
 
         // Fifth micro-charge to a fifth distinct customer → block
-        let mut entities = serde_json::Map::new();
-        entities.insert("amount".into(), json!(80));
-        entities.insert("customer".into(), json!("cus_eee"));
-        let result = evaluate_session_block_rules(&session, "payments.charge", &entities);
+        let mut parameters = serde_json::Map::new();
+        parameters.insert("amount".into(), json!(80));
+        parameters.insert("customer".into(), json!("cus_eee"));
+        let result = evaluate_session_block_rules(&session, "payments.charge", &parameters);
         assert!(result.blocked);
         assert_eq!(result.rule_name.as_deref(), Some("card_testing"));
     }
@@ -438,9 +438,9 @@ mod tests {
         }
 
         // 6th distinct recipient
-        let mut entities = serde_json::Map::new();
-        entities.insert("recipient".into(), json!("bank_f"));
-        let result = evaluate_session_block_rules(&session, "payments.transfer", &entities);
+        let mut parameters = serde_json::Map::new();
+        parameters.insert("recipient".into(), json!("bank_f"));
+        let result = evaluate_session_block_rules(&session, "payments.transfer", &parameters);
         assert!(result.blocked);
         assert_eq!(result.rule_name.as_deref(), Some("scatter_transfer"));
     }
@@ -457,10 +457,10 @@ mod tests {
             vec![("amount", json!(1000)), ("recipient", json!("bank_a"))],
         ));
 
-        let mut entities = serde_json::Map::new();
-        entities.insert("amount".into(), json!(1000));
-        entities.insert("recipient".into(), json!("bank_b"));
-        let result = evaluate_session_block_rules(&session, "payments.transfer", &entities);
+        let mut parameters = serde_json::Map::new();
+        parameters.insert("amount".into(), json!(1000));
+        parameters.insert("recipient".into(), json!("bank_b"));
+        let result = evaluate_session_block_rules(&session, "payments.transfer", &parameters);
         assert!(!result.blocked);
     }
 
@@ -478,9 +478,9 @@ mod tests {
             &[],
             vec![("amount", json!(50000)), ("recipient", json!("bank_a"))],
         ));
-        let mut entities = serde_json::Map::new();
-        entities.insert("amount".into(), json!(50000));
-        let result = evaluate_session_block_rules(&session, "payments.transfer", &entities);
+        let mut parameters = serde_json::Map::new();
+        parameters.insert("amount".into(), json!(50000));
+        let result = evaluate_session_block_rules(&session, "payments.transfer", &parameters);
         assert!(!result.blocked);
 
         // Call 2: $100k — total $150k, still below $500k
@@ -491,16 +491,16 @@ mod tests {
             &[],
             vec![("amount", json!(100000)), ("recipient", json!("bank_b"))],
         ));
-        let mut entities = serde_json::Map::new();
-        entities.insert("amount".into(), json!(100000));
-        let result = evaluate_session_block_rules(&session, "payments.transfer", &entities);
+        let mut parameters = serde_json::Map::new();
+        parameters.insert("amount".into(), json!(100000));
+        let result = evaluate_session_block_rules(&session, "payments.transfer", &parameters);
         assert!(!result.blocked);
 
         // Call 3: $400k — total $550k, exceeds $500k
-        let mut entities = serde_json::Map::new();
-        entities.insert("amount".into(), json!(400000));
-        entities.insert("recipient".into(), json!("bank_c"));
-        let result = evaluate_session_block_rules(&session, "payments.transfer", &entities);
+        let mut parameters = serde_json::Map::new();
+        parameters.insert("amount".into(), json!(400000));
+        parameters.insert("recipient".into(), json!("bank_c"));
+        let result = evaluate_session_block_rules(&session, "payments.transfer", &parameters);
         assert!(result.blocked);
         assert_eq!(
             result.rule_name.as_deref(),
@@ -544,10 +544,10 @@ mod tests {
         ));
 
         // Call 5: fifth micro-charge to distinct customer → block
-        let mut entities = serde_json::Map::new();
-        entities.insert("amount".into(), json!(60));
-        entities.insert("customer".into(), json!("cus_eee"));
-        let result = evaluate_session_block_rules(&session, "payments.charge", &entities);
+        let mut parameters = serde_json::Map::new();
+        parameters.insert("amount".into(), json!(60));
+        parameters.insert("customer".into(), json!("cus_eee"));
+        let result = evaluate_session_block_rules(&session, "payments.charge", &parameters);
         assert!(result.blocked);
         assert_eq!(result.rule_name.as_deref(), Some("card_testing"));
     }
@@ -568,10 +568,10 @@ mod tests {
         ));
 
         // Call 2: email.send to external → should fire read_then_exfiltrate
-        let mut entities = serde_json::Map::new();
-        entities.insert("recipient_scope".into(), json!("external"));
-        entities.insert("to".into(), json!("attacker@evil.com"));
-        let result = evaluate_session_block_rules(&session, "email.send", &entities);
+        let mut parameters = serde_json::Map::new();
+        parameters.insert("recipient_scope".into(), json!("external"));
+        parameters.insert("to".into(), json!("attacker@evil.com"));
+        let result = evaluate_session_block_rules(&session, "email.send", &parameters);
         assert!(result.blocked);
         assert_eq!(result.rule_name.as_deref(), Some("read_then_exfiltrate"));
     }

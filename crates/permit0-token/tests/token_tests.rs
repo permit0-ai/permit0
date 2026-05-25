@@ -6,7 +6,7 @@ use permit0_token::{
     BiscuitTokenProvider, HUMAN_TTL_SECS, IssuedBy, SCORER_TTL_SECS, Safeguard, TokenClaims,
     TokenScope, build_claims, safeguards_for_tier,
 };
-use permit0_types::{Entities, Tier};
+use permit0_types::{Parameters, Tier};
 
 fn now_secs() -> i64 {
     SystemTime::now()
@@ -41,9 +41,9 @@ fn mint_verify_roundtrip() {
     let token = provider.mint(&claims).unwrap();
     assert!(!token.is_empty());
 
-    let entities = Entities::new();
+    let parameters =Parameters::new();
     let result = provider
-        .verify(&token, "payments.charge", &entities)
+        .verify(&token, "payments.charge", &parameters)
         .unwrap();
 
     assert!(result.valid);
@@ -71,8 +71,8 @@ fn expired_token_rejected() {
     };
 
     let token = provider.mint(&claims).unwrap();
-    let entities = Entities::new();
-    let result = provider.verify(&token, "payments.charge", &entities);
+    let parameters =Parameters::new();
+    let result = provider.verify(&token, "payments.charge", &parameters);
     assert!(result.is_err());
 }
 
@@ -86,8 +86,8 @@ fn tampered_token_rejected() {
     let mid = token.len() / 2;
     token[mid] ^= 0xFF;
 
-    let entities = Entities::new();
-    let result = provider.verify(&token, "payments.charge", &entities);
+    let parameters =Parameters::new();
+    let result = provider.verify(&token, "payments.charge", &parameters);
     assert!(result.is_err());
 }
 
@@ -97,9 +97,9 @@ fn wrong_action_type_rejected() {
     let claims = basic_claims();
     let token = provider.mint(&claims).unwrap();
 
-    let entities = Entities::new();
+    let parameters =Parameters::new();
     // Token is for payments.charge, but we verify against email.send
-    let result = provider.verify(&token, "email.send", &entities);
+    let result = provider.verify(&token, "email.send", &parameters);
     assert!(result.is_err());
 }
 
@@ -110,8 +110,8 @@ fn different_keypair_rejects() {
     let claims = basic_claims();
     let token = provider1.mint(&claims).unwrap();
 
-    let entities = Entities::new();
-    let result = provider2.verify(&token, "payments.charge", &entities);
+    let parameters =Parameters::new();
+    let result = provider2.verify(&token, "payments.charge", &parameters);
     assert!(result.is_err());
 }
 
@@ -122,10 +122,10 @@ fn scope_amount_violation() {
 
     let token = provider.mint(&claims).unwrap();
 
-    let mut entities = Entities::new();
-    entities.insert("amount".into(), serde_json::json!(15000));
+    let mut parameters =Parameters::new();
+    parameters.insert("amount".into(), serde_json::json!(15000));
 
-    let result = provider.verify(&token, "payments.charge", &entities);
+    let result = provider.verify(&token, "payments.charge", &parameters);
     assert!(result.is_err());
     let err = result.unwrap_err();
     assert!(err.to_string().contains("amount"));
@@ -138,10 +138,10 @@ fn scope_amount_within_ceiling_allowed() {
 
     let token = provider.mint(&claims).unwrap();
 
-    let mut entities = Entities::new();
-    entities.insert("amount".into(), serde_json::json!(5000));
+    let mut parameters =Parameters::new();
+    parameters.insert("amount".into(), serde_json::json!(5000));
 
-    let result = provider.verify(&token, "payments.charge", &entities);
+    let result = provider.verify(&token, "payments.charge", &parameters);
     assert!(result.is_ok());
 }
 
@@ -159,17 +159,17 @@ fn scope_recipient_violation() {
         risk_score: 45,
         risk_tier: Tier::Medium,
         session_id: "sess-003".into(),
-        safeguards: vec![Safeguard::LogEntities],
+        safeguards: vec![Safeguard::LogParameters],
         issued_at: now,
         expires_at: now + HUMAN_TTL_SECS,
     };
 
     let token = provider.mint(&claims).unwrap();
 
-    let mut entities = Entities::new();
-    entities.insert("to".into(), serde_json::json!("bob@evil.com"));
+    let mut parameters =Parameters::new();
+    parameters.insert("to".into(), serde_json::json!("bob@evil.com"));
 
-    let result = provider.verify(&token, "email.send", &entities);
+    let result = provider.verify(&token, "email.send", &parameters);
     assert!(result.is_err());
     assert!(result.unwrap_err().to_string().contains("recipient"));
 }
@@ -185,8 +185,8 @@ fn attenuated_token_narrower_scope_passes() {
         .attenuate(&token, None, Some(Duration::from_secs(60)))
         .unwrap();
 
-    let entities = Entities::new();
-    let result = provider.verify(&attenuated, "payments.charge", &entities);
+    let parameters =Parameters::new();
+    let result = provider.verify(&attenuated, "payments.charge", &parameters);
     assert!(result.is_ok());
 }
 
@@ -216,7 +216,7 @@ fn build_claims_helper_human_ttl() {
     );
     assert_eq!(claims.expires_at - claims.issued_at, HUMAN_TTL_SECS);
     // High tier safeguards
-    assert!(claims.safeguards.contains(&Safeguard::LogEntities));
+    assert!(claims.safeguards.contains(&Safeguard::LogParameters));
     assert!(claims.safeguards.contains(&Safeguard::LogBody));
     assert!(claims.safeguards.contains(&Safeguard::ConfirmBeforeExecute));
 }
@@ -227,12 +227,12 @@ fn safeguards_per_tier() {
     assert!(safeguards_for_tier(Tier::Low).is_empty());
     assert_eq!(
         safeguards_for_tier(Tier::Medium),
-        vec![Safeguard::LogEntities]
+        vec![Safeguard::LogParameters]
     );
     assert_eq!(
         safeguards_for_tier(Tier::High),
         vec![
-            Safeguard::LogEntities,
+            Safeguard::LogParameters,
             Safeguard::LogBody,
             Safeguard::ConfirmBeforeExecute
         ]
@@ -257,10 +257,10 @@ fn medium_tier_claims_have_safeguards() {
     };
 
     let token = provider.mint(&claims).unwrap();
-    let entities = Entities::new();
+    let parameters =Parameters::new();
     let result = provider
-        .verify(&token, "payments.charge", &entities)
+        .verify(&token, "payments.charge", &parameters)
         .unwrap();
 
-    assert_eq!(result.claims.safeguards, vec![Safeguard::LogEntities]);
+    assert_eq!(result.claims.safeguards, vec![Safeguard::LogParameters]);
 }

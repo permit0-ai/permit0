@@ -7,8 +7,8 @@ use permit0_types::Tier;
 /// Safeguards required before execution, based on risk tier.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum Safeguard {
-    /// Log extracted entities for audit.
-    LogEntities,
+    /// Log extracted parameters for audit.
+    LogParameters,
     /// Log the full request body for audit.
     LogBody,
     /// Require explicit confirmation before execution.
@@ -68,9 +68,9 @@ pub const HUMAN_TTL_SECS: i64 = 3600; // 1 hour
 pub fn safeguards_for_tier(tier: Tier) -> Vec<Safeguard> {
     match tier {
         Tier::Minimal | Tier::Low => vec![],
-        Tier::Medium => vec![Safeguard::LogEntities],
+        Tier::Medium => vec![Safeguard::LogParameters],
         Tier::High => vec![
-            Safeguard::LogEntities,
+            Safeguard::LogParameters,
             Safeguard::LogBody,
             Safeguard::ConfirmBeforeExecute,
         ],

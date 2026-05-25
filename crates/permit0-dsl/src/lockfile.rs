@@ -3,7 +3,7 @@
 //! Pack lockfile (`pack.lock.yaml`).
 //!
 //! A reproducibility manifest committed alongside `pack.yaml` that
-//! lists every normalizer, risk rule, alias, and channel-metadata file
+//! lists every normalizer, risk rule, alias, and source-metadata file
 //! in the pack with its SHA-256 content hash. Two roles:
 //!
 //! 1. **Reproducible loading.** When the engine boots with a lockfile
@@ -58,7 +58,7 @@ pub struct PackLockfile {
     pub generated_at: String,
 
     /// Every loadable file in the pack, sorted by path for stable
-    /// diffs. Includes normalizer YAMLs, risk rule YAMLs, channel
+    /// diffs. Includes normalizer YAMLs, risk rule YAMLs, source
     /// metadata, alias tables, and the manifest itself.
     pub files: Vec<LockedFile>,
 }

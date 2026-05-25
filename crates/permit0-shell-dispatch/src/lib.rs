@@ -64,7 +64,7 @@
 //!   first and pass each sub-command separately.
 //! - Not a normalizer. The output is a **suggestion** to re-submit to the
 //!   permit0 engine, not a finalized `NormAction`. The engine's normalizer
-//!   registry is still the source of truth for entity extraction and risk
+//!   registry is still the source of truth for parameter extraction and risk
 //!   scoring.
 
 pub mod dispatcher;

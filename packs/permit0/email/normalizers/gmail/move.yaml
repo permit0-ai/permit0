@@ -7,8 +7,8 @@ normalize:
   action_type: "email.move"
   domain: "email"
   verb: "move"
-  channel: "gmail"
-  entities:
+  source: "gmail"
+  parameters:
     message_id:
       from: "message_id"
       from_any: ["id"]

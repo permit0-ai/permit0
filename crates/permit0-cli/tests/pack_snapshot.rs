@@ -119,22 +119,22 @@ fn workspace_root() -> std::path::PathBuf {
         .to_path_buf()
 }
 
-/// Canonical fingerprint for a NormAction: action_type + channel +
-/// entities (sorted) + execution metadata. Serializes via serde_json
+/// Canonical fingerprint for a NormAction: action_type + source +
+/// parameters (sorted) + execution metadata. Serializes via serde_json
 /// in canonical form (sorted object keys are guaranteed by serde_json's
 /// `Map<String, Value>` insertion order, which we control by inserting
 /// in alphabetic order below).
 fn fingerprint(n: &NormAction) -> String {
-    let mut entities: Vec<(&String, &serde_json::Value)> = n.entities.iter().collect();
-    entities.sort_by_key(|(k, _)| k.as_str());
-    let entities_obj: serde_json::Map<_, _> = entities
+    let mut parameters: Vec<(&String, &serde_json::Value)> = n.parameters.iter().collect();
+    parameters.sort_by_key(|(k, _)| k.as_str());
+    let parameters_obj: serde_json::Map<_, _> = parameters
         .into_iter()
         .map(|(k, v)| (k.clone(), v.clone()))
         .collect();
     let canonical = json!({
         "action_type": n.action_type.as_action_str(),
-        "channel": n.channel,
-        "entities": entities_obj,
+        "parameters": parameters_obj,
+        "source": n.source,
         "execution": {
             "surface_tool": n.execution.surface_tool,
             "surface_command": n.execution.surface_command,
@@ -174,7 +174,7 @@ fn snapshot_gmail_send_to_external() {
     insta_assert_eq(
         &fingerprint(&n),
         // EXPECTED — update only when the snapshot intentionally changes.
-        r#"{"action_type":"email.send","channel":"gmail","entities":{"body":"Test","domain":"external.com","recipient_scope":"external","subject":"Hello","to":"bob@external.com"},"execution":{"surface_command":"gmail_send","surface_tool":"gmail_send"}}"#,
+        r#"{"action_type":"email.send","execution":{"surface_command":"gmail_send","surface_tool":"gmail_send"},"parameters":{"body":"Test","domain":"external.com","recipient_scope":"external","subject":"Hello","to":"bob@external.com"},"source":"gmail"}"#,
     );
 }
 
@@ -194,7 +194,7 @@ fn snapshot_outlook_send_to_external() {
     );
     insta_assert_eq(
         &fingerprint(&n),
-        r#"{"action_type":"email.send","channel":"outlook","entities":{"body":"Notes","domain":"external.com","recipient_scope":"external","subject":"Meeting","to":"alice@external.com"},"execution":{"surface_command":"outlook_send","surface_tool":"outlook_send"}}"#,
+        r#"{"action_type":"email.send","execution":{"surface_command":"outlook_send","surface_tool":"outlook_send"},"parameters":{"body":"Notes","domain":"external.com","recipient_scope":"external","subject":"Meeting","to":"alice@external.com"},"source":"outlook"}"#,
     );
 }
 
@@ -204,7 +204,7 @@ fn snapshot_gmail_archive() {
     let n = normalize_or_panic(&reg, raw("gmail_archive", json!({"message_id": "msg-123"})));
     insta_assert_eq(
         &fingerprint(&n),
-        r#"{"action_type":"email.archive","channel":"gmail","entities":{"message_id":"msg-123"},"execution":{"surface_command":"gmail_archive","surface_tool":"gmail_archive"}}"#,
+        r#"{"action_type":"email.archive","execution":{"surface_command":"gmail_archive","surface_tool":"gmail_archive"},"parameters":{"message_id":"msg-123"},"source":"gmail"}"#,
     );
 }
 
@@ -214,7 +214,7 @@ fn snapshot_outlook_search() {
     let n = normalize_or_panic(&reg, raw("outlook_search", json!({"query": "from:boss"})));
     insta_assert_eq(
         &fingerprint(&n),
-        r#"{"action_type":"email.search","channel":"outlook","entities":{"query":"from:boss"},"execution":{"surface_command":"outlook_search","surface_tool":"outlook_search"}}"#,
+        r#"{"action_type":"email.search","execution":{"surface_command":"outlook_search","surface_tool":"outlook_search"},"parameters":{"query":"from:boss"},"source":"outlook"}"#,
     );
 }
 
@@ -227,7 +227,7 @@ fn snapshot_outlook_list_drafts() {
     );
     insta_assert_eq(
         &fingerprint(&n),
-        r#"{"action_type":"email.list_drafts","channel":"outlook","entities":{"query":"isDraft eq true"},"execution":{"surface_command":"outlook_list_drafts","surface_tool":"outlook_list_drafts"}}"#,
+        r#"{"action_type":"email.list_drafts","execution":{"surface_command":"outlook_list_drafts","surface_tool":"outlook_list_drafts"},"parameters":{"query":"isDraft eq true"},"source":"outlook"}"#,
     );
 }
 
@@ -254,7 +254,7 @@ fn snapshot_alias_google_send_routes_to_gmail_send() {
     );
     insta_assert_eq(
         &fingerprint(&n),
-        r#"{"action_type":"email.send","channel":"gmail","entities":{"body":"ok","domain":"external.com","recipient_scope":"external","subject":"Hi","to":"bob@external.com"},"execution":{"surface_command":"gmail_send","surface_tool":"gmail_send"}}"#,
+        r#"{"action_type":"email.send","execution":{"surface_command":"gmail_send","surface_tool":"gmail_send"},"parameters":{"body":"ok","domain":"external.com","recipient_scope":"external","subject":"Hi","to":"bob@external.com"},"source":"gmail"}"#,
     );
 }
 

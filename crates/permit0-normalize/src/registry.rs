@@ -151,7 +151,7 @@ impl Default for NormalizerRegistry {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use permit0_types::{ActionType, Entities, ExecutionMeta};
+    use permit0_types::{ActionType, ExecutionMeta, Parameters};
 
     /// Test normalizer that matches a specific tool name.
     struct MockNormalizer {
@@ -181,8 +181,8 @@ mod tests {
         ) -> Result<NormAction, NormalizeError> {
             Ok(NormAction {
                 action_type: self.action_type,
-                channel: "test".into(),
-                entities: Entities::new(),
+                source: "test".into(),
+                parameters: Parameters::new(),
                 execution: ExecutionMeta {
                     surface_tool: raw.tool_name.clone(),
                     surface_command: String::new(),

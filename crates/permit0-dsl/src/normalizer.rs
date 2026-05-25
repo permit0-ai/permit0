@@ -3,10 +3,10 @@
 use std::collections::HashMap;
 
 use permit0_normalize::{NormalizeCtx, NormalizeError, Normalizer};
-use permit0_types::{ActionType, Entities, ExecutionMeta, NormAction, RawToolCall};
+use permit0_types::{ActionType, ExecutionMeta, NormAction, Parameters, RawToolCall};
 
-use crate::eval::entity::{EntityError, extract_entities};
 use crate::eval::matcher::{MatchContext, eval_condition};
+use crate::eval::parameter::{ParameterError, extract_parameters};
 use crate::helpers::{HelperFn, build_helper_registry};
 use crate::schema::normalizer::NormalizerDef;
 
@@ -74,37 +74,41 @@ impl Normalizer for DslNormalizer {
         // from spoofing the org boundary.
         let effective_params = inject_ctx_into_params(&raw.parameters, ctx);
 
-        // Extract entities
-        let entity_map = extract_entities(&effective_params, &norm.entities, &self.helpers)
-            .map_err(|e| match e {
-                EntityError::MissingRequired(field) => NormalizeError::MissingRequiredField {
-                    tool_name: raw.tool_name.clone(),
-                    field,
+        // Extract parameters
+        let parameter_map =
+            extract_parameters(&effective_params, &norm.parameters, &self.helpers).map_err(
+                |e| match e {
+                    ParameterError::MissingRequired(field) => {
+                        NormalizeError::MissingRequiredField {
+                            tool_name: raw.tool_name.clone(),
+                            field,
+                        }
+                    }
+                    ParameterError::UnknownHelper(h) => NormalizeError::HelperFailed {
+                        helper: h,
+                        reason: "unknown helper".into(),
+                    },
+                    ParameterError::ArityMismatch {
+                        helper,
+                        expected,
+                        got,
+                    } => NormalizeError::HelperFailed {
+                        helper,
+                        reason: format!("expected {expected} args, got {got}"),
+                    },
                 },
-                EntityError::UnknownHelper(h) => NormalizeError::HelperFailed {
-                    helper: h,
-                    reason: "unknown helper".into(),
-                },
-                EntityError::ArityMismatch {
-                    helper,
-                    expected,
-                    got,
-                } => NormalizeError::HelperFailed {
-                    helper,
-                    reason: format!("expected {expected} args, got {got}"),
-                },
-            })?;
+            )?;
 
-        // Convert HashMap<String, Value> → Entities (serde_json::Map)
-        let mut entities = Entities::new();
-        for (k, v) in entity_map {
-            entities.insert(k, v);
+        // Convert HashMap<String, Value> → Parameters (serde_json::Map)
+        let mut parameters = Parameters::new();
+        for (k, v) in parameter_map {
+            parameters.insert(k, v);
         }
 
         Ok(NormAction {
             action_type,
-            channel: norm.channel.clone(),
-            entities,
+            source: norm.source.clone(),
+            parameters,
             execution: ExecutionMeta {
                 surface_tool: raw.tool_name.clone(),
                 surface_command: build_surface_command(raw),
@@ -172,8 +176,8 @@ normalize:
   action_type: "payment.charge"
   domain: "payment"
   verb: "charge"
-  channel: "stripe"
-  entities:
+  source: "stripe"
+  parameters:
     amount:
       from: "body.amount"
       type: "number"
@@ -241,10 +245,10 @@ normalize:
         let norm = normalizer.normalize(&raw, &ctx).unwrap();
 
         assert_eq!(norm.action_type.as_action_str(), "payment.charge");
-        assert_eq!(norm.channel, "stripe");
-        assert_eq!(norm.entities["amount"], json!(5000));
-        assert_eq!(norm.entities["currency"], json!("usd"));
-        assert_eq!(norm.entities["host"], json!("api.stripe.com"));
+        assert_eq!(norm.source, "stripe");
+        assert_eq!(norm.parameters["amount"], json!(5000));
+        assert_eq!(norm.parameters["currency"], json!("usd"));
+        assert_eq!(norm.parameters["host"], json!("api.stripe.com"));
         assert_eq!(norm.execution.surface_tool, "http");
         assert_eq!(
             norm.execution.surface_command,
@@ -270,7 +274,7 @@ normalize:
     }
 
     #[test]
-    fn default_entity_value() {
+    fn default_parameter_value() {
         let normalizer = DslNormalizer::from_yaml(STRIPE_NORMALIZER_YAML).unwrap();
         let raw = RawToolCall {
             tool_name: "http".into(),
@@ -284,6 +288,6 @@ normalize:
         let ctx = NormalizeCtx::new();
         let norm = normalizer.normalize(&raw, &ctx).unwrap();
         // currency should fall back to default "usd"
-        assert_eq!(norm.entities["currency"], json!("usd"));
+        assert_eq!(norm.parameters["currency"], json!("usd"));
     }
 }

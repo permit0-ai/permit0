@@ -7,7 +7,7 @@ mod risk;
 mod taxonomy;
 mod tool_call;
 
-pub use norm_action::{Entities, ExecutionMeta, NormAction, NormHash};
+pub use norm_action::{ExecutionMeta, NormAction, NormHash, Parameters};
 pub use permission::Permission;
 pub use risk::{FlagRole, RiskScore, TIER_THRESHOLDS, Tier, to_risk_score};
 pub use taxonomy::{ALL_DOMAINS, ActionType, Domain, TaxonomyError, Verb, all_action_types};

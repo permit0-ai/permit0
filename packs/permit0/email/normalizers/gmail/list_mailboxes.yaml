@@ -7,5 +7,5 @@ normalize:
   action_type: "email.list_mailboxes"
   domain: "email"
   verb: "list_mailboxes"
-  channel: "gmail"
-  entities: {}
+  source: "gmail"
+  parameters: {}

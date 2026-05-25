@@ -46,7 +46,7 @@ mod tests {
             tier,
             flags: flags.iter().map(|f| f.to_string()).collect(),
             timestamp: 1_700_000_000.0,
-            entities: serde_json::Map::new(),
+            parameters: serde_json::Map::new(),
         }
     }
 

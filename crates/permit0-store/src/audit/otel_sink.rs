@@ -113,7 +113,7 @@ impl AuditSink for OtelAuditSink {
             "permit0.action_type",
             entry.norm_action.action_type.as_action_str(),
         );
-        rec.add_attribute("permit0.channel", entry.norm_action.channel.clone());
+        rec.add_attribute("permit0.source", entry.norm_action.source.clone());
         if let Some(ref sid) = entry.session_id {
             rec.add_attribute("permit0.session_id", sid.clone());
         }

@@ -1,6 +1,6 @@
 permit0_pack: "TODO_OWNER/TODO_NAME"
 
-# Foreign-tool-name aliases for the TODO_CHANNEL backend.
+# Foreign-tool-name aliases for the TODO_SOURCE backend.
 #
 # Maps non-canonical tool names (third-party MCP exports, vendor SDK
 # names, common shortenings) onto the names this pack's normalizers
@@ -14,11 +14,11 @@ permit0_pack: "TODO_OWNER/TODO_NAME"
 aliases: []
   # Flat alias:
   # - tool: foreign_tool_name
-  #   rewrite_as: TODO_CHANNEL_canonical_name
+  #   rewrite_as: TODO_SOURCE_canonical_name
   #
   # Conditional alias:
   # - tool: ambiguous_foreign_name
   #   when:
   #     - if: { param: kind, equals: SPAM }
-  #       rewrite_as: TODO_CHANNEL_mark_spam
-  #     - default: TODO_CHANNEL_move
+  #       rewrite_as: TODO_SOURCE_mark_spam
+  #     - default: TODO_SOURCE_move

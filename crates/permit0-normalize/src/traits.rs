@@ -20,7 +20,7 @@ pub trait Normalizer: Send + Sync {
     /// Quick check: could this normalizer handle this tool call?
     fn matches(&self, raw: &RawToolCall) -> bool;
 
-    /// Perform the full normalization: extract entities, compute derived fields,
+    /// Perform the full normalization: extract parameters, compute derived fields,
     /// and produce a NormAction.
     fn normalize(
         &self,

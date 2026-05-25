@@ -70,7 +70,7 @@ impl SqlitePolicyState {
                 approval_id TEXT PRIMARY KEY,
                 norm_hash BLOB NOT NULL,
                 action_type TEXT NOT NULL,
-                channel TEXT NOT NULL,
+                source TEXT NOT NULL,
                 created_at TEXT NOT NULL,
                 norm_action_json TEXT NOT NULL,
                 risk_score_json TEXT NOT NULL
@@ -386,13 +386,13 @@ impl PolicyState for SqlitePolicyState {
             .map_err(|e| StateError::Io(e.to_string()))?;
         conn.execute(
             "INSERT OR REPLACE INTO pending_approvals
-                (approval_id, norm_hash, action_type, channel, created_at, norm_action_json, risk_score_json)
+                (approval_id, norm_hash, action_type, source, created_at, norm_action_json, risk_score_json)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             params![
                 row.approval_id,
                 hash_to_blob(&row.norm_hash),
                 row.action_type,
-                row.channel,
+                row.source,
                 row.created_at,
                 row.norm_action_json,
                 row.risk_score_json,
@@ -409,7 +409,7 @@ impl PolicyState for SqlitePolicyState {
             .map_err(|e| StateError::Io(e.to_string()))?;
         let mut stmt = conn
             .prepare_cached(
-                "SELECT approval_id, norm_hash, action_type, channel, created_at,
+                "SELECT approval_id, norm_hash, action_type, source, created_at,
                         norm_action_json, risk_score_json
                  FROM pending_approvals WHERE approval_id = ?1",
             )
@@ -420,7 +420,7 @@ impl PolicyState for SqlitePolicyState {
                 approval_id: row.get(0)?,
                 norm_hash: blob_to_hash(&blob),
                 action_type: row.get(2)?,
-                channel: row.get(3)?,
+                source: row.get(3)?,
                 created_at: row.get(4)?,
                 norm_action_json: row.get(5)?,
                 risk_score_json: row.get(6)?,
@@ -471,7 +471,7 @@ impl PolicyState for SqlitePolicyState {
             .map_err(|e| StateError::Io(e.to_string()))?;
         let mut stmt = conn
             .prepare(
-                "SELECT approval_id, norm_hash, action_type, channel, created_at,
+                "SELECT approval_id, norm_hash, action_type, source, created_at,
                         norm_action_json, risk_score_json
                  FROM pending_approvals ORDER BY created_at ASC",
             )
@@ -483,7 +483,7 @@ impl PolicyState for SqlitePolicyState {
                     approval_id: row.get(0)?,
                     norm_hash: blob_to_hash(&blob),
                     action_type: row.get(2)?,
-                    channel: row.get(3)?,
+                    source: row.get(3)?,
                     created_at: row.get(4)?,
                     norm_action_json: row.get(5)?,
                     risk_score_json: row.get(6)?,
@@ -592,7 +592,7 @@ mod tests {
             approval_id: "a1".into(),
             norm_hash: h(),
             action_type: "email.send".into(),
-            channel: "gmail".into(),
+            source: "gmail".into(),
             created_at: "2026-01-01T00:00:00Z".into(),
             norm_action_json: "{}".into(),
             risk_score_json: "{}".into(),

@@ -45,12 +45,12 @@ action_types:
   # - email.send
   # - payment.charge
 
-# Channels this pack supports. Each channel is a self-contained
-# subdirectory under normalizers/<channel>/ with its own
-# _channel.yaml, aliases.yaml, and per-verb normalizer YAMLs. Adding
+# Sources this pack supports. Each source is a self-contained
+# subdirectory under normalizers/<source>/ with its own
+# _source.yaml, aliases.yaml, and per-verb normalizer YAMLs. Adding
 # a vendor = create one directory + drop in the verbs.
-channels:
-  TODO_CHANNEL:
+sources:
+  TODO_SOURCE:
     mcp_server: "TODO/path/to/mcp"
     display_name: "TODO Display Name"
 

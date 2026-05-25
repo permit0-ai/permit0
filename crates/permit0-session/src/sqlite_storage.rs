@@ -39,7 +39,7 @@ impl SqliteSessionStore {
                 tier TEXT NOT NULL,
                 flags TEXT NOT NULL,
                 timestamp REAL NOT NULL,
-                entities TEXT NOT NULL,
+                parameters TEXT NOT NULL,
                 created_at TEXT DEFAULT (datetime('now'))
             );
             CREATE INDEX IF NOT EXISTS idx_session_records_session_id
@@ -61,7 +61,7 @@ impl SqliteSessionStore {
                 tier TEXT NOT NULL,
                 flags TEXT NOT NULL,
                 timestamp REAL NOT NULL,
-                entities TEXT NOT NULL,
+                parameters TEXT NOT NULL,
                 created_at TEXT DEFAULT (datetime('now'))
             );
             CREATE INDEX idx_session_records_session_id
@@ -76,11 +76,11 @@ impl SqliteSessionStore {
     pub fn record_action(&self, session_id: &str, record: &ActionRecord) {
         let conn = self.conn.lock().unwrap();
         let flags_json = serde_json::to_string(&record.flags).unwrap_or_default();
-        let entities_json = serde_json::to_string(&record.entities).unwrap_or_else(|_| "{}".into());
+        let parameters_json = serde_json::to_string(&record.parameters).unwrap_or_else(|_| "{}".into());
         let tier_str = record.tier.to_string();
 
         let _ = conn.execute(
-            "INSERT INTO session_records (session_id, action_type, tier, flags, timestamp, entities)
+            "INSERT INTO session_records (session_id, action_type, tier, flags, timestamp, parameters)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
             params![
                 session_id,
@@ -88,7 +88,7 @@ impl SqliteSessionStore {
                 tier_str,
                 flags_json,
                 record.timestamp,
-                entities_json,
+                parameters_json,
             ],
         );
     }
@@ -98,7 +98,7 @@ impl SqliteSessionStore {
         let conn = self.conn.lock().unwrap();
         let mut stmt = conn
             .prepare(
-                "SELECT action_type, tier, flags, timestamp, entities
+                "SELECT action_type, tier, flags, timestamp, parameters
                  FROM session_records
                  WHERE session_id = ?1
                  ORDER BY timestamp ASC",
@@ -111,19 +111,19 @@ impl SqliteSessionStore {
                 let tier_str: String = row.get(1)?;
                 let flags_json: String = row.get(2)?;
                 let timestamp: f64 = row.get(3)?;
-                let entities_json: String = row.get(4)?;
+                let parameters_json: String = row.get(4)?;
 
                 let tier = parse_tier(&tier_str);
                 let flags: Vec<String> = serde_json::from_str(&flags_json).unwrap_or_default();
-                let entities: serde_json::Map<String, serde_json::Value> =
-                    serde_json::from_str(&entities_json).unwrap_or_default();
+                let parameters: serde_json::Map<String, serde_json::Value> =
+                    serde_json::from_str(&parameters_json).unwrap_or_default();
 
                 Ok(ActionRecord {
                     action_type,
                     tier,
                     flags,
                     timestamp,
-                    entities,
+                    parameters,
                 })
             })
             .ok()?
@@ -195,7 +195,7 @@ mod tests {
             tier,
             flags: vec!["EXECUTION".into()],
             timestamp: 1_700_000_000.0,
-            entities: Map::new(),
+            parameters: Map::new(),
         }
     }
 
@@ -258,16 +258,16 @@ mod tests {
     }
 
     #[test]
-    fn entities_roundtrip() {
+    fn parameters_roundtrip() {
         let store = SqliteSessionStore::open_in_memory().unwrap();
         let mut record = make_record("a", Tier::Low);
         record
-            .entities
+            .parameters
             .insert("amount".into(), serde_json::json!(5000));
         store.record_action("sess-1", &record);
 
         let ctx = store.get_session("sess-1").unwrap();
-        assert_eq!(ctx.records[0].entities["amount"], serde_json::json!(5000));
+        assert_eq!(ctx.records[0].parameters["amount"], serde_json::json!(5000));
     }
 
     #[test]
