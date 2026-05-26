@@ -13,9 +13,9 @@ function makeAllow(overrides: Partial<Decision> = {}): Decision {
   return {
     permission: "allow",
     action_type: "process.shell",
-    channel: "shell",
+    source: "shell",
     norm_hash: "aa",
-    source: "engine",
+    decision_source: "engine",
     ...overrides,
   };
 }
@@ -24,9 +24,9 @@ function makeDeny(reason: string): Decision {
   return {
     permission: "deny",
     action_type: "process.shell",
-    channel: "shell",
+    source: "shell",
     norm_hash: "bb",
-    source: "engine",
+    decision_source: "engine",
     blocked: true,
     block_reason: reason,
     score: 95,
@@ -38,9 +38,9 @@ function makeHuman(reason?: string): Decision {
   const base: Decision = {
     permission: "human",
     action_type: "net.fetch",
-    channel: "http",
+    source: "http",
     norm_hash: "cc",
-    source: "engine",
+    decision_source: "engine",
     blocked: true,
     score: 60,
     tier: "MEDIUM",

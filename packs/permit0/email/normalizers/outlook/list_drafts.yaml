@@ -11,7 +11,7 @@ normalize:
   parameters:
     query:
       # Microsoft Graph supports $filter / $search on /me/messages.
-      # Surface either as the canonical "query" entity.
+      # Surface either as the canonical "query" parameter.
       from: "filter"
       type: "string"
       optional: true

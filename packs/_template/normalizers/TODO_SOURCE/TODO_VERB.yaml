@@ -26,11 +26,11 @@ normalize:
   verb: "TODO_VERB"
   source: "TODO_SOURCE"
 
-  # Map raw parameters onto canonical entity names. Risk rules `when:`
+  # Map raw parameters onto canonical parameter names. Risk rules `when:`
   # blocks reference these. Provide `optional: true` for params that
   # may be absent.
   parameters:
-    TODO_ENTITY:
+    TODO_PARAMETER:
       from: "TODO_PARAM_NAME"
       type: "string"   # or: int, bool, float, list
       # optional: true

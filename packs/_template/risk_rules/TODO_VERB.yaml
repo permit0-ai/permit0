@@ -24,7 +24,7 @@ base:
   #   scope: 5
   #   sensitivity: 10
 
-# Conditional rules — adjust the score based on entity values.
+# Conditional rules — adjust the score based on parameter values.
 rules: []
   # - when:
   #     destination:

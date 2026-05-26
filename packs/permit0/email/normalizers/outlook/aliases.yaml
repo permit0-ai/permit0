@@ -1,6 +1,6 @@
 permit0_pack: "permit0/email"
 
-# Outlook-channel foreign-tool-name aliases.
+# Outlook-source foreign-tool-name aliases.
 #
 # Maps Microsoft's Work IQ Mail MCP and Graph-API-prefixed tool names
 # onto canonical permit0 normalizer names so policies and risk rules

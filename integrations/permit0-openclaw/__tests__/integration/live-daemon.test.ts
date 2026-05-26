@@ -47,9 +47,9 @@ describe("@permit0/openclaw against live permit0 daemon", () => {
 
     expect(["allow", "deny", "human"]).toContain(decision.permission);
     expect(decision.action_type).toBe("email.send");
-    expect(decision.channel).toBe("gmail");
+    expect(decision.source).toBe("gmail");
     expect(typeof decision.norm_hash).toBe("string");
-    expect(typeof decision.source).toBe("string");
+    expect(typeof decision.decision_source).toBe("string");
   });
 
   it("/check threads session_id through to AuditEntry", async () => {

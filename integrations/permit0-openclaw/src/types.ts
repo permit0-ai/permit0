@@ -20,11 +20,11 @@ export type Permission = "allow" | "deny" | "human";
 export type Tier = "MINIMAL" | "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
 
 /**
- * Decision source. Mirrors `PermissionResult.source` in the engine.
+ * Origin of the decision. Mirrors `CheckResponse.decision_source` in the daemon.
  *
  * Common values today: `"engine"`, `"denylist"`, `"allowlist"`, `"policy_cache"`,
- * `"human_review"`. New values may appear over time, so consumers should not
- * exhaustively switch on this — treat as informational.
+ * `"human_review"`, `"failed_open"`. New values may appear over time, so consumers
+ * should not exhaustively switch on this — treat as informational.
  */
 export type DecisionSource = string;
 
@@ -33,13 +33,17 @@ export type DecisionSource = string;
  *
  * Field-for-field mirror of `CheckResponse` in serve.rs. Optional fields here
  * are exactly the ones marked `Option<_>` server-side.
+ *
+ * `source` is the vendor surface the normalized action lives on (e.g. `"gmail"`,
+ * `"shell"`, `"http"`). `decision_source` is the origin of the decision itself
+ * (e.g. `"engine"`, `"allowlist"`). The two are deliberately distinct.
  */
 export interface Decision {
   permission: Permission;
   action_type: string;
-  channel: string;
+  source: string;
   norm_hash: string;
-  source: DecisionSource;
+  decision_source: DecisionSource;
   score?: number;
   tier?: Tier;
   blocked?: boolean;

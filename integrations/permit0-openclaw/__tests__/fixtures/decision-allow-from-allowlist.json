@@ -1,10 +1,10 @@
 {
   "permission": "allow",
   "action_type": "email.read",
-  "channel": "gmail",
+  "source": "gmail",
   "norm_hash": "deadbeef00112233",
   "score": 0,
   "tier": "MINIMAL",
   "blocked": false,
-  "source": "allowlist"
+  "decision_source": "allowlist"
 }

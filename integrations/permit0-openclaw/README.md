@@ -272,9 +272,9 @@ What permit0's `/check` endpoint returns. Mirrors the Rust daemon's `CheckRespon
 interface Decision {
   permission: "allow" | "deny" | "human";
   action_type: string;
-  channel: string;
+  source: string;          // vendor surface: "gmail" | "shell" | "http" | …
   norm_hash: string;
-  source: string;          // "engine" | "denylist" | "failed_open" | …
+  decision_source: string; // "engine" | "denylist" | "failed_open" | …
   score?: number;
   tier?: "MINIMAL" | "LOW" | "MEDIUM" | "HIGH" | "CRITICAL";
   blocked?: boolean;
@@ -282,7 +282,7 @@ interface Decision {
 }
 ```
 
-`source: "failed_open"` is the canonical signal that the synthetic-allow path fired (and the call was buffered for replay).
+`decision_source: "failed_open"` is the canonical signal that the synthetic-allow path fired (and the call was buffered for replay).
 
 ### `Blocked`
 

@@ -13,9 +13,9 @@ function makeAllowDecision(overrides: Partial<Decision> = {}): Decision {
   return {
     permission: "allow",
     action_type: "process.shell",
-    channel: "shell",
+    source: "shell",
     norm_hash: "abcdef1234567890",
-    source: "engine",
+    decision_source: "engine",
     score: 12,
     tier: "LOW",
     blocked: false,
@@ -77,9 +77,9 @@ describe("Permit0Client.check — happy paths", () => {
     const decision: Decision = {
       permission: "deny",
       action_type: "process.shell",
-      channel: "shell",
+      source: "shell",
       norm_hash: "ff00",
-      source: "engine",
+      decision_source: "engine",
       score: 100,
       tier: "CRITICAL",
       blocked: true,
@@ -315,7 +315,7 @@ describe("Permit0Client.check — fail-closed default", () => {
     const { dispatcher, pool } = setup();
     pool
       .intercept({ path: "/api/v1/check", method: "POST" })
-      .reply(200, { permission: "maybe", action_type: "x", channel: "y", norm_hash: "z", source: "engine" });
+      .reply(200, { permission: "maybe", action_type: "x", source: "y", norm_hash: "z", decision_source: "engine" });
 
     const client = new Permit0Client({
       baseUrl: BASE_URL,
@@ -356,9 +356,9 @@ describe("Permit0Client.check — fail-closed default", () => {
       .reply(200, {
         permission: "allow",
         action_type: "x",
-        channel: "y",
+        source: "y",
         norm_hash: "z",
-        source: "engine",
+        decision_source: "engine",
         score: "not a number",
       });
 
@@ -383,9 +383,9 @@ describe("Permit0Client.check — fail-closed default", () => {
       .reply(200, {
         permission: "allow",
         action_type: "x",
-        channel: "y",
+        source: "y",
         norm_hash: "z",
-        source: "engine",
+        decision_source: "engine",
         tier: "Spicy",
       });
 
@@ -410,9 +410,9 @@ describe("Permit0Client.check — fail-closed default", () => {
       .reply(200, {
         permission: "allow",
         action_type: "x",
-        channel: "y",
+        source: "y",
         norm_hash: "z",
-        source: "engine",
+        decision_source: "engine",
         blocked: "yes",
       });
 
@@ -459,7 +459,7 @@ describe("Permit0Client.check — fail-open path", () => {
 
     const got = await client.check("Bash", { command: "ls" });
     expect(got.permission).toBe("allow");
-    expect(got.source).toBe("failed_open");
+    expect(got.decision_source).toBe("failed_open");
     expect(got.action_type).toBe("unknown");
     // block_reason is reserved for the deny path; synthetic allow must not
     // overload it with a fail-open reason that consumers would misread.
@@ -484,7 +484,7 @@ describe("Permit0Client.check — fail-open path", () => {
     });
 
     const got = await client.check("Bash", { command: "ls" });
-    expect(got.source).toBe("failed_open");
+    expect(got.decision_source).toBe("failed_open");
     await client.close();
   });
 
@@ -509,7 +509,7 @@ describe("Permit0Client.check — fail-open path", () => {
 
     process.env["PERMIT0_FAIL_OPEN"] = "1";
     const got = await client.check("Bash", { command: "ls" });
-    expect(got.source).toBe("failed_open");
+    expect(got.decision_source).toBe("failed_open");
     await client.close();
   });
 });

@@ -38,10 +38,10 @@ export interface RiskScore {
 export interface NormAction {
   /** Action type string, e.g. "payments.charge". */
   actionType: string;
-  /** Channel/vendor, e.g. "stripe". */
-  channel: string;
-  /** Semantic entities as a JSON string. */
-  entitiesJson: string;
+  /** Vendor surface, e.g. "stripe" or "gmail". */
+  source: string;
+  /** Normalizer-extracted parameters as a JSON string. */
+  parametersJson: string;
   /** Norm hash hex (16 chars). */
   normHash: string;
 }

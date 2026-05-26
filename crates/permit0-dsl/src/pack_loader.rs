@@ -361,7 +361,7 @@ mod tests {
 
     #[test]
     fn discover_normalizer_yamls_handles_mixed_layout() {
-        // During PR 4's migration window flat and per-channel can coexist.
+        // During PR 4's migration window flat and per-source can coexist.
         let root = scratch("norm-mixed");
         write(&root.join("normalizers/gmail_send.yaml"), "");
         write(&root.join("normalizers/outlook/send.yaml"), "");

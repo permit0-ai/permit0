@@ -100,7 +100,7 @@ permit0-node           (napi-rs bindings)
 
 Packs are the extension unit: `packs/<name>/` contains `pack.yaml`, `normalizers/*.yaml`, and `risk_rules/*.yaml`.
 
-- **Normalizer YAML** — matches a `RawToolCall` (by tool name and parameter conditions) and maps it to a `NormAction` with `action_type` (`domain.verb`), `channel`, and typed `entities`.
+- **Normalizer YAML** — matches a `RawToolCall` (by tool name and parameter conditions) and maps it to a `NormAction` with `action_type` (`domain.verb`), `source`, and typed `parameters`.
 - **Risk rule YAML** — bound to one `action_type`; declares a base `RiskTemplate` (flags + amplifier values 0–30) and ordered `rules`/`session_rules` that mutate the template. A `gate:` halts evaluation and forces CRITICAL.
 - **Closed helpers** — `compute:` fields in normalizers call pure Rust functions registered in `permit0-dsl/src/helpers/`; the set is fixed at compile time.
 
@@ -118,7 +118,7 @@ Packs are the extension unit: `packs/<name>/` contains `pack.yaml`, `normalizers
 | Type | Purpose |
 |------|---------|
 | `RawToolCall` | Input: tool name + JSON parameters |
-| `NormAction` | Normalized action: `action_type`, `domain`, `verb`, `channel`, `entities`, `norm_hash` |
+| `NormAction` | Normalized action: `action_type`, `domain`, `verb`, `source`, `parameters`, `norm_hash` |
 | `RiskScore` | Output of scorer: `raw` (0–1), `tier`, `blocked`, `flags`, `block_reason` |
 | `Permission` | `Allow \| Deny \| HumanInTheLoop` |
 | `DecisionRecord` | Persisted decision summary (SQLite row or memory) |

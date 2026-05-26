@@ -13,7 +13,7 @@ Quick start::
     def email_send(to, subject, body):  # → action_type "email.send"
         ...
 
-Function arguments are automatically forwarded to permit0 as entities (by name).
+Function arguments are automatically forwarded to permit0 as parameters (by name).
 On a non-allow decision, ``permit0.Denied`` is raised.
 
 Configuration:
