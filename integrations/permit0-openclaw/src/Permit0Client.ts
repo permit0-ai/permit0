@@ -599,7 +599,7 @@ function assertDecisionShape(
       `permit0 /check returned invalid permission: ${JSON.stringify(o["permission"])}`,
     );
   }
-  for (const required of ["action_type", "channel", "norm_hash", "source"]) {
+  for (const required of ["action_type", "source", "norm_hash", "decision_source"]) {
     if (typeof o[required] !== "string") {
       fail(`permit0 /check missing required string field: ${required}`);
     }
@@ -627,8 +627,8 @@ function assertDecisionShape(
 /**
  * Synthetic Decision returned when fail-open fires.
  *
- * The `source` field is the canonical signal — consumers should switch on
- * `decision.source === "failed_open"` to distinguish from a real allow.
+ * The `decision_source` field is the canonical signal — consumers should switch on
+ * `decision.decision_source === "failed_open"` to distinguish from a real allow.
  * The reason for the fail-open lives in the logger output and (slice 3)
  * the buffered event, not on this struct, because `block_reason` is
  * semantically reserved for the deny/human path and overloading it would
@@ -638,9 +638,9 @@ function syntheticFailOpenDecision(_err: Permit0Error): Decision {
   return {
     permission: "allow",
     action_type: "unknown",
-    channel: "unknown",
+    source: "unknown",
     norm_hash: "",
-    source: "failed_open",
+    decision_source: "failed_open",
   };
 }
 

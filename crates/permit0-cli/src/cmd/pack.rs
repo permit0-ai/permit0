@@ -298,7 +298,7 @@ struct FixtureDef {
 /// destination directory must not exist.
 ///
 /// The output pack still has plenty of TODO markers (every
-/// per-verb stub, every action_type, every entity mapping). Those
+/// per-verb stub, every action_type, every parameter mapping). Those
 /// surface as hard validator errors so the contributor knows
 /// exactly what's left to fill in.
 pub fn new_pack(name_arg: &str) -> Result<()> {

@@ -165,7 +165,7 @@ class TestDecisionResult:
         result = engine.get_permission("bash", {"command": "ls"})
         assert result.norm_action is not None
         assert isinstance(result.norm_action.action_type, str)
-        assert isinstance(result.norm_action.channel, str)
+        assert isinstance(result.norm_action.source, str)
         assert isinstance(result.norm_action.norm_hash, str)
         assert len(result.norm_action.norm_hash) == 16
 
@@ -177,7 +177,7 @@ class TestDecisionResult:
         assert 0.0 <= result.risk_score.raw <= 1.0
         assert 0 <= result.risk_score.score <= 100
 
-    def test_norm_action_entities(self, engine):
+    def test_norm_action_parameters(self, engine):
         result = engine.get_permission(
             "http",
             {
@@ -186,8 +186,8 @@ class TestDecisionResult:
                 "body": {"amount": 5000, "currency": "usd"},
             },
         )
-        entities = result.norm_action.entities()
-        assert isinstance(entities, dict)
+        parameters = result.norm_action.parameters()
+        assert isinstance(parameters, dict)
 
     def test_repr(self, engine):
         result = engine.get_permission("bash", {"command": "ls"})

@@ -20,9 +20,9 @@ function makeAllow(): Decision {
   return {
     permission: "allow",
     action_type: "process.shell",
-    channel: "shell",
+    source: "shell",
     norm_hash: "aa",
-    source: "engine",
+    decision_source: "engine",
   };
 }
 

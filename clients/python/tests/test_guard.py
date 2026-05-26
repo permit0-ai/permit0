@@ -80,14 +80,14 @@ def test_lower_level_check_action():
     )
     assert decision.allowed
     assert decision.action_type == "email.send"
-    assert decision.channel == "app"
+    assert decision.source == "app"
 
 
-def test_custom_entities_mapper():
-    """If a function's arg names don't match risk rule entity names, override via `entities=`."""
+def test_custom_parameters_mapper():
+    """If a function's arg names don't match risk rule parameter names, override via `parameters=`."""
     @permit0.guard(
         "email.send",
-        entities=lambda recipient, msg, **_: {"to": recipient, "subject": "X", "body": msg},
+        parameters=lambda recipient, msg, **_: {"to": recipient, "subject": "X", "body": msg},
     )
     def my_send(recipient, msg):
         return "sent"

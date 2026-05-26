@@ -1,4 +1,4 @@
-# Enumerating labels/folders — read-only, no entities.
+# Enumerating labels/folders — read-only, no parameters.
 name: gmail_list_mailboxes
 tool_name: gmail_list_mailboxes
 parameters: {}

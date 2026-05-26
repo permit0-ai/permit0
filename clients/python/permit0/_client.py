@@ -22,9 +22,9 @@ class Decision:
 
     permission: str  # "allow" | "deny" | "human"
     action_type: str
-    channel: str
-    norm_hash: str
     source: str
+    norm_hash: str
+    decision_source: str
     score: int | None = None
     tier: str | None = None
     blocked: bool | None = None
@@ -42,7 +42,7 @@ class Denied(Exception):
         self.decision = decision
         msg = (
             f"permit0 {decision.permission}: {decision.action_type} "
-            f"(tier={decision.tier} score={decision.score} source={decision.source})"
+            f"(tier={decision.tier} score={decision.score} decision_source={decision.decision_source})"
         )
         if decision.block_reason:
             msg += f" — {decision.block_reason}"
@@ -55,9 +55,9 @@ def _server_url() -> str:
 
 def check_action(
     action_type: str,
-    entities: Mapping[str, Any] | None = None,
+    parameters: Mapping[str, Any] | None = None,
     *,
-    channel: str = "app",
+    source: str = "app",
     timeout: float = DEFAULT_TIMEOUT,
 ) -> Decision:
     """Call ``POST /api/v1/check_action`` and return a parsed ``Decision``.
@@ -67,8 +67,8 @@ def check_action(
     """
     body = {
         "action_type": action_type,
-        "channel": channel,
-        "entities": dict(entities) if entities else {},
+        "source": source,
+        "parameters": dict(parameters) if parameters else {},
     }
     r = httpx.post(f"{_server_url()}/api/v1/check_action", json=body, timeout=timeout)
     r.raise_for_status()
@@ -76,9 +76,9 @@ def check_action(
     return Decision(
         permission=data["permission"],
         action_type=data["action_type"],
-        channel=data["channel"],
-        norm_hash=data["norm_hash"],
         source=data["source"],
+        norm_hash=data["norm_hash"],
+        decision_source=data["decision_source"],
         score=data.get("score"),
         tier=data.get("tier"),
         blocked=data.get("blocked"),
@@ -102,8 +102,8 @@ def _derive_action_type(fn: Callable[..., Any]) -> str:
     return f"{domain}.{verb}"
 
 
-def _bind_entities(fn: Callable[..., Any], args: tuple, kwargs: dict) -> dict[str, Any]:
-    """Map the function's call-site arguments to entity names (kwargs by name)."""
+def _bind_parameters(fn: Callable[..., Any], args: tuple, kwargs: dict) -> dict[str, Any]:
+    """Map the function's call-site arguments to parameter names (kwargs by name)."""
     sig = inspect.signature(fn)
     bound = sig.bind_partial(*args, **kwargs)
     bound.apply_defaults()
@@ -113,22 +113,22 @@ def _bind_entities(fn: Callable[..., Any], args: tuple, kwargs: dict) -> dict[st
 def guard(
     action_type: str | None = None,
     *,
-    channel: str = "app",
-    entities: Callable[..., Mapping[str, Any]] | None = None,
+    source: str = "app",
+    parameters: Callable[..., Mapping[str, Any]] | None = None,
 ):
     """Decorator: gate a function on a permit0 norm action.
 
     By default, the function name is mapped to a ``domain.verb`` action type
     (e.g. ``email_send`` → ``email.send``) and the function's bound arguments
-    become permit0 entities.
+    become permit0 parameters.
 
     Args:
         action_type: Norm action like ``"email.send"``. If omitted, derived
             from the function name.
-        channel: Channel string sent to permit0 (default ``"app"``).
-        entities: Optional callable ``(args, kwargs) -> dict`` to override the
+        source: Vendor-surface string sent to permit0 (default ``"app"``).
+        parameters: Optional callable ``(args, kwargs) -> dict`` to override the
             default mapping if your function's argument names don't match the
-            risk rule's expected entity names.
+            risk rule's expected parameter names.
 
     Raises:
         Denied: if permit0 returns ``deny`` or ``human``.
@@ -139,8 +139,8 @@ def guard(
 
         @functools.wraps(fn)
         def wrapper(*args, **kwargs):
-            ents = entities(*args, **kwargs) if entities else _bind_entities(fn, args, kwargs)
-            decision = check_action(action, ents, channel=channel)
+            ents = parameters(*args, **kwargs) if parameters else _bind_parameters(fn, args, kwargs)
+            decision = check_action(action, ents, source=source)
             if not decision.allowed:
                 raise Denied(decision)
             return fn(*args, **kwargs)

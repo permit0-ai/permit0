@@ -2,7 +2,7 @@ lockfile_version: 1
 permit0_pack: permit0/email
 pack_version: 0.4.0
 pack_format: 2
-generated_at: 2026-05-25T16:35:45Z
+generated_at: 2026-05-26T13:34:20Z
 files:
 - path: normalizers/gmail/_source.yaml
   sha256: a0c2e6f81b38a06347523e2208766d173a74ce9d4f35f9d4a40c4600fa89d5d1
@@ -11,8 +11,8 @@ files:
   sha256: 3eed0a674a804cdba1049005b6a82c6df651fd8b974adf5f4a8cdbc3c7ea382a
   size: 399
 - path: normalizers/gmail/aliases.yaml
-  sha256: 093c4831d40790ab6147278a23448282b72cd0ba7af025ade4073cfb7d49cb1c
-  size: 4121
+  sha256: 8c466ae5934f42389c28b138fe6a377ec766d1fe4bd6193dc3e930799d1d0bcd
+  size: 4124
 - path: normalizers/gmail/archive.yaml
   sha256: a9cf85342830bf1d4cb03cbf2628ba8cddd856b578ae943a775d0ecac53b44f7
   size: 315
@@ -41,14 +41,14 @@ files:
   sha256: cde4b87db7b1bddc6c8e29d9834ae071bf8fc4e7e5ea24f1bbdc1aca4f001707
   size: 323
 - path: normalizers/gmail/move.yaml
-  sha256: ae1f16a9b3cbfd472394043f08da7b5472ef882332efeb68f6d577aacc2540e5
-  size: 772
+  sha256: d4d5796abf669e0d56df488939813796510379acf2da8a9a97ff6ae8565568cc
+  size: 775
 - path: normalizers/gmail/read.yaml
   sha256: a5ed894738a3479ab4489ad25554ae1296fa9254a1c22a238cbfbbc9f1e2e54f
   size: 303
 - path: normalizers/gmail/read_thread.yaml
-  sha256: 2314ad221abbcf23e55d619b3bb6435109be5b3b0c712ccd1b5c9f033c29bec0
-  size: 621
+  sha256: 86f9d9482c6b9f94a87e7a6232c46de7ee478b838b635fd7b5bc385971bfc9dc
+  size: 624
 - path: normalizers/gmail/search.yaml
   sha256: 18a9921f77da3d62b600e9afb4beb482b77f7a280a2b490d8a48bd418ada6fcd
   size: 253
@@ -65,8 +65,8 @@ files:
   sha256: 7ad751e09e60a10052e123b77f7eeaee76486778da0d6bf20d575f89703e008a
   size: 399
 - path: normalizers/outlook/aliases.yaml
-  sha256: bb39eb66d89acfdca5445e80d9c065339949126735a99e06c4f1b990265f4453
-  size: 1020
+  sha256: 22b9bce26a4b2961b362a91012383b06111f31afdb210b6ab46744b614375ffa
+  size: 1019
 - path: normalizers/outlook/archive.yaml
   sha256: 0444dc03ba1f0d1938da32bb60d85ec7cfa51add205c6fff35052729c8602336
   size: 298
@@ -83,8 +83,8 @@ files:
   sha256: 107ecf2c69dcc19a68cd6d9a33c8143f883092f8327a1f10132e6c3f5ec1cdca
   size: 364
 - path: normalizers/outlook/list_drafts.yaml
-  sha256: e07007ef6e5d48a8c7b379fe986eceb707182ffe710c1b25d2d1a6873c14b108
-  size: 512
+  sha256: 41845f425befea538fae5c3ae5ecb0487907b6bf487dd904c48973705fb297c0
+  size: 515
 - path: normalizers/outlook/list_mailboxes.yaml
   sha256: 53d37de19e55da79278808e5a9cd95866540bc106a04a4b509933ab631730afd
   size: 246

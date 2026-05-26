@@ -1,12 +1,12 @@
-# Cross-channel calibration: a simple, low-risk email.send call.
+# Cross-source calibration: a simple, low-risk email.send call.
 #
 # This case was originally in corpora/calibration/ as both
 # 001-gmail-simple-email.yaml and 002-outlook-simple-email.yaml
-# (one per channel). PR 5 of the pack taxonomy refactor recognizes
-# that the canonical email.send decision should be channel-agnostic
+# (one per source). PR 5 of the pack taxonomy refactor recognizes
+# that the canonical email.send decision should be source-agnostic
 # at this risk level — so a single shared case verifies both vendors.
 #
-# Per-channel cases (where vendor-specific entity extraction or alias
+# Per-source cases (where vendor-specific parameter extraction or alias
 # resolution diverges) belong under tests/gmail/ or tests/outlook/.
 # Unique recipient/subject so this case produces its own NormHash and
 # doesn't collide with corpora/calibration/001-gmail-simple-email.yaml

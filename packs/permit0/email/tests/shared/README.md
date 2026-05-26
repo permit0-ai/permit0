@@ -1,6 +1,6 @@
 # Shared calibration fixtures for the email pack
 
-Cross-channel goldens for the email pack — scenarios where the same
+Cross-source goldens for the email pack — scenarios where the same
 canonical action (`email.send`, `email.archive`, etc.) should produce
 the same decision regardless of whether the agent called the Gmail
 or Outlook surface.
@@ -22,12 +22,12 @@ expected_permission: "Allow"    # optional — Allow/Human/Deny
 
 ## Scope
 
-- **shared/** — channel-agnostic scenarios. The same case should fire
+- **shared/** — source-agnostic scenarios. The same case should fire
   for both `tool_name: gmail_send` and `tool_name: outlook_send` and
   produce the same decision. Use this for testing canonical behavior.
-- **../gmail/**, **../outlook/** — per-channel fixtures (vendor-
-  specific entity extraction, alias resolution, etc.). Land alongside
-  the channel directories.
+- **../gmail/**, **../outlook/** — per-source fixtures (vendor-
+  specific parameter extraction, alias resolution, etc.). Land alongside
+  the source directories.
 - **../security/** — known-attack patterns. Required for verified+
   tier; optional for community.
 

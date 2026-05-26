@@ -46,9 +46,9 @@ function listFixtures(): string[] {
 const TYPE_ALIGNMENT_PROBE: Decision = {
   permission: "allow",
   action_type: "process.shell",
-  channel: "shell",
+  source: "shell",
   norm_hash: "deadbeef",
-  source: "engine",
+  decision_source: "engine",
 };
 void TYPE_ALIGNMENT_PROBE;
 
@@ -88,9 +88,9 @@ describe("Decision type alignment with permit0 daemon JSON shape", () => {
       // tsc complains in strict mode (noUncheckedIndexedAccess + strict).
       expect(typeof fixture.permission).toBe("string");
       expect(typeof fixture.action_type).toBe("string");
-      expect(typeof fixture.channel).toBe("string");
-      expect(typeof fixture.norm_hash).toBe("string");
       expect(typeof fixture.source).toBe("string");
+      expect(typeof fixture.norm_hash).toBe("string");
+      expect(typeof fixture.decision_source).toBe("string");
 
       // Permission is one of three exact values.
       const validPerms: Permission[] = ["allow", "deny", "human"];
@@ -111,7 +111,7 @@ describe("Decision type alignment with permit0 daemon JSON shape", () => {
     const { dispatcher, pool } = setup();
     pool
       .intercept({ path: "/api/v1/check", method: "POST" })
-      .reply(200, { permission: "maybe", action_type: 1, channel: null, norm_hash: "" });
+      .reply(200, { permission: "maybe", action_type: 1, source: null, norm_hash: "" });
 
     const client = new Permit0Client({ baseUrl: BASE_URL, dispatcher });
     await expect(client.check("Probe", {})).rejects.toMatchObject({

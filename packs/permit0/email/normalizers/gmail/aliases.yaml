@@ -1,6 +1,6 @@
 permit0_pack: "permit0/email"
 
-# Gmail-channel foreign-tool-name aliases.
+# Gmail-source foreign-tool-name aliases.
 #
 # Maps Google's official Gmail MCP and community Gmail MCP server tool
 # names onto canonical permit0 normalizer names so policies and risk
@@ -19,8 +19,8 @@ permit0_pack: "permit0/email"
 # names, not parameter names. Where a foreign tool uses a different
 # parameter name than the target normalizer expects (Google uses `id`
 # for threadId, gmail_read_thread expects `thread_id`), the action_type
-# is routed correctly but some entities will be empty in the audit.
-# Risk rules that match on those entities will not see the value. A
+# is routed correctly but some parameters will be empty in the audit.
+# Risk rules that match on those parameters will not see the value. A
 # future improvement is parameter remapping in the alias entry.
 
 aliases:
