@@ -74,3 +74,9 @@ jobs:
       - uses: rustsec/audit-check@v2.0.0
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+          # Kept in sync with the advisory ignores in deny.toml.
+          # RUSTSEC-2024-0370: proc-macro-error unmaintained (transitive).
+          # RUSTSEC-2026-0097: rand ThreadRng + custom-logger soundness;
+          # requires the `log` + `thread_rng` features and a custom logger
+          # that calls rand inside log output — we do neither.
+          ignore: RUSTSEC-2024-0370,RUSTSEC-2026-0097
