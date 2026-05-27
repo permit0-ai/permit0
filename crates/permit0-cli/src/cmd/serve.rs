@@ -1362,13 +1362,17 @@ mod tests {
         decider.await.unwrap();
         assert_eq!(result.permission, Permission::Allow);
         assert_eq!(result.source, DecisionSource::HumanApproval);
-        // Cache was set so the next identical call hits the cache.
+        // HITL-originated decisions must never pin the policy cache,
+        // even when the reviewer approves. See companion guard in
+        // await_ui_wait_approval().
         let cached = policy_state
             .policy_cache_get(&norm.norm_hash(), 3600)
             .await
             .unwrap();
-        assert!(cached.is_some(), "policy cache should be populated");
-        assert_eq!(cached.unwrap().permission, Permission::Allow);
+        assert!(
+            cached.is_none(),
+            "HITL-resolved verdicts must not populate the policy cache",
+        );
     }
 
     #[tokio::test]
