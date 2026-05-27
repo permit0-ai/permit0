@@ -41,7 +41,7 @@ fn mint_verify_roundtrip() {
     let token = provider.mint(&claims).unwrap();
     assert!(!token.is_empty());
 
-    let parameters =Parameters::new();
+    let parameters = Parameters::new();
     let result = provider
         .verify(&token, "payments.charge", &parameters)
         .unwrap();
@@ -71,7 +71,7 @@ fn expired_token_rejected() {
     };
 
     let token = provider.mint(&claims).unwrap();
-    let parameters =Parameters::new();
+    let parameters = Parameters::new();
     let result = provider.verify(&token, "payments.charge", &parameters);
     assert!(result.is_err());
 }
@@ -86,7 +86,7 @@ fn tampered_token_rejected() {
     let mid = token.len() / 2;
     token[mid] ^= 0xFF;
 
-    let parameters =Parameters::new();
+    let parameters = Parameters::new();
     let result = provider.verify(&token, "payments.charge", &parameters);
     assert!(result.is_err());
 }
@@ -97,7 +97,7 @@ fn wrong_action_type_rejected() {
     let claims = basic_claims();
     let token = provider.mint(&claims).unwrap();
 
-    let parameters =Parameters::new();
+    let parameters = Parameters::new();
     // Token is for payments.charge, but we verify against email.send
     let result = provider.verify(&token, "email.send", &parameters);
     assert!(result.is_err());
@@ -110,7 +110,7 @@ fn different_keypair_rejects() {
     let claims = basic_claims();
     let token = provider1.mint(&claims).unwrap();
 
-    let parameters =Parameters::new();
+    let parameters = Parameters::new();
     let result = provider2.verify(&token, "payments.charge", &parameters);
     assert!(result.is_err());
 }
@@ -122,7 +122,7 @@ fn scope_amount_violation() {
 
     let token = provider.mint(&claims).unwrap();
 
-    let mut parameters =Parameters::new();
+    let mut parameters = Parameters::new();
     parameters.insert("amount".into(), serde_json::json!(15000));
 
     let result = provider.verify(&token, "payments.charge", &parameters);
@@ -138,7 +138,7 @@ fn scope_amount_within_ceiling_allowed() {
 
     let token = provider.mint(&claims).unwrap();
 
-    let mut parameters =Parameters::new();
+    let mut parameters = Parameters::new();
     parameters.insert("amount".into(), serde_json::json!(5000));
 
     let result = provider.verify(&token, "payments.charge", &parameters);
@@ -166,7 +166,7 @@ fn scope_recipient_violation() {
 
     let token = provider.mint(&claims).unwrap();
 
-    let mut parameters =Parameters::new();
+    let mut parameters = Parameters::new();
     parameters.insert("to".into(), serde_json::json!("bob@evil.com"));
 
     let result = provider.verify(&token, "email.send", &parameters);
@@ -185,7 +185,7 @@ fn attenuated_token_narrower_scope_passes() {
         .attenuate(&token, None, Some(Duration::from_secs(60)))
         .unwrap();
 
-    let parameters =Parameters::new();
+    let parameters = Parameters::new();
     let result = provider.verify(&attenuated, "payments.charge", &parameters);
     assert!(result.is_ok());
 }
@@ -257,7 +257,7 @@ fn medium_tier_claims_have_safeguards() {
     };
 
     let token = provider.mint(&claims).unwrap();
-    let parameters =Parameters::new();
+    let parameters = Parameters::new();
     let result = provider
         .verify(&token, "payments.charge", &parameters)
         .unwrap();
