@@ -12,9 +12,16 @@ yanked = "deny"
 #                      offending dependency upgrades or we replace it.
 #   RUSTSEC-2026-0097  rand soundness with custom logger — does not
 #                      affect our use; track upstream rand upgrade.
+#   RUSTSEC-2023-0071  rsa Marvin Attack timing sidechannel — reaches us
+#                      only through sqlx-mysql in Cargo.lock. We enable
+#                      only the `postgres` feature on sqlx, so the mysql
+#                      driver (and rsa) is never compiled. Drop this
+#                      once sqlx fully feature-gates sqlx-mysql out of
+#                      the lockfile or rsa ships a constant-time fix.
 ignore = [
     "RUSTSEC-2024-0370",
     "RUSTSEC-2026-0097",
+    "RUSTSEC-2023-0071",
 ]
 
 [licenses]
