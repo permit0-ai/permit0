@@ -75,29 +75,25 @@ impl Normalizer for DslNormalizer {
         let effective_params = inject_ctx_into_params(&raw.parameters, ctx);
 
         // Extract parameters
-        let parameter_map =
-            extract_parameters(&effective_params, &norm.parameters, &self.helpers).map_err(
-                |e| match e {
-                    ParameterError::MissingRequired(field) => {
-                        NormalizeError::MissingRequiredField {
-                            tool_name: raw.tool_name.clone(),
-                            field,
-                        }
-                    }
-                    ParameterError::UnknownHelper(h) => NormalizeError::HelperFailed {
-                        helper: h,
-                        reason: "unknown helper".into(),
-                    },
-                    ParameterError::ArityMismatch {
-                        helper,
-                        expected,
-                        got,
-                    } => NormalizeError::HelperFailed {
-                        helper,
-                        reason: format!("expected {expected} args, got {got}"),
-                    },
+        let parameter_map = extract_parameters(&effective_params, &norm.parameters, &self.helpers)
+            .map_err(|e| match e {
+                ParameterError::MissingRequired(field) => NormalizeError::MissingRequiredField {
+                    tool_name: raw.tool_name.clone(),
+                    field,
                 },
-            )?;
+                ParameterError::UnknownHelper(h) => NormalizeError::HelperFailed {
+                    helper: h,
+                    reason: "unknown helper".into(),
+                },
+                ParameterError::ArityMismatch {
+                    helper,
+                    expected,
+                    got,
+                } => NormalizeError::HelperFailed {
+                    helper,
+                    reason: format!("expected {expected} args, got {got}"),
+                },
+            })?;
 
         // Convert HashMap<String, Value> → Parameters (serde_json::Map)
         let mut parameters = Parameters::new();

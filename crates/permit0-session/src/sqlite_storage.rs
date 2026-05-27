@@ -76,7 +76,8 @@ impl SqliteSessionStore {
     pub fn record_action(&self, session_id: &str, record: &ActionRecord) {
         let conn = self.conn.lock().unwrap();
         let flags_json = serde_json::to_string(&record.flags).unwrap_or_default();
-        let parameters_json = serde_json::to_string(&record.parameters).unwrap_or_else(|_| "{}".into());
+        let parameters_json =
+            serde_json::to_string(&record.parameters).unwrap_or_else(|_| "{}".into());
         let tier_str = record.tier.to_string();
 
         let _ = conn.execute(

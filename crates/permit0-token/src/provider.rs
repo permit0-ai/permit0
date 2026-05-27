@@ -406,7 +406,10 @@ impl BiscuitTokenProvider {
         }
 
         if let Some(ref prefix) = scope.path_prefix {
-            if let Some(actual) = parameters.get("path").or_else(|| parameters.get("file_path")) {
+            if let Some(actual) = parameters
+                .get("path")
+                .or_else(|| parameters.get("file_path"))
+            {
                 if let Some(actual_str) = actual.as_str() {
                     if !actual_str.starts_with(prefix.as_str()) {
                         return Err(TokenError::ScopeViolation(format!(

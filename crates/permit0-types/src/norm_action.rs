@@ -169,7 +169,8 @@ mod tests {
         let h1 = a.norm_hash();
 
         let mut b = test_action();
-        b.parameters.insert("amount".into(), serde_json::json!(9999));
+        b.parameters
+            .insert("amount".into(), serde_json::json!(9999));
         let h2 = b.norm_hash();
 
         assert_ne!(h1, h2);

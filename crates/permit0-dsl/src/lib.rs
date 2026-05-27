@@ -20,6 +20,6 @@ pub use pack_loader::{
     discover_alias_yamls, discover_normalizer_yamls, discover_packs,
 };
 pub use pack_validate::{
-    ALWAYS_HUMAN_ACTION_TYPES, PackViolation, ViolationCode, tool_pattern_matches,
-    validate_pack, validate_source_directories,
+    ALWAYS_HUMAN_ACTION_TYPES, PackViolation, ViolationCode, tool_pattern_matches, validate_pack,
+    validate_source_directories,
 };
