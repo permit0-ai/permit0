@@ -21,7 +21,7 @@ use serde::{Deserialize, Serialize};
 
 use permit0_engine::{DecisionSource, Engine, PermissionCtx, PermissionResult};
 use permit0_normalize::NormalizeCtx;
-use permit0_session::SessionContext;
+use permit0_session::{ActionRecord, SessionContext, SqliteSessionStore};
 use permit0_store::audit::{AuditSigner, AuditSink, FailedOpenContext, FileKeyStore};
 use permit0_store::{InMemoryPolicyState, PolicyState, SqliteAuditSink, SqlitePolicyState};
 use permit0_types::{
@@ -45,6 +45,36 @@ struct ServerState {
     /// AppState so the dashboard's /api/v1/approvals/decide endpoint
     /// resolves the same channel.
     approval_manager: Option<Arc<permit0_ui::ApprovalManager>>,
+    /// Cross-request session record store. When present, /check hydrates
+    /// `SessionContext.records` from this store before scoring and persists
+    /// a new `ActionRecord` after scoring, so session rules like
+    /// `email_send_count_10m: gte: 5` see prior calls.
+    session_store: Option<Arc<SqliteSessionStore>>,
+}
+
+/// Build the daemon's session record store at `$PERMIT0_SESSION_DB`
+/// (or `~/.permit0/sessions.db` by default). Returns `None` if the file
+/// can't be opened — the daemon keeps running without cross-request
+/// session state in that case.
+fn build_session_store() -> Option<Arc<SqliteSessionStore>> {
+    let path = std::env::var("PERMIT0_SESSION_DB").ok().or_else(|| {
+        std::env::var("HOME")
+            .ok()
+            .map(|home| format!("{home}/.permit0/sessions.db"))
+    })?;
+    if let Some(parent) = std::path::Path::new(&path).parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    match SqliteSessionStore::open(&path) {
+        Ok(store) => {
+            eprintln!("  session store: {path}");
+            Some(Arc::new(store))
+        }
+        Err(e) => {
+            eprintln!("  warning: session store {path} unavailable ({e})");
+            None
+        }
+    }
 }
 
 /// Request body for POST /api/v1/check.
@@ -173,7 +203,14 @@ async fn check_handler(
     let mut ctx = PermissionCtx::new(NormalizeCtx::new().with_org_domain(&effective_org_domain))
         .with_skip_audit(state.calibrate);
     if let Some(sid) = session_id {
-        ctx = ctx.with_session(SessionContext::new(sid));
+        // Hydrate prior session records from the cross-request store so
+        // windowed rules (e.g. email.send rate-limit) see history.
+        let session = state
+            .session_store
+            .as_ref()
+            .and_then(|store| store.get_session(&sid))
+            .unwrap_or_else(|| SessionContext::new(sid));
+        ctx = ctx.with_session(session);
     }
     if let Some(goal) = task_goal {
         ctx = ctx.with_task_goal(goal);
@@ -735,6 +772,30 @@ async fn record_and_respond(
         }
     }
 
+    // Persist this action for cross-request session rules. Without this,
+    // each /check request scores against an empty SessionContext and the
+    // engine's windowed counters (`email_send_count_10m` etc.) never see
+    // history. Keyed by the request's `metadata.session_id` (which lives
+    // on `ctx.session.session_id` after hydration in `check_handler`).
+    if let (Some(store), Some(session)) = (state.session_store.as_ref(), ctx.session.as_ref()) {
+        let (tier, flags) = match result.risk_score.as_ref() {
+            Some(rs) => (rs.tier, rs.flags.clone()),
+            None => (Tier::Low, Vec::new()),
+        };
+        let timestamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs_f64())
+            .unwrap_or_default();
+        let record = ActionRecord {
+            action_type: result.norm_action.action_type.as_action_str().to_string(),
+            tier,
+            flags,
+            timestamp,
+            parameters: serde_json::Map::new(),
+        };
+        store.record_action(&session.session_id, &record);
+    }
+
     Ok(Json(CheckResponse {
         permission: result.permission.to_string().to_lowercase(),
         action_type: result.norm_action.action_type.as_action_str().to_string(),
@@ -975,6 +1036,7 @@ pub fn run(
                 org_domain: org_domain.into(),
                 calibrate,
                 approval_manager: Some(approval_manager.clone()),
+                session_store: build_session_store(),
             };
             let check_api = Router::new()
                 .route("/check", post(check_handler))
@@ -1016,6 +1078,7 @@ pub fn run(
                 org_domain: org_domain.into(),
                 calibrate: false,
                 approval_manager: None,
+                session_store: build_session_store(),
             };
             let check_api = Router::new()
                 .route("/check", post(check_handler))

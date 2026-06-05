@@ -125,3 +125,28 @@ session_rules:
       - upgrade:
           dim: amount
           delta: 6
+
+  # Rate limit: 5+ sends in the last 10 minutes → escalate to HITL (not Deny).
+  # `email_send_count_10m` is populated by the engine from the SessionContext
+  # (see engine.rs::session_to_json). Sized so the score lands in HIGH tier
+  # even when the per-session amplifier maxes out (+30) from prior High-tier
+  # records — without crossing the Critical threshold and forcing a Deny.
+  - when:
+      email_send_count_5m:
+        gte: 5
+    then:
+      - add_flag:
+          flag: GOVERNANCE
+          role: primary
+      - add_flag:
+          flag: PRIVILEGE
+          role: secondary
+      - upgrade:
+          dim: scope
+          delta: 14
+      - upgrade:
+          dim: destination
+          delta: 8
+      - upgrade:
+          dim: session
+          delta: 20

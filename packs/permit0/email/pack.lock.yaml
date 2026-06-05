@@ -2,7 +2,7 @@ lockfile_version: 1
 permit0_pack: permit0/email
 pack_version: 0.4.0
 pack_format: 2
-generated_at: 2026-05-26T13:34:20Z
+generated_at: 2026-05-27T16:24:22Z
 files:
 - path: normalizers/gmail/_source.yaml
   sha256: a0c2e6f81b38a06347523e2208766d173a74ce9d4f35f9d4a40c4600fa89d5d1
@@ -158,8 +158,8 @@ files:
   sha256: 757e3b4cff0a9f2723be6e2ec9919fedd4a3f10e49b1eb5a8c6fe069e846cffa
   size: 360
 - path: risk_rules/send.yaml
-  sha256: deb602578d0dc775979c9d171fe7ad5feb50398e9a5564cf533163eded6dd700
-  size: 3801
+  sha256: 6ca464d34285a44f709c06f4018951771233ad293c0eb04e0c33e1c788933e5b
+  size: 4572
 - path: risk_rules/set_forwarding.yaml
   sha256: 2050a804ab5b8dafe25429bb580ba5fcad2fef4dbc2eb3771358715807c83f5f
   size: 539

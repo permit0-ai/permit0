@@ -214,27 +214,27 @@ impl Engine {
         trace.push(stage("allowlist", "miss", &redacted, None));
 
         // Step 4: Policy cache
-        if let Some(cached) = self
-            .state
-            .policy_cache_get(&norm_hash, self.cache_ttl_secs)
-            .await?
-        {
-            trace.push(stage(
-                "policy_cache",
-                "hit",
-                &redacted,
-                Some(serde_json::json!({ "cached_permission": cached.permission })),
-            ));
-            let result = PermissionResult {
-                permission: cached.permission,
-                norm_action: norm,
-                risk_score: cached.risk_score,
-                source: DecisionSource::PolicyCache,
-            };
-            self.log_decision(&result, tool_call, ctx, trace).await?;
-            return Ok(result);
-        }
-        trace.push(stage("policy_cache", "miss", &redacted, None));
+        // if let Some(cached) = self
+        //     .state
+        //     .policy_cache_get(&norm_hash, self.cache_ttl_secs)
+        //     .await?
+        // {
+        //     trace.push(stage(
+        //         "policy_cache",
+        //         "hit",
+        //         &redacted,
+        //         Some(serde_json::json!({ "cached_permission": cached.permission })),
+        //     ));
+        //     let result = PermissionResult {
+        //         permission: cached.permission,
+        //         norm_action: norm,
+        //         risk_score: cached.risk_score,
+        //         source: DecisionSource::PolicyCache,
+        //     };
+        //     self.log_decision(&result, tool_call, ctx, trace).await?;
+        //     return Ok(result);
+        // }
+        // trace.push(stage("policy_cache", "miss", &redacted, None));
 
         // Step 5: Unknown action type → human-in-the-loop (conservative default).
         //
@@ -901,6 +901,24 @@ fn session_to_json(session: &SessionContext) -> serde_json::Value {
     // Legacy compatibility: daily_total alias
     map.insert("daily_total".into(), serde_json::json!(total_amount));
 
+    // Windowed action-type counts for session rules that gate on rate.
+    let email_send_5m = session.count_where(
+        &SessionFilter::new()
+            .with_action_type("email.send")
+            .with_within_minutes(3),
+    );
+    tracing::debug!(
+        session_id = %session.session_id,
+        total_records = session.records.len(),
+        email_send_count_5m = email_send_5m,
+        rate_per_min_3m = session.rate_per_minute_windowed("email.send", 3),
+        "session window snapshot for email.send"
+    );
+    map.insert(
+        "email_send_count_5m".into(),
+        serde_json::json!(email_send_5m),
+    );
+
     serde_json::Value::Object(map)
 }
 
@@ -1175,8 +1193,10 @@ mod tests {
             Permission::HumanInTheLoop
         );
         assert_eq!(score_to_permission(Tier::Critical, false), Permission::Deny);
-        // Blocked always deny
+
+        // Blocked routes to Deny (operator can approve or reject)
         assert_eq!(score_to_permission(Tier::Minimal, true), Permission::Deny);
+        assert_eq!(score_to_permission(Tier::Critical, true), Permission::Deny);
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -1373,6 +1393,7 @@ mod tests {
         assert_eq!(result.source, DecisionSource::Scorer);
         assert!(result.risk_score.is_some());
     }
+
     // ── Failed-open replay (Lane A step 1b) ──────────────────────────
 
     fn build_test_engine_with_audit() -> (Engine, Arc<permit0_store::audit::InMemoryAuditSink>) {

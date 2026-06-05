@@ -164,6 +164,10 @@ pub struct HookInput {
     pub tool_name: String,
     /// The tool input parameters.
     pub tool_input: serde_json::Value,
+    /// Claude Code conversation id. Forwarded to the daemon so cross-request
+    /// session rules and the audit log can group calls.
+    #[serde(default)]
+    pub session_id: Option<String>,
 }
 
 /// Claude Code PreToolUse hook output. Schema per
@@ -440,6 +444,7 @@ fn build_check_body(
     org_domain: &str,
     routing: crate::hook_config::HitlRouting,
     timeout_secs: u64,
+    session_id: Option<&str>,
 ) -> serde_json::Value {
     let mut body = serde_json::json!({
         "tool_name": tool_call.tool_name,
@@ -450,8 +455,14 @@ fn build_check_body(
         // that ignore the field fall back to their --org-domain.
         "org_domain": org_domain,
     });
+    let map = body.as_object_mut().expect("body is an object");
+    if let Some(sid) = session_id.filter(|s| !s.is_empty()) {
+        map.insert(
+            "metadata".into(),
+            serde_json::json!({ "session_id": sid }),
+        );
+    }
     if matches!(routing, crate::hook_config::HitlRouting::UiWait) {
-        let map = body.as_object_mut().expect("body is an object");
         map.insert(
             "hitl_routing".into(),
             serde_json::Value::String("ui-wait".into()),
@@ -475,9 +486,10 @@ fn evaluate_remote_with_meta(
     org_domain: &str,
     routing: crate::hook_config::HitlRouting,
     timeout_secs: u64,
+    session_id: Option<&str>,
 ) -> std::result::Result<(HookOutput, bool), RemoteError> {
     let endpoint = build_check_endpoint(remote);
-    let body = build_check_body(tool_call, org_domain, routing, timeout_secs);
+    let body = build_check_body(tool_call, org_domain, routing, timeout_secs, session_id);
 
     let response = match ureq::post(&endpoint)
         .set("content-type", "application/json")
@@ -548,17 +560,27 @@ pub fn run(
     // db_path / session_id are intentionally ignored — the daemon's own
     // configuration governs evaluation.
     if let Some(remote_url) = remote {
-        if db_path.is_some() || session_id.is_some() {
+        if db_path.is_some() {
             eprintln!(
-                "permit0: --remote set; ignoring --db / --session-id (remote daemon governs sessions)"
+                "permit0: --remote set; ignoring --db (remote daemon governs session storage)"
             );
         }
+        // Derive a session id (explicit flag → CLAUDE_SESSION_ID → ppid) and
+        // forward it to the daemon so cross-request session rules and the
+        // audit log can group calls. Hook stdin's `session_id` wins when
+        // present (Claude Code populates it for PreToolUse).
+        let resolved_session_id = hook_input
+            .session_id
+            .clone()
+            .filter(|s| !s.is_empty())
+            .unwrap_or_else(|| derive_session_id(session_id.clone()));
         let (output, is_unknown) = match evaluate_remote_with_meta(
             &remote_url,
             &tool_call,
             org_domain,
             hitl_routing,
             hitl_timeout_secs,
+            Some(resolved_session_id.as_str()),
         ) {
             Ok(pair) => pair,
             Err(err) => {
@@ -1309,9 +1331,11 @@ mod tests {
             "acme.example",
             crate::hook_config::HitlRouting::CcPrompt,
             300,
+            None,
         );
         assert!(!body.to_string().contains("hitl_routing"), "got: {body}");
         assert!(!body.to_string().contains("hitl_timeout"), "got: {body}");
+        assert!(!body.to_string().contains("metadata"), "got: {body}");
         assert_eq!(body["tool_name"], "Bash");
         assert_eq!(body["org_domain"], "acme.example");
     }
@@ -1328,9 +1352,27 @@ mod tests {
             "acme.example",
             crate::hook_config::HitlRouting::UiWait,
             420,
+            None,
         );
         assert_eq!(body["hitl_routing"], "ui-wait");
         assert_eq!(body["hitl_timeout_secs"], 420);
         assert_eq!(body["org_domain"], "acme.example");
+    }
+
+    #[test]
+    fn build_check_body_forwards_session_id_in_metadata() {
+        let tool_call = RawToolCall {
+            tool_name: "gmail_send".into(),
+            parameters: serde_json::json!({"to": "sfu@permit0.com"}),
+            metadata: Default::default(),
+        };
+        let body = build_check_body(
+            &tool_call,
+            "permit0.com",
+            crate::hook_config::HitlRouting::CcPrompt,
+            300,
+            Some("conv-42"),
+        );
+        assert_eq!(body["metadata"]["session_id"], "conv-42");
     }
 }

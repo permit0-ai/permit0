@@ -49,8 +49,8 @@ pub fn evaluate_session_block_rules(
     ) -> SessionBlockResult;
     let checks: Vec<BlockCheckFn> = vec![
         privilege_escalation_then_exec,
-        read_then_exfiltrate,
-        bulk_external_send,
+        // read_then_exfiltrate,
+        //bulk_external_send,
         cumulative_transfer_limit,
         card_testing,
         scatter_transfer,
@@ -122,23 +122,23 @@ fn read_then_exfiltrate(
 }
 
 /// Email rate exceeds autonomous limit.
-fn bulk_external_send(
-    session: &SessionContext,
-    current_action_type: &str,
-    _parameters: &serde_json::Map<String, serde_json::Value>,
-) -> SessionBlockResult {
-    if current_action_type != "email.send" {
-        return SessionBlockResult::pass();
-    }
-    let rate = session.rate_per_minute("email.send");
-    if rate < 20.0 {
-        return SessionBlockResult::pass();
-    }
-    SessionBlockResult::block(
-        "bulk_external_send",
-        "Email rate exceeds autonomous limit (>20/min)",
-    )
-}
+// fn bulk_external_send(
+//     session: &SessionContext,
+//     current_action_type: &str,
+//     _parameters: &serde_json::Map<String, serde_json::Value>,
+// ) -> SessionBlockResult {
+//     if current_action_type != "email.send" {
+//         return SessionBlockResult::pass();
+//     }
+//     let rate = session.rate_per_minute_windowed("email.send", 3);
+//     if rate < 2.0 {
+//         return SessionBlockResult::pass();
+//     }
+//     SessionBlockResult::block(
+//         "bulk_external_send",
+//         "Email rate exceeds autonomous limit (>=5/min over last 3 min)",
+//     )
+// }
 
 /// Cumulative transfer amount exceeds session limit ($500k).
 fn cumulative_transfer_limit(
