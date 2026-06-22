@@ -15,7 +15,7 @@ use permit0_types::{Permission, RiskScore, Tier};
 // ── Python wrapper types ──
 
 /// Permission decision: "allow", "human", or "deny".
-#[pyclass(name = "Permission", eq)]
+#[pyclass(name = "Permission", eq, from_py_object)]
 #[derive(Clone, Debug, PartialEq)]
 pub enum PyPermission {
     Allow,
@@ -53,7 +53,7 @@ impl From<Permission> for PyPermission {
 }
 
 /// Risk tier: Minimal, Low, Medium, High, Critical.
-#[pyclass(name = "Tier", eq)]
+#[pyclass(name = "Tier", eq, from_py_object)]
 #[derive(Clone, Debug, PartialEq)]
 pub enum PyTier {
     Minimal,
@@ -99,7 +99,7 @@ impl From<Tier> for PyTier {
 }
 
 /// Risk score output from the scoring pipeline.
-#[pyclass(name = "RiskScore")]
+#[pyclass(name = "RiskScore", from_py_object)]
 #[derive(Clone, Debug)]
 pub struct PyRiskScore {
     /// Raw score 0.0–1.0.
@@ -150,7 +150,7 @@ impl From<&RiskScore> for PyRiskScore {
 }
 
 /// Normalized action — the tool-agnostic representation.
-#[pyclass(name = "NormAction")]
+#[pyclass(name = "NormAction", from_py_object)]
 #[derive(Clone, Debug)]
 pub struct PyNormAction {
     /// Action type string, e.g. "payment.charge".
@@ -185,7 +185,7 @@ impl PyNormAction {
 }
 
 /// Decision result from the engine.
-#[pyclass(name = "DecisionResult")]
+#[pyclass(name = "DecisionResult", from_py_object)]
 #[derive(Clone, Debug)]
 pub struct PyDecisionResult {
     /// The permission decision.
@@ -438,7 +438,7 @@ impl PyEngineBuilder {
     /// It will be called by the Rust reviewer pipeline when a MEDIUM-tier
     /// action needs LLM review. The callback should call an LLM and return
     /// the raw text response.
-    fn with_reviewer(&mut self, callback: PyObject) -> PyResult<()> {
+    fn with_reviewer(&mut self, callback: Py<PyAny>) -> PyResult<()> {
         let builder = self
             .inner
             .take()
@@ -447,7 +447,7 @@ impl PyEngineBuilder {
         // Wrap the Python callable in a Rust closure.
         // PyO3 handles re-entrant GIL acquisition on the same thread.
         let client = CallbackLlmClient::new(move |prompt: &str| {
-            Python::with_gil(|py| {
+            Python::attach(|py| {
                 let result = callback
                     .call1(py, (prompt,))
                     .map_err(|e| LlmError::RequestFailed(format!("Python callback error: {e}")))?;
@@ -667,7 +667,7 @@ fn json_value_to_pydict<'py>(
     let json_mod = py.import("json")?;
     let result = json_mod.call_method1("loads", (json_str,))?;
     result
-        .downcast::<PyDict>()
+        .cast::<PyDict>()
         .cloned()
         .map_err(|e| PyRuntimeError::new_err(format!("expected dict: {e}")))
 }
