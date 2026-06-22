@@ -1,0 +1,27 @@
+name: Bootstrap Labels
+on:
+  workflow_dispatch:
+  issues:
+    types: [opened]
+  push:
+    branches: [main]
+    paths: [scripts/bootstrap-labels.sh, .github/workflows/bootstrap.yml]
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  labels:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install yq (for config-driven labels)
+        run: |
+          if [[ -f polis.yml ]]; then
+            command -v yq >/dev/null || { sudo wget -qO /usr/local/bin/yq https://github.com/mikefarah/yq/releases/latest/download/yq_linux_amd64; sudo chmod +x /usr/local/bin/yq; }
+          fi
+      - name: Create pipeline labels
+        run: bash scripts/bootstrap-labels.sh
