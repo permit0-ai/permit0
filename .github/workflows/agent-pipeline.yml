@@ -1,0 +1,188 @@
+name: Agent Pipeline
+on:
+  issues:
+    types: [labeled]
+
+concurrency:
+  group: agent-pipeline-${{ github.event.issue.number }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+  id-token: write
+
+env:
+  GH_TOKEN: ${{ secrets.PIPELINE_PAT }}
+  CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+  ISSUE_NUMBER: ${{ github.event.issue.number }}
+  ISSUE_TITLE: ${{ github.event.issue.title }}
+  ISSUE_BODY: ${{ github.event.issue.body }}
+  REPO_OWNER: ${{ github.repository_owner }}
+  REPO_NAME: ${{ github.event.repository.name }}
+  MAX_REVIEW_ROUNDS: ${{ vars.MAX_REVIEW_ROUNDS || '3' }}
+  OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+  DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+  CODEX_AUTH: ${{ secrets.CODEX_AUTH }}
+  LABEL_NAME: ${{ github.event.label.name }}
+
+jobs:
+  arch:
+    if: github.event.label.name == 'agent:arch' && (github.actor == github.repository_owner || github.actor == vars.PIPELINE_OWNER)
+    runs-on: ${{ vars.RUNNER_LABEL || 'ubuntu-latest' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.PIPELINE_PAT }}
+      - run: |
+          git config user.name "polis-agent[bot]"
+          git config user.email "polis-agent@users.noreply.github.com"
+      - run: bash scripts/install-harnesses.sh
+      - run: gh issue edit "$ISSUE_NUMBER" --remove-label "agent:arch" || true
+      - run: git checkout -b "arch/${ISSUE_NUMBER}-$(echo "$ISSUE_TITLE" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+|-+$//g' | cut -c1-50)"
+      - run: bash scripts/pipeline.sh arch
+
+  rearch:
+    if: github.event.label.name == 'agent:rearch' && (github.actor == github.repository_owner || github.actor == vars.PIPELINE_OWNER)
+    runs-on: ${{ vars.RUNNER_LABEL || 'ubuntu-latest' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.PIPELINE_PAT }}
+      - run: |
+          git config user.name "polis-agent[bot]"
+          git config user.email "polis-agent@users.noreply.github.com"
+      - run: bash scripts/install-harnesses.sh
+      - run: gh issue edit "$ISSUE_NUMBER" --remove-label "agent:rearch" || true
+      - run: git checkout "arch/${ISSUE_NUMBER}-$(echo "$ISSUE_TITLE" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+|-+$//g' | cut -c1-50)"
+      - run: bash scripts/pipeline.sh rearch
+
+  decompose:
+    if: github.event.label.name == 'agent:decompose' && (github.actor == github.repository_owner || github.actor == vars.PIPELINE_OWNER)
+    runs-on: ${{ vars.RUNNER_LABEL || 'ubuntu-latest' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.PIPELINE_PAT }}
+      - run: gh issue edit "$ISSUE_NUMBER" --remove-label "agent:decompose" || true
+      - run: bash scripts/pipeline.sh decompose
+
+  spec:
+    if: github.event.label.name == 'agent:spec' && (github.actor == github.repository_owner || github.actor == vars.PIPELINE_OWNER)
+    runs-on: ${{ vars.RUNNER_LABEL || 'ubuntu-latest' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.PIPELINE_PAT }}
+      - run: |
+          git config user.name "polis-agent[bot]"
+          git config user.email "polis-agent@users.noreply.github.com"
+      - run: bash scripts/install-harnesses.sh
+      - run: gh issue edit "$ISSUE_NUMBER" --remove-label "agent:spec" || true
+      - run: git checkout -b "agent/${ISSUE_NUMBER}-$(echo "$ISSUE_TITLE" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+|-+$//g' | cut -c1-50)"
+      - run: bash scripts/pipeline.sh spec
+
+  respec:
+    if: github.event.label.name == 'agent:respec' && (github.actor == github.repository_owner || github.actor == vars.PIPELINE_OWNER)
+    runs-on: ${{ vars.RUNNER_LABEL || 'ubuntu-latest' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.PIPELINE_PAT }}
+      - run: |
+          git config user.name "polis-agent[bot]"
+          git config user.email "polis-agent@users.noreply.github.com"
+      - run: bash scripts/install-harnesses.sh
+      - run: gh issue edit "$ISSUE_NUMBER" --remove-label "agent:respec" || true
+      - run: git checkout "agent/${ISSUE_NUMBER}-$(echo "$ISSUE_TITLE" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+|-+$//g' | cut -c1-50)"
+      - run: bash scripts/pipeline.sh respec
+
+  code:
+    if: github.event.label.name == 'agent:code' && (github.actor == github.repository_owner || github.actor == vars.PIPELINE_OWNER)
+    runs-on: ${{ vars.RUNNER_LABEL || 'ubuntu-latest' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.PIPELINE_PAT }}
+      - run: |
+          git config user.name "polis-agent[bot]"
+          git config user.email "polis-agent@users.noreply.github.com"
+      - run: bash scripts/install-harnesses.sh
+      - run: gh issue edit "$ISSUE_NUMBER" --remove-label "agent:code" || true
+      - name: Checkout the issue branch
+        run: git checkout "agent/${ISSUE_NUMBER}-$(echo "$ISSUE_TITLE" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+|-+$//g' | cut -c1-50)"
+      - run: bash scripts/pipeline.sh code
+      - run: bash scripts/pipeline.sh test
+      - run: bash scripts/pipeline.sh open-pr
+      - run: bash scripts/pipeline.sh review
+      - if: always()
+        run: bash scripts/pipeline.sh finalize
+      - if: failure()
+        run: |
+          gh issue edit "$ISSUE_NUMBER" --add-label "agent:failed" || true
+          gh issue comment "$ISSUE_NUMBER" --body "❌ Agent pipeline failed. See the Actions run."
+
+  fix:
+    if: github.event.label.name == 'agent:fix' && (github.actor == github.repository_owner || github.actor == vars.PIPELINE_OWNER)
+    runs-on: ${{ vars.RUNNER_LABEL || 'ubuntu-latest' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.PIPELINE_PAT }}
+      - run: |
+          git config user.name "polis-agent[bot]"
+          git config user.email "polis-agent@users.noreply.github.com"
+      - run: bash scripts/install-harnesses.sh
+      - run: gh issue edit "$ISSUE_NUMBER" --remove-label "agent:fix" || true
+      - run: git checkout "agent/${ISSUE_NUMBER}-$(echo "$ISSUE_TITLE" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+|-+$//g' | cut -c1-50)"
+      - run: bash scripts/pipeline.sh human-fix
+
+  code-review:
+    if: startsWith(github.event.label.name, 'agent:code_review') && (github.actor == github.repository_owner || github.actor == vars.PIPELINE_OWNER)
+    runs-on: ${{ vars.RUNNER_LABEL || 'ubuntu-latest' }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0, token: "${{ secrets.PIPELINE_PAT }}" }
+      - run: |
+          git config user.name "polis-agent[bot]"
+          git config user.email "polis-agent@users.noreply.github.com"
+      - run: bash scripts/install-harnesses.sh
+      - run: gh issue edit "$ISSUE_NUMBER" --remove-label "$LABEL_NAME" || true
+      - run: git checkout "agent/${ISSUE_NUMBER}-$(echo "$ISSUE_TITLE" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+|-+$//g' | cut -c1-50)"
+      - run: bash scripts/pipeline.sh code-review
+
+  spec-review:
+    if: startsWith(github.event.label.name, 'agent:spec_review') && (github.actor == github.repository_owner || github.actor == vars.PIPELINE_OWNER)
+    runs-on: ${{ vars.RUNNER_LABEL || 'ubuntu-latest' }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0, token: "${{ secrets.PIPELINE_PAT }}" }
+      - run: |
+          git config user.name "polis-agent[bot]"
+          git config user.email "polis-agent@users.noreply.github.com"
+      - run: bash scripts/install-harnesses.sh
+      - run: gh issue edit "$ISSUE_NUMBER" --remove-label "$LABEL_NAME" || true
+      - run: git checkout "agent/${ISSUE_NUMBER}-$(echo "$ISSUE_TITLE" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+|-+$//g' | cut -c1-50)"
+      - run: bash scripts/pipeline.sh spec-review
+
+  arch-review:
+    if: startsWith(github.event.label.name, 'agent:arch_review') && (github.actor == github.repository_owner || github.actor == vars.PIPELINE_OWNER)
+    runs-on: ${{ vars.RUNNER_LABEL || 'ubuntu-latest' }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0, token: "${{ secrets.PIPELINE_PAT }}" }
+      - run: |
+          git config user.name "polis-agent[bot]"
+          git config user.email "polis-agent@users.noreply.github.com"
+      - run: bash scripts/install-harnesses.sh
+      - run: gh issue edit "$ISSUE_NUMBER" --remove-label "$LABEL_NAME" || true
+      - run: git checkout "arch/${ISSUE_NUMBER}-$(echo "$ISSUE_TITLE" | tr '[:upper:]' '[:lower:]' | sed -E 's/[^a-z0-9]+/-/g; s/^-+|-+$//g' | cut -c1-50)"
+      - run: bash scripts/pipeline.sh arch-review

@@ -1,0 +1,44 @@
+# Polis pipeline configuration.
+# Backends in use: claude (default) + codex (writes code, secondary reviewer).
+# Only references secrets that are set: CLAUDE_CODE_OAUTH_TOKEN, CODEX_AUTH.
+
+backends:
+  claude:
+    harness: claude
+  codex-gpt:
+    harness: codex
+    model: gpt-5-codex
+
+defaults:
+  backend: claude
+
+roles:
+  architect: { backend: claude }
+  spec:      { backend: claude }
+  code:      { backend: codex-gpt }
+  fix:       { backend: claude }
+
+review:
+  max_rounds: 3
+  reviewers:
+    - { persona: reviewer-correctness, backend: claude }
+    - { persona: reviewer-design,      backend: codex-gpt }
+
+# Auto-detect stack (Rust) and inject matching skills into agent prompts.
+skills:
+  auto: true
+
+# Human gates: a human applies the next label at each stage and merges the final PR.
+pipeline:
+  mode: human
+
+# Review profiles triggered via label suffix, e.g. agent:code_review:thorough.
+# Only reference configured backends (claude, codex-gpt).
+review_profiles:
+  quick:
+    mode: comment
+    reviewers: [ { backend: claude } ]
+  thorough:
+    mode: iterate
+    max_rounds: 3
+    reviewers: [ { backend: claude }, { backend: codex-gpt } ]

@@ -43,3 +43,6 @@ README_tmp.html
 
 # pip-installed in-place artifacts
 crates/permit0-py/dist/
+
+# Polis
+.tooling/
